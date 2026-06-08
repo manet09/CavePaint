@@ -48,7 +48,6 @@ class Scene(Base):
 # Create tables automatically on import
 Base.metadata.create_all(bind=engine)
 
-@contextmanager
 def get_db():
     db = SessionLocal()
     try:

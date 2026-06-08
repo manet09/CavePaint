@@ -4,9 +4,11 @@ import React from "react";
 import Sidebar from "./components/Sidebar";
 import { useProjectContext } from "./context/ProjectContext";
 import { FileText, Sparkles, Mic, Film } from "lucide-react";
+import OverviewTab from "./components/OverviewTab";
+import ImagesTab from "./components/ImagesTab";
 
 export default function Workspace() {
-  const { activeProject, activeTab, setActiveTab } = useProjectContext();
+  const { activeProject, activeTab, setActiveTab, refreshProjects } = useProjectContext();
 
   const tabs = [
     { id: "overview", label: "Overview", icon: FileText },
@@ -51,20 +53,10 @@ export default function Workspace() {
             {/* Tab Content Area */}
             <div className="flex-1 overflow-y-auto p-8 bg-background">
               {activeTab === "overview" && (
-                <div className="max-w-4xl animate-in fade-in slide-in-from-bottom-4 duration-500">
-                  <h2 className="text-xl font-semibold mb-4">Project Overview</h2>
-                  <p className="text-foreground/70 leading-relaxed">
-                    Overview content for your project goes here. This section will hold your script, research, and project details.
-                  </p>
-                </div>
+                <OverviewTab activeProject={activeProject} refreshProjectData={refreshProjects} />
               )}
               {activeTab === "images" && (
-                <div className="max-w-4xl animate-in fade-in slide-in-from-bottom-4 duration-500">
-                  <h2 className="text-xl font-semibold mb-4">Image Generation</h2>
-                  <p className="text-foreground/70 leading-relaxed">
-                    Image generation and style settings go here.
-                  </p>
-                </div>
+                <ImagesTab activeProject={activeProject} refreshProjectData={refreshProjects} />
               )}
               {activeTab === "voice" && (
                 <div className="max-w-4xl animate-in fade-in slide-in-from-bottom-4 duration-500">

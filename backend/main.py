@@ -14,7 +14,7 @@ from .services import gemini, voice_engine
 
 # Pydantic Schemas
 class ProjectCreate(BaseModel):
-    name: str
+    topic: str
 
 class ProjectUpdate(BaseModel):
     topic: Optional[str] = None
@@ -47,14 +47,10 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 
 # CORS configuration targeting Next.js frontend
-origins = [
-    "http://localhost:3000",
-]
-
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
-    allow_credentials=True,
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -72,14 +68,14 @@ async def get_projects(db: Session = Depends(get_db)):
 
 @app.post("/api/projects")
 async def create_project(payload: ProjectCreate, db: Session = Depends(get_db)):
-    slug = re.sub(r'[^a-z0-9]+', '-', payload.name.lower()).strip('-')
+    slug = re.sub(r'[^a-z0-9]+', '-', payload.topic.lower()).strip('-')
     
     # Check if exists
     existing = db.query(Project).filter(Project.name == slug).first()
     if existing:
         raise HTTPException(status_code=400, detail="Project with this name already exists")
         
-    project = Project(name=slug, status="draft")
+    project = Project(name=slug, topic=payload.topic, status="draft")
     db.add(project)
     db.commit()
     db.refresh(project)
