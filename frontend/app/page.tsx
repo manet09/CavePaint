@@ -6,6 +6,8 @@ import { useProjectContext } from "./context/ProjectContext";
 import { FileText, Sparkles, Mic, Film } from "lucide-react";
 import OverviewTab from "./components/OverviewTab";
 import ImagesTab from "./components/ImagesTab";
+import VoiceTab from "./components/VoiceTab";
+import OutputTab from "./components/OutputTab";
 
 export default function Workspace() {
   const { activeProject, activeTab, setActiveTab, refreshProjects } = useProjectContext();
@@ -59,20 +61,10 @@ export default function Workspace() {
                 <ImagesTab activeProject={activeProject} refreshProjectData={refreshProjects} />
               )}
               {activeTab === "voice" && (
-                <div className="max-w-4xl animate-in fade-in slide-in-from-bottom-4 duration-500">
-                  <h2 className="text-xl font-semibold mb-4">Voice & Audio</h2>
-                  <p className="text-foreground/70 leading-relaxed">
-                    Voice selection and audio generation controls go here.
-                  </p>
-                </div>
+                <VoiceTab activeProject={activeProject} refreshProjectData={refreshProjects} />
               )}
               {activeTab === "output" && (
-                <div className="max-w-4xl animate-in fade-in slide-in-from-bottom-4 duration-500">
-                  <h2 className="text-xl font-semibold mb-4">Final Output</h2>
-                  <p className="text-foreground/70 leading-relaxed">
-                    Video compilation, preview, and export controls go here.
-                  </p>
-                </div>
+                <OutputTab activeProject={activeProject} />
               )}
             </div>
           </>
