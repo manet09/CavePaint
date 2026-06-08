@@ -13,7 +13,7 @@ def trigger_local_render(prompt: str, project_name: str, scene_number: int) -> s
     # Send request to Draw Things API
     payload = {
         "prompt": prompt,
-        "steps": 4,
+        "steps": 10,
         "cfg_scale": 1.0,
         "width": 576,
         "height": 1024
