@@ -1,25 +1,40 @@
 # ==========================================
 # Frontend (Next.js)
 # ==========================================
-frontend/node_modules/
-frontend/.next/
+**/node_modules/
+**/.next/
 frontend/out/
-frontend/.env*.local
-frontend/.pnpm-debug.log
+**/.env*.local
+**/.pnpm-debug.log
 
 # ==========================================
 # Backend (Python / FastAPI)
 # ==========================================
-backend/__pycache__/
-backend/.venv/
-backend/venv/
-backend/env/
+# This catches __pycache__ and compiled files at ANY folder depth
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual Environments
+.venv/
+venv/
+env/
+
+# Python packaging clutter
 backend/develop-eggs/
 backend/downloads/
 backend/eggs/
 backend/.eggs/
 backend/*.egg-info/
-backend/.env
+.env
+
+# ==========================================
+# Workspace Storage
+# ==========================================
+# Ignores all media assets you generate locally
+workspace/
+!workspace/.gitkeep
 
 # ==========================================
 # Global / OS Overrides
