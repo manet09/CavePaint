@@ -37,6 +37,24 @@ def trigger_local_render(prompt: str, project_name: str, scene_number: int, widt
             return save_path
         else:
             raise Exception("No image returned from Draw Things API")
+            
+    except requests.exceptions.ConnectionError:
+        print("Draw Things API is unreachable. Generating a fallback placeholder image...")
+        try:
+            from PIL import Image, ImageDraw, ImageFont
+            img = Image.new('RGB', (width, height), color = (30, 41, 59)) # Slate background
+            d = ImageDraw.Draw(img)
+            
+            # Simple text wrapping logic
+            text = "Draw Things API Offline\n" + prompt[:50] + ("..." if len(prompt) > 50 else "")
+            d.text((width//2 - 100, height//2 - 20), text, fill=(148, 163, 184))
+            
+            img.save(save_path)
+            return save_path
+        except Exception as pil_error:
+            print(f"Fallback generation failed: {pil_error}")
+            raise Exception("Draw Things API is unreachable and fallback image generation failed.")
+            
     except Exception as e:
         print(f"Error calling Draw Things API: {e}")
         raise e

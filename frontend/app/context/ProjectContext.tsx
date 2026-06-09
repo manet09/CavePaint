@@ -61,7 +61,23 @@ export const ProjectProvider = ({ children }: { children: ReactNode }) => {
   const [error, setError] = useState<string | null>(null);
   
   const [activeTab, setActiveTab] = useState<string>("overview");
-  const [theme, setTheme] = useState<"dark" | "light">("dark");
+  const [theme, setThemeState] = useState<"dark" | "light">("dark");
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const savedTheme = localStorage.getItem("theme");
+      if (savedTheme === "dark" || savedTheme === "light") {
+        setThemeState(savedTheme);
+      }
+    }
+  }, []);
+
+  const setTheme = (newTheme: "dark" | "light") => {
+    setThemeState(newTheme);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("theme", newTheme);
+    }
+  };
 
   const refreshProjects = async () => {
     setIsLoading(true);

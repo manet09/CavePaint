@@ -1,5 +1,6 @@
 import os
 import re
+import json
 import asyncio
 from contextlib import asynccontextmanager
 from typing import List, Optional
@@ -175,6 +176,26 @@ async def update_project(project_id: int, payload: ProjectUpdate, db: Session = 
         raise HTTPException(status_code=404, detail="Project not found")
         
     update_data = payload.model_dump(exclude_unset=True)
+    
+    if "structured_json_data" in update_data and update_data["structured_json_data"]:
+        try:
+            scenes_data = json.loads(update_data["structured_json_data"])
+            if isinstance(scenes_data, list):
+                db.query(Scene).filter(Scene.project_id == project_id).delete()
+                for scene_obj in scenes_data:
+                    scene = Scene(
+                        project_id=project_id,
+                        scene_number=scene_obj.get("scene_number", 1),
+                        narration_khmer=scene_obj.get("narration_khmer"),
+                        image_prompt_english=scene_obj.get("image_prompt_english"),
+                        negative_prompt=scene_obj.get("negative_prompt"),
+                        image_status="idle",
+                        audio_status="idle"
+                    )
+                    db.add(scene)
+        except json.JSONDecodeError:
+            pass
+
     for key, value in update_data.items():
         setattr(project, key, value)
         
@@ -236,6 +257,7 @@ async def parse_project_scenes(project_id: int, db: Session = Depends(get_db)):
     db.query(Scene).filter(Scene.project_id == project_id).delete()
     
     new_scenes = []
+    clean_json_array = []
     for scene_item in scenes_data:
         scene = Scene(
             project_id=project.id,
@@ -246,6 +268,14 @@ async def parse_project_scenes(project_id: int, db: Session = Depends(get_db)):
         db.add(scene)
         new_scenes.append(scene)
         
+        clean_json_array.append({
+            "scene_number": scene_item.get("scene_number"),
+            "narration_khmer": scene_item.get("narration_khmer"),
+            "image_prompt_english": scene_item.get("image_prompt_english"),
+            "negative_prompt": None
+        })
+        
+    project.structured_json_data = json.dumps(clean_json_array)
     db.commit()
     return {"status": "success", "scenes_created": len(new_scenes)}
 
