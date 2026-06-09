@@ -11,11 +11,11 @@ interface OverviewTabProps {
 
 export default function OverviewTab({ activeProject, refreshProjectData }: OverviewTabProps) {
   const [formData, setFormData] = useState({
-    research: activeProject.research || "",
+    research: activeProject.raw_research || "",
     video_concept: activeProject.video_concept || "",
-    image_style: activeProject.image_style || "",
-    script: activeProject.script || "",
-    voice_style: activeProject.voice_style || "",
+    image_style: activeProject.illustration_style || "",
+    script: activeProject.script_narrative || "",
+    voice_style: activeProject.global_voice_style || "",
     scenes_json: activeProject.scenes ? JSON.stringify(activeProject.scenes, null, 2) : "[]",
   });
 
@@ -23,11 +23,11 @@ export default function OverviewTab({ activeProject, refreshProjectData }: Overv
 
   useEffect(() => {
     setFormData({
-      research: activeProject.research || "",
+      research: activeProject.raw_research || "",
       video_concept: activeProject.video_concept || "",
-      image_style: activeProject.image_style || "",
-      script: activeProject.script || "",
-      voice_style: activeProject.voice_style || "",
+      image_style: activeProject.illustration_style || "",
+      script: activeProject.script_narrative || "",
+      voice_style: activeProject.global_voice_style || "",
       scenes_json: activeProject.scenes ? JSON.stringify(activeProject.scenes, null, 2) : "[]",
     });
   }, [activeProject]);

@@ -23,15 +23,15 @@ export default function VoiceTab({ activeProject, refreshProjectData }: VoiceTab
   const [isModelWarm, setIsModelWarm] = useState(false);
   const [isTogglingModel, setIsTogglingModel] = useState(false);
   
-  const [globalVoiceStyle, setGlobalVoiceStyle] = useState(activeProject.voice_style || "");
+  const [globalVoiceStyle, setGlobalVoiceStyle] = useState(activeProject.global_voice_style || "");
   const [isSavingStyle, setIsSavingStyle] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   
   const [isGenerating, setIsGenerating] = useState(false);
 
   useEffect(() => {
-    setGlobalVoiceStyle(activeProject.voice_style || "");
-  }, [activeProject.voice_style]);
+    setGlobalVoiceStyle(activeProject.global_voice_style || "");
+  }, [activeProject.global_voice_style]);
 
   const handleToggleModel = async (action: "load" | "unload") => {
     setIsTogglingModel(true);

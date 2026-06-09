@@ -51,7 +51,7 @@ async def process_task(task: GenerationTask):
                 None, 
                 draw_things.trigger_local_render, 
                 full_prompt, 
-                project.name, 
+                project.slug, 
                 scene.scene_number,
                 width,
                 height,
@@ -59,7 +59,10 @@ async def process_task(task: GenerationTask):
                 inference_steps
             )
             
-            scene.image_path = save_path
+            
+            workspace_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "workspace"))
+            rel_save_path = os.path.relpath(save_path, workspace_dir).replace("\\", "/")
+            scene.image_path = rel_save_path
             scene.image_status = "completed"
             db.commit()
             
@@ -73,11 +76,14 @@ async def process_task(task: GenerationTask):
                 None,
                 voice_engine.generate_scene_audio,
                 text,
-                project.name,
+                project.slug,
                 scene.scene_number
             )
             
-            scene.audio_path = save_path
+            
+            workspace_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "workspace"))
+            rel_save_path = os.path.relpath(save_path, workspace_dir).replace("\\", "/")
+            scene.audio_path = rel_save_path
             scene.audio_status = "completed"
             db.commit()
             

@@ -3,27 +3,77 @@ import re
 import asyncio
 from contextlib import asynccontextmanager
 from typing import List, Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
+import shutil
 
 from .database import get_db, Project, Scene
 from .queue_worker import start_queue_worker, task_queue, GenerationTask
 from .services import gemini, voice_engine
 
 # Pydantic Schemas
+
+class SceneBase(BaseModel):
+    scene_number: int
+    narration_khmer: Optional[str] = None
+    image_prompt_english: Optional[str] = None
+    negative_prompt: Optional[str] = None
+    user_refinement_prompt: Optional[str] = None
+    audio_path: Optional[str] = None
+    image_path: Optional[str] = None
+    audio_status: Optional[str] = "idle"
+    image_status: Optional[str] = "idle"
+
+class SceneUpdate(BaseModel):
+    narration_khmer: Optional[str] = None
+    image_prompt_english: Optional[str] = None
+    negative_prompt: Optional[str] = None
+    user_refinement_prompt: Optional[str] = None
+
+class SceneOut(SceneBase):
+    id: int
+    project_id: int
+
+    model_config = ConfigDict(from_attributes=True)
+
+class ProjectBase(BaseModel):
+    title: str
+    raw_research: Optional[str] = None
+    script_narrative: Optional[str] = None
+    video_concept: Optional[str] = None
+    illustration_style: Optional[str] = None
+    global_voice_style: Optional[str] = None
+    structured_json_data: Optional[str] = None
+    status: Optional[str] = "draft"
+
 class ProjectCreate(BaseModel):
-    topic: str
+    title: str
 
 class ProjectUpdate(BaseModel):
-    topic: Optional[str] = None
-    research: Optional[str] = None
-    script: Optional[str] = None
+    title: Optional[str] = None
+    raw_research: Optional[str] = None
+    script_narrative: Optional[str] = None
     video_concept: Optional[str] = None
-    image_style: Optional[str] = None
-    voice_style: Optional[str] = None
+    illustration_style: Optional[str] = None
+    global_voice_style: Optional[str] = None
+    structured_json_data: Optional[str] = None
+    status: Optional[str] = None
+
+class ProjectOutList(ProjectBase):
+    id: int
+    slug: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+class ProjectOut(ProjectBase):
+    id: int
+    slug: str
+    scenes: List[SceneOut] = []
+
+    model_config = ConfigDict(from_attributes=True)
 
 class SceneRefine(BaseModel):
     user_instruction: str
@@ -33,16 +83,15 @@ class ImageGeneratePayload(BaseModel):
     guidance_scale: float
     inference_steps: int
 
+
 # Background worker task reference
 worker_task = None
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup event: Spin up asyncio background queue worker smoothly
     global worker_task
     worker_task = asyncio.create_task(start_queue_worker())
     yield
-    # Shutdown event
     if worker_task:
         worker_task.cancel()
         try:
@@ -52,11 +101,10 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
-# Mount static files
 workspace_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "workspace"))
+os.makedirs(workspace_dir, exist_ok=True)
 app.mount("/static", StaticFiles(directory=workspace_dir), name="static")
 
-# CORS configuration targeting Next.js frontend
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -70,69 +118,104 @@ async def health_check():
     return {"status": "ok", "message": "CavePaint backend is healthy"}
 
 
-# Global Sidebar & Project Setup
-@app.get("/api/projects")
-async def get_projects(db: Session = Depends(get_db)):
-    projects = db.query(Project).all()
-    return [{"id": p.id, "name": p.name, "topic": p.topic, "status": p.status} for p in projects]
-
-@app.post("/api/projects")
+# Projects CRUD
+@app.post("/api/projects", response_model=ProjectOut)
 async def create_project(payload: ProjectCreate, db: Session = Depends(get_db)):
-    slug = re.sub(r'[^a-z0-9]+', '-', payload.topic.lower()).strip('-')
+    slug = re.sub(r'[^a-z0-9]+', '-', payload.title.lower()).strip('-')
     
-    # Check if exists
-    existing = db.query(Project).filter(Project.name == slug).first()
+    existing = db.query(Project).filter(Project.slug == slug).first()
     if existing:
-        raise HTTPException(status_code=400, detail="Project with this name already exists")
+        raise HTTPException(status_code=400, detail="Project with this title/slug already exists")
         
-    project = Project(name=slug, topic=payload.topic, status="draft")
+    project = Project(
+        title=payload.title,
+        slug=slug,
+        status="draft"
+    )
     db.add(project)
     db.commit()
     db.refresh(project)
     
-    # Create workspace directory
-    workspace_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "workspace", slug))
-    os.makedirs(workspace_dir, exist_ok=True)
+    # Immediately build an empty default relational placeholder row
+    scene = Scene(
+        project_id=project.id,
+        scene_number=1,
+        image_status="idle",
+        audio_status="idle"
+    )
+    db.add(scene)
+    db.commit()
+    db.refresh(project)
     
-    return {"id": project.id, "name": project.name, "slug": slug}
+    # Create workspace directory
+    proj_workspace_dir = os.path.join(workspace_dir, slug)
+    os.makedirs(proj_workspace_dir, exist_ok=True)
+    
+    return project
 
+@app.get("/api/projects", response_model=List[ProjectOutList])
+async def get_projects(db: Session = Depends(get_db)):
+    projects = db.query(Project).all()
+    return projects
 
-# Tab 1: Overview Dashboard Endpoints
-@app.get("/api/projects/{project_id}")
+@app.get("/api/projects/{project_id}", response_model=ProjectOut)
 async def get_project_details(project_id: int, db: Session = Depends(get_db)):
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
         
-    scenes = db.query(Scene).filter(Scene.project_id == project_id).order_by(Scene.scene_number).all()
-    return {
-        "project": {
-            "id": project.id,
-            "name": project.name,
-            "topic": project.topic,
-            "research": project.research,
-            "script": project.script,
-            "video_concept": project.video_concept,
-            "image_style": project.image_style,
-            "voice_style": project.voice_style,
-            "status": project.status
-        },
-        "scenes": scenes
-    }
+    # Eagerly loaded implicitly by SQLAlchemy relationship
+    project.scenes.sort(key=lambda x: x.scene_number)
+    return project
 
-@app.put("/api/projects/{project_id}")
+@app.put("/api/projects/{project_id}", response_model=ProjectOut)
 async def update_project(project_id: int, payload: ProjectUpdate, db: Session = Depends(get_db)):
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
         
-    update_data = payload.dict(exclude_unset=True)
+    update_data = payload.model_dump(exclude_unset=True)
     for key, value in update_data.items():
         setattr(project, key, value)
         
     db.commit()
     db.refresh(project)
-    return {"status": "success", "project_id": project.id}
+    project.scenes.sort(key=lambda x: x.scene_number)
+    return project
+
+@app.delete("/api/projects/{project_id}")
+async def delete_project(project_id: int, db: Session = Depends(get_db)):
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+        
+    slug = project.slug
+    db.delete(project)
+    db.commit()
+    
+    proj_workspace_dir = os.path.join(workspace_dir, slug)
+    if os.path.exists(proj_workspace_dir):
+        shutil.rmtree(proj_workspace_dir)
+        
+    return {"status": "success", "message": "Project and associated scenes deleted"}
+
+
+# Scene CRUD
+@app.put("/api/scenes/{scene_id}", response_model=SceneOut)
+async def update_scene(scene_id: int, payload: SceneUpdate, db: Session = Depends(get_db)):
+    scene = db.query(Scene).filter(Scene.id == scene_id).first()
+    if not scene:
+        raise HTTPException(status_code=404, detail="Scene not found")
+        
+    update_data = payload.model_dump(exclude_unset=True)
+    for key, value in update_data.items():
+        setattr(scene, key, value)
+        
+    db.commit()
+    db.refresh(scene)
+    return scene
+
+# Existing operations for generating and parsing
 
 @app.post("/api/projects/{project_id}/parse")
 async def parse_project_scenes(project_id: int, db: Session = Depends(get_db)):
@@ -140,21 +223,18 @@ async def parse_project_scenes(project_id: int, db: Session = Depends(get_db)):
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
         
-    # Trigger Gemini script breaker service
     try:
         scenes_data = gemini.generate_initial_scenes(
-            research=project.research or "",
-            script=project.script or "",
+            research=project.raw_research or "",
+            script=project.script_narrative or "",
             video_concept=project.video_concept or "",
-            image_style=project.image_style or ""
+            image_style=project.illustration_style or ""
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
         
-    # Delete existing scenes
     db.query(Scene).filter(Scene.project_id == project_id).delete()
     
-    # Populate new scenes
     new_scenes = []
     for scene_item in scenes_data:
         scene = Scene(
@@ -170,7 +250,6 @@ async def parse_project_scenes(project_id: int, db: Session = Depends(get_db)):
     return {"status": "success", "scenes_created": len(new_scenes)}
 
 
-# Tab 2: Image Card Management Endpoints
 @app.post("/api/scenes/{scene_id}/refine")
 async def refine_scene_image_prompt(scene_id: int, payload: SceneRefine, db: Session = Depends(get_db)):
     scene = db.query(Scene).filter(Scene.id == scene_id).first()
@@ -183,7 +262,7 @@ async def refine_scene_image_prompt(scene_id: int, payload: SceneRefine, db: Ses
         refined_prompt = gemini.refine_image_prompt(
             existing_prompt=scene.image_prompt_english or "",
             user_instruction=payload.user_instruction,
-            style=project.image_style or ""
+            style=project.illustration_style or ""
         )
         scene.user_refinement_prompt = payload.user_instruction
         scene.image_prompt_english = refined_prompt
@@ -192,6 +271,7 @@ async def refine_scene_image_prompt(scene_id: int, payload: SceneRefine, db: Ses
         return {"status": "success", "refined_prompt": refined_prompt}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.post("/api/scenes/{scene_id}/generate-image")
 async def generate_scene_image(scene_id: int, payload: ImageGeneratePayload, db: Session = Depends(get_db)):
@@ -203,7 +283,8 @@ async def generate_scene_image(scene_id: int, payload: ImageGeneratePayload, db:
         
     task_payload = {
         "prompt": scene.image_prompt_english,
-        "style": project.image_style,
+        "style": project.illustration_style,
+        "negative_prompt": scene.negative_prompt,
         "aspect_ratio": payload.aspect_ratio,
         "guidance_scale": payload.guidance_scale,
         "inference_steps": payload.inference_steps
@@ -216,10 +297,9 @@ async def generate_scene_image(scene_id: int, payload: ImageGeneratePayload, db:
         payload=task_payload
     )
     
-    # Queue task
     await task_queue.put(task)
     
-    scene.image_status = "pending"
+    scene.image_status = "processing"
     db.commit()
     return {"status": "queued"}
 
@@ -229,7 +309,6 @@ async def delete_scene_image(scene_id: int, db: Session = Depends(get_db)):
     if not scene:
         raise HTTPException(status_code=404, detail="Scene not found")
         
-    # Discard logic
     if scene.image_path and os.path.exists(scene.image_path):
         try:
             os.remove(scene.image_path)
@@ -237,13 +316,13 @@ async def delete_scene_image(scene_id: int, db: Session = Depends(get_db)):
             print(f"Error removing file {scene.image_path}: {e}")
             
     scene.image_path = None
-    scene.image_status = "pending"
+    scene.image_status = "idle"
     db.commit()
     
     return {"status": "success"}
 
 
-# Tab 3 & 4: Voice and Output Resource Routing
+# Tab 3 & 4 routes
 @app.post("/api/projects/{project_id}/generate-voice")
 async def generate_project_voice(project_id: int, db: Session = Depends(get_db)):
     project = db.query(Project).filter(Project.id == project_id).first()
@@ -262,7 +341,7 @@ async def generate_project_voice(project_id: int, db: Session = Depends(get_db))
                 payload={"text": scene.narration_khmer}
             )
             await task_queue.put(task)
-            scene.audio_status = "pending"
+            scene.audio_status = "processing"
             queued_count += 1
             
     db.commit()

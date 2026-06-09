@@ -1,39 +1,79 @@
-# CavePaint (video_studio) Project Status
+# CavePaint (video_studio) Project Status & Developer Guide
 
-## Architecture
-CavePaint is a local content creation engine designed to synthesize videos from scripts using AI. The architecture is split into two main layers:
+This document provides a comprehensive overview of the CavePaint project architecture, UI components, backend integration, and the remaining tasks. It is designed to onboard other autonomous agents or developers to quickly understand the codebase and pick up where the last agent left off.
+
+## Architecture Overview
+CavePaint is a local content creation engine designed to synthesize videos from scripts using AI. 
 
 1. **Frontend (Next.js + React + Tailwind CSS)**:
-   - A desktop-like workspace UI divided into 4 primary tabs: Overview, Images, Voice, Output.
-   - Built with centralized React Context (`ProjectContext`) to manage global project state and active scenes.
-   - Communicates with the backend via REST API calls.
-
+   - A desktop-like workspace UI built with responsive layout and dark/light modes.
+   - Centralized React Context (`app/context/ProjectContext.tsx`) manages global state, active projects, active scenes, and fetching data.
+   - Component-driven architecture within `app/components`.
+   
 2. **Backend (FastAPI + Python + SQLite)**:
-   - Serves as the orchestration layer and data store.
-   - Database schemas defined via SQLAlchemy (`Project`, `Scene`).
-   - Uses a background `asyncio.Queue` worker (`queue_worker.py`) to process sequential, long-running ML tasks (image rendering, audio generation) locally to prevent blocking the UI and manage VRAM efficiently.
-   - Services layer integrates with external/local models (`gemini.py` for text parsing, `draw_things.py` for image generation, `voice_engine.py` for text-to-speech).
+   - Located in the `backend/` directory. `main.py` serves as the primary router and orchestrator.
+   - Uses SQLAlchemy (`database.py`) for the `Project` and `Scene` schemas.
+   - Employs a background `asyncio.Queue` worker (`queue_worker.py`) to process sequential, long-running ML tasks locally (to prevent blocking the UI).
+   - Serves generated static files from the `workspace/` directory via `app.mount("/static", ...)`.
 
-## What We Have Done So Far
-- **Database schema & API Scaffolding**: Endpoints for project creation, project updates, and scene management are fully built in `main.py`.
-- **Background Worker System**: A task queue is implemented in `queue_worker.py` to handle `image` and `audio` rendering requests asynchronously.
-- **Frontend Workspace Layout**: 
-  - A sleek sidebar and persistent header.
-  - **OverviewTab**: High-density 3-column workspace for inputting research, writing scripts, and defining global concepts.
-  - **ImagesTab**: A robust, asymmetrical UI with a left navigation deck for parsed prompts, a central prompt refinement editor, and a right-side operations board for engine parameter tweaks.
-  - **VoiceTab**: Dedicated UI to load/unload models into VRAM and sequence Khmer text-to-speech tasks.
-  - **OutputTab**: Vertical production timeline that maps out the final rendered assets for each scene.
+---
 
-## What is Still Missing
+## UI Components & Backend Integration
 
-### Backend (Missing Implementations)
-1. **Static File Mounting**: The FastAPI app is missing `app.mount("/static", ...)` to serve the workspace directory. Because of this, generated images and audio files cannot be loaded by the frontend.
-2. **True Text-to-Speech Engine**: `voice_engine.py` is currently mocking the VoxCPM model loading and audio generation (producing sine waves instead of actual speech).
-3. **Video Compilation Service**: There is no logic or endpoint to stitch the sequenced image and audio assets together into a final `.mp4` video (e.g., using FFmpeg).
-4. **Configuration / Secrets Management**: No centralized settings to manage API keys for Gemini or configurable local endpoints for Draw Things.
+The frontend UI consists of the main layout (`app/page.tsx`) wrapping a `Sidebar` and 4 main workspace tabs. 
 
-### UI (Missing Implementations)
-1. **Unwired Buttons in ImagesTab**: The "Generate" and "Trash" buttons in the right-side Operations Board are currently UI mockups. They need `onClick` handlers connected to the backend endpoints (`/api/scenes/{scene_id}/generate-image` and `/api/scenes/{scene_id}/image`).
-2. **Unwired Wands in OverviewTab**: The magic wand buttons meant to trigger auto-generation of fields (e.g., Video Concept, Script) do not have event handlers yet.
-3. **Final Video Player**: The OutputTab currently displays a vertical list of the assets (images and audio separately), but it lacks an overarching video player to preview the stitched, final output.
-4. **Global Settings Modal**: A UI to configure API keys, toggle local/remote model execution, and customize local API ports.
+### 1. `Sidebar.tsx`
+- **Purpose**: Project management sidebar. Shows a list of past projects and handles the creation of new ones. Manages the app theme toggle and collapse state.
+- **Backend Communication**:
+  - `GET /api/projects` (via Context) to list projects.
+  - `POST /api/projects` to create a new project.
+- **Status**: Mostly functional. The "Settings" button and project context menus ("Rename", "Duplicate", "Delete") are currently UI mockups and need wiring.
+
+### 2. `OverviewTab.tsx`
+- **Purpose**: A high-density 3-column workspace for data entry. Allows users to input raw research, write narrative scripts, define visual concepts, audio styles, and view structured JSON output.
+- **Backend Communication**:
+  - Auto-saves on input `onBlur` using `PUT /api/projects/{project_id}`.
+- **Status**: The magic wand (`<Wand2 />`) buttons on the Video Concept, Script, Illustration Style, Vocal Parameters, and JSON panels are UNWIRED. They need to be connected to generation/parsing endpoints (like `/api/projects/{project_id}/parse`).
+
+### 3. `ImagesTab.tsx`
+- **Purpose**: An asymmetrical workspace for generating and refining images per scene. 
+  - **Left**: Navigation deck for parsed scenes and global style reference.
+  - **Center**: Editor for refining image prompts and setting negative/acoustic constraints.
+  - **Right**: Operations board for engine parameters (Aspect Ratio, Guidance Scale, Inference Steps) and rendering output preview.
+- **Backend Communication**:
+  - `POST /api/scenes/{scene_id}/refine` (refines the prompt based on user instructions).
+  - `POST /api/scenes/{scene_id}/generate-image` (triggers generation worker).
+  - `DELETE /api/scenes/{scene_id}/image` (deletes the generated asset).
+- **Status**: Functional, but the "Negative Prompt" textarea isn't being saved or passed to the backend payload. Backend integration for generation requires the `queue_worker.py` to be running.
+
+### 4. `VoiceTab.tsx`
+- **Purpose**: UI to sequence Khmer text-to-speech tasks and manage model VRAM loading.
+- **Backend Communication**:
+  - `POST /api/model/load` and `POST /api/model/unload` to manage model state.
+  - `PUT /api/projects/{project_id}` to save the Global Voice Style.
+  - `POST /api/projects/{project_id}/generate-voice` to queue all scene scripts for audio generation.
+- **Status**: Functional on frontend. The backend `voice_engine.py` is currently mocking the generation (sine waves).
+
+### 5. `OutputTab.tsx`
+- **Purpose**: A vertical production timeline mapping out the final rendered assets (image + audio) for each scene. 
+- **Backend Communication**: Strictly reads from the project context and serves static files from `http://localhost:8000/static/...`.
+- **Status**: Displays components per scene, but lacks a centralized final video compilation.
+
+---
+
+## What is Still Missing (Remaining Tasks)
+
+If you are picking up this project, prioritize the following tasks:
+
+### 1. UI Integrations & Wiring
+- **OverviewTab Wands**: Wire the `<Wand2 />` buttons in `OverviewTab.tsx`. These should trigger backend generation/parsing endpoints (e.g. hooking up to `/api/projects/{project_id}/parse` to structure the JSON scenes).
+- **Sidebar Actions**: Implement the logic for project "Rename", "Duplicate", and "Delete" in the sidebar's dropdown menu.
+- **Global Settings Modal**: Wire the "Settings" button in `Sidebar.tsx` to open a modal that configures API keys, toggles local/remote model execution, or customizes local API ports.
+- **ImagesTab Adjustments**: Ensure the `negative_prompt` from the UI is correctly persisted to the database and passed to the generation backend payload.
+- **Final Video Player**: Update `OutputTab.tsx` to feature an overarching video player that previews the stitched `.mp4` video output instead of just a vertical list of disjointed assets.
+
+### 2. Backend Implementations
+- **Video Compilation Service**: There is no logic or endpoint to stitch the sequenced image and audio assets together into a final `.mp4` video. Implement a service utilizing `FFmpeg` to combine the assets sequentially based on their scene order.
+- **True Text-to-Speech Engine**: Replace the mocked generation in `voice_engine.py` with an actual VoxCPM or equivalent Khmer text-to-speech model.
+- **Configuration / Secrets Management**: Implement a centralized configuration manager (e.g., using `pydantic-settings` or `.env` files) to handle API keys for Gemini and endpoints for Draw Things.
+- **Database Schema Update**: Add a `negative_prompt` column to the `Scene` model in `database.py` and ensure the API updates it.

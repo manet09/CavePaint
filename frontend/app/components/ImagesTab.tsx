@@ -131,7 +131,7 @@ export default function ImagesTab({ activeProject, refreshProjectData }: ImagesT
             </div>
             <textarea
               readOnly
-              value={activeProject?.image_style || ""}
+              value={activeProject?.illustration_style || ""}
               className="flex-1 w-full p-3 bg-transparent resize-none outline-none text-xs font-sans text-foreground/80 sleek-scroll"
               placeholder="No global style defined."
             />

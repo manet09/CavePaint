@@ -28,7 +28,7 @@ export default function Workspace() {
             {/* Header / Tabs */}
             <header className="border-b border-border bg-card px-8 pt-8">
               <h1 className="text-3xl font-bold mb-6 tracking-tight text-card-foreground">
-                {activeProject.topic || activeProject.name || "Untitled Project"}
+                {activeProject.title || activeProject.slug || "Untitled Project"}
               </h1>
               <div className="flex gap-8">
                 {tabs.map((tab) => {

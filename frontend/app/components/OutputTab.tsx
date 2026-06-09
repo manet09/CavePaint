@@ -33,7 +33,7 @@ export default function OutputTab({ activeProject }: OutputTabProps) {
       <div className="bg-primary/10 border border-primary/20 rounded-lg p-5 flex items-center gap-3">
         <FolderCheck size={24} className="text-primary flex-shrink-0" />
         <p className="text-sm font-mono text-primary font-medium break-all">
-          📁 Local Workspace Path: ~/Code/video_studio/workspace/{activeProject.name || "untitled"}/
+          📁 Local Workspace Path: ~/Code/video_studio/workspace/{activeProject.slug || "untitled"}/
         </p>
       </div>
 

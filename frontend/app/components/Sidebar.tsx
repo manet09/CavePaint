@@ -10,7 +10,7 @@ export default function Sidebar() {
   const [newProjectTopic, setNewProjectTopic] = useState("");
   const [isCreating, setIsCreating] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(false);
-  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const [openMenuId, setOpenMenuId] = useState<number | null>(null);
 
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -107,7 +107,7 @@ export default function Sidebar() {
                       ? "bg-primary/10 text-primary font-medium"
                       : "text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-900/50 hover:text-zinc-900 dark:hover:text-zinc-100"
                   } ${isCollapsed ? "justify-center px-0" : ""}`}
-                  title={isCollapsed ? (project.topic || project.name || "Untitled") : undefined}
+                  title={isCollapsed ? (project.title || project.slug || "Untitled") : undefined}
                 >
                   <div className="flex items-center gap-3 min-w-0 flex-1">
                     {isActive && !isCollapsed && (
@@ -118,7 +118,7 @@ export default function Sidebar() {
                     </div>
                     {!isCollapsed && (
                       <span className="truncate text-sm z-10 flex-1 text-left">
-                        {project.topic || project.name || "Untitled"}
+                        {project.title || project.slug || "Untitled"}
                       </span>
                     )}
                   </div>
