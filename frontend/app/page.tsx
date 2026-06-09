@@ -20,9 +20,9 @@ export default function Workspace() {
   ];
 
   return (
-    <div className="flex flex-1 w-full bg-background text-foreground overflow-hidden">
+    <div className="flex h-screen w-full bg-background text-foreground overflow-hidden">
       <Sidebar />
-      <main className="flex-1 flex flex-col h-full overflow-hidden relative">
+      <main className="flex-1 flex flex-col h-full overflow-hidden relative transition-all duration-300 ease-in-out">
         {activeProject ? (
           <>
             {/* Header / Tabs */}
