@@ -25,7 +25,7 @@ async def process_task(task: GenerationTask):
             return
 
         if task.task_type == "image":
-            scene.image_status = "rendering"
+            scene.image_status = "processing"
             db.commit()
             
             prompt = task.payload.get("prompt") or ""
@@ -67,7 +67,7 @@ async def process_task(task: GenerationTask):
             db.commit()
             
         elif task.task_type == "audio":
-            scene.audio_status = "rendering"
+            scene.audio_status = "processing"
             db.commit()
             
             text = task.payload.get("text")

@@ -5,7 +5,7 @@ import { FolderOpen, Sun, Moon, Plus, ChevronLeft, ChevronRight, Settings, MoreV
 import { useProjectContext } from "../context/ProjectContext";
 
 export default function Sidebar() {
-  const { projectsList, activeProject, setActiveProject, theme, setTheme, refreshProjects } = useProjectContext();
+  const { projectsList, activeProject, setActiveProject, theme, setTheme, refreshProjects, createNewProject } = useProjectContext();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [newProjectTopic, setNewProjectTopic] = useState("");
   const [isCreating, setIsCreating] = useState(false);
@@ -30,21 +30,9 @@ export default function Sidebar() {
 
     setIsCreating(true);
     try {
-      const response = await fetch("http://localhost:8000/api/projects", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          topic: newProjectTopic,
-        }),
-      });
-
-      if (response.ok) {
-        await refreshProjects();
-        setNewProjectTopic("");
-        setIsModalOpen(false);
-      } else {
-        console.error("Failed to create project");
-      }
+      await createNewProject(newProjectTopic);
+      setNewProjectTopic("");
+      setIsModalOpen(false);
     } catch (error) {
       console.error("Error creating project:", error);
     } finally {

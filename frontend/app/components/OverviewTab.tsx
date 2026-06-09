@@ -1,75 +1,124 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { Project } from "../context/ProjectContext";
-import { Search, Compass, Palette, FileText, Mic, Code, Wand2 } from "lucide-react";
+import { useProjectContext } from "../context/ProjectContext";
+import { Search, Compass, Palette, FileText, Mic, Code, Wand2, Loader2, Check } from "lucide-react";
 
 interface OverviewTabProps {
-  activeProject: Project;
-  refreshProjectData: () => Promise<void>;
+  activeProject?: any;
+  refreshProjectData?: any;
 }
 
-export default function OverviewTab({ activeProject, refreshProjectData }: OverviewTabProps) {
+export default function OverviewTab(props: OverviewTabProps) {
+  const { activeProject, updateActiveProject } = useProjectContext();
+
   const [formData, setFormData] = useState({
-    research: activeProject.raw_research || "",
-    video_concept: activeProject.video_concept || "",
-    image_style: activeProject.illustration_style || "",
-    script: activeProject.script_narrative || "",
-    voice_style: activeProject.global_voice_style || "",
-    scenes_json: activeProject.scenes ? JSON.stringify(activeProject.scenes, null, 2) : "[]",
+    raw_research: "",
+    video_concept: "",
+    illustration_style: "",
+    script_narrative: "",
+    global_voice_style: "",
+    structured_json_data: "",
   });
 
-  const [isSaving, setIsSaving] = useState(false);
+  const [savingState, setSavingState] = useState<Record<string, "idle" | "saving" | "saved" | "error">>({});
+
+  // Helper to strip internal DB/queue tracking fields from scenes
+  const getCleanJson = (project: any) => {
+    if (project.structured_json_data) {
+      // If there's already a saved string/object, try to parse/clean it if it's an array
+      try {
+        const parsed = typeof project.structured_json_data === "string" 
+          ? JSON.parse(project.structured_json_data) 
+          : project.structured_json_data;
+          
+        if (Array.isArray(parsed)) {
+          return JSON.stringify(
+            parsed.map((scene: any) => ({
+              scene_number: scene.scene_number,
+              narration_khmer: scene.narration_khmer,
+              image_prompt_english: scene.image_prompt_english,
+              negative_prompt: scene.negative_prompt,
+            })),
+            null,
+            2
+          );
+        }
+        return typeof project.structured_json_data === "string" 
+          ? project.structured_json_data 
+          : JSON.stringify(project.structured_json_data, null, 2);
+      } catch (e) {
+        return project.structured_json_data;
+      }
+    } else if (project.scenes && Array.isArray(project.scenes)) {
+      // Fallback to cleaning the database scenes array
+      return JSON.stringify(
+        project.scenes.map((scene: any) => ({
+          scene_number: scene.scene_number,
+          narration_khmer: scene.narration_khmer,
+          image_prompt_english: scene.image_prompt_english,
+          negative_prompt: scene.negative_prompt,
+        })),
+        null,
+        2
+      );
+    }
+    return "[]";
+  };
 
   useEffect(() => {
-    setFormData({
-      research: activeProject.raw_research || "",
-      video_concept: activeProject.video_concept || "",
-      image_style: activeProject.illustration_style || "",
-      script: activeProject.script_narrative || "",
-      voice_style: activeProject.global_voice_style || "",
-      scenes_json: activeProject.scenes ? JSON.stringify(activeProject.scenes, null, 2) : "[]",
-    });
+    if (activeProject) {
+      setFormData({
+        raw_research: activeProject.raw_research || "",
+        video_concept: activeProject.video_concept || "",
+        illustration_style: activeProject.illustration_style || "",
+        script_narrative: activeProject.script_narrative || "",
+        global_voice_style: activeProject.global_voice_style || "",
+        structured_json_data: getCleanJson(activeProject),
+      });
+    }
   }, [activeProject]);
+
+  if (!activeProject) return null;
 
   const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const { name, value } = e.target;
     setFormData((prev) => ({ ...prev, [name]: value }));
+    setSavingState((prev) => ({ ...prev, [name]: "idle" }));
   };
 
-  const handleBlur = async () => {
-    setIsSaving(true);
-    try {
-      let scenesPayload = activeProject.scenes;
+  const handleBlur = async (e: React.FocusEvent<HTMLTextAreaElement>) => {
+    const { name, value } = e.target;
+    
+    // If JSON field, validate first
+    if (name === "structured_json_data" && value.trim() !== "") {
       try {
-        scenesPayload = JSON.parse(formData.scenes_json);
-      } catch {
-        // Silent catch for partial auto-saves
+        JSON.parse(value);
+      } catch (err) {
+        setSavingState((prev) => ({ ...prev, [name]: "error" }));
+        return; // Halt save if invalid JSON
       }
-
-      const payload = {
-        research: formData.research,
-        video_concept: formData.video_concept,
-        image_style: formData.image_style,
-        script: formData.script,
-        voice_style: formData.voice_style,
-        scenes: scenesPayload,
-      };
-
-      const response = await fetch(`http://localhost:8000/api/projects/${activeProject.id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-
-      if (response.ok) {
-        await refreshProjectData();
-      }
-    } catch (error) {
-      console.error("Error auto-saving project:", error);
-    } finally {
-      setIsSaving(false);
     }
+
+    setSavingState((prev) => ({ ...prev, [name]: "saving" }));
+    
+    try {
+      await updateActiveProject({ [name]: value });
+      setSavingState((prev) => ({ ...prev, [name]: "saved" }));
+      setTimeout(() => {
+        setSavingState((prev) => ({ ...prev, [name]: "idle" }));
+      }, 2000);
+    } catch (err) {
+      setSavingState((prev) => ({ ...prev, [name]: "error" }));
+    }
+  };
+
+  const renderStatus = (name: string) => {
+    const status = savingState[name];
+    if (status === "saving") return <span className="text-[10px] text-primary flex items-center gap-1"><Loader2 size={10} className="animate-spin" /> Saving...</span>;
+    if (status === "saved") return <span className="text-[10px] text-green-500 flex items-center gap-1"><Check size={10} /> Saved</span>;
+    if (status === "error") return <span className="text-[10px] text-red-500 font-medium">Invalid JSON</span>;
+    return null;
   };
 
   // Clean CSS assignments using the global styles class
@@ -82,15 +131,16 @@ export default function OverviewTab({ activeProject, refreshProjectData }: Overv
       {/* COLUMN 1 (Left Flank - Research) */}
       <div className="lg:col-span-1 h-full">
         <div className="bg-card rounded-xl border border-border flex flex-col h-full shadow-sm overflow-hidden">
-          <div className="bg-zinc-50/70 dark:bg-zinc-900/40 border-b border-border/60 px-5 py-3">
+          <div className="bg-zinc-50/70 dark:bg-zinc-900/40 border-b border-border/60 px-5 py-3 flex justify-between items-center">
             <label className="flex items-center gap-2 text-xs font-semibold text-card-foreground/80 tracking-wide uppercase">
               <Search size={14} className="text-primary" /> Research & Raw Material
             </label>
+            {renderStatus("raw_research")}
           </div>
           <div className="flex-1 p-5 flex flex-col h-full">
             <textarea
-              name="research"
-              value={formData.research}
+              name="raw_research"
+              value={formData.raw_research}
               onChange={handleChange}
               onBlur={handleBlur}
               className={baseInputStyle}
@@ -109,9 +159,12 @@ export default function OverviewTab({ activeProject, refreshProjectData }: Overv
             <label className="flex items-center gap-2 text-xs font-semibold text-card-foreground/80 tracking-wide uppercase">
               <Compass size={14} className="text-primary" /> Video Concept
             </label>
-            <button className="p-1 text-zinc-400 hover:text-primary hover:bg-zinc-100 dark:hover:bg-zinc-900 rounded transition-colors cursor-pointer">
-              <Wand2 size={14} />
-            </button>
+            <div className="flex items-center gap-2">
+              {renderStatus("video_concept")}
+              <button className="p-1 text-zinc-400 hover:text-primary hover:bg-zinc-100 dark:hover:bg-zinc-900 rounded transition-colors cursor-pointer">
+                <Wand2 size={14} />
+              </button>
+            </div>
           </div>
           <div className="flex-1 p-5 flex flex-col h-full">
             <textarea
@@ -131,14 +184,17 @@ export default function OverviewTab({ activeProject, refreshProjectData }: Overv
             <label className="flex items-center gap-2 text-xs font-semibold text-card-foreground/80 tracking-wide uppercase">
               <FileText size={14} className="text-primary" /> Narrative Script (Khmer)
             </label>
-            <button className="p-1 text-zinc-400 hover:text-primary hover:bg-zinc-100 dark:hover:bg-zinc-900 rounded transition-colors cursor-pointer">
-              <Wand2 size={14} />
-            </button>
+            <div className="flex items-center gap-2">
+              {renderStatus("script_narrative")}
+              <button className="p-1 text-zinc-400 hover:text-primary hover:bg-zinc-100 dark:hover:bg-zinc-900 rounded transition-colors cursor-pointer">
+                <Wand2 size={14} />
+              </button>
+            </div>
           </div>
           <div className="flex-1 p-5 flex flex-col h-full">
             <textarea
-              name="script"
-              value={formData.script}
+              name="script_narrative"
+              value={formData.script_narrative}
               onChange={handleChange}
               onBlur={handleBlur}
               className={baseInputStyle}
@@ -153,14 +209,17 @@ export default function OverviewTab({ activeProject, refreshProjectData }: Overv
             <label className="flex items-center gap-2 text-xs font-semibold text-card-foreground/80 tracking-wide uppercase">
               <Palette size={14} className="text-primary" /> Illustration Style
             </label>
-            <button className="p-1 text-zinc-400 hover:text-primary hover:bg-zinc-100 dark:hover:bg-zinc-900 rounded transition-colors cursor-pointer">
-              <Wand2 size={14} />
-            </button>
+            <div className="flex items-center gap-2">
+              {renderStatus("illustration_style")}
+              <button className="p-1 text-zinc-400 hover:text-primary hover:bg-zinc-100 dark:hover:bg-zinc-900 rounded transition-colors cursor-pointer">
+                <Wand2 size={14} />
+              </button>
+            </div>
           </div>
           <div className="flex-1 p-5 flex flex-col h-full">
             <textarea
-              name="image_style"
-              value={formData.image_style}
+              name="illustration_style"
+              value={formData.illustration_style}
               onChange={handleChange}
               onBlur={handleBlur}
               className={baseInputStyle}
@@ -175,14 +234,17 @@ export default function OverviewTab({ activeProject, refreshProjectData }: Overv
             <label className="flex items-center gap-2 text-xs font-semibold text-card-foreground/80 tracking-wide uppercase">
               <Mic size={14} className="text-primary" /> Vocal Parameters
             </label>
-            <button className="p-1 text-zinc-400 hover:text-primary hover:bg-zinc-100 dark:hover:bg-zinc-900 rounded transition-colors cursor-pointer">
-              <Wand2 size={14} />
-            </button>
+            <div className="flex items-center gap-2">
+              {renderStatus("global_voice_style")}
+              <button className="p-1 text-zinc-400 hover:text-primary hover:bg-zinc-100 dark:hover:bg-zinc-900 rounded transition-colors cursor-pointer">
+                <Wand2 size={14} />
+              </button>
+            </div>
           </div>
           <div className="flex-1 p-5 flex flex-col h-full">
             <textarea
-              name="voice_style"
-              value={formData.voice_style}
+              name="global_voice_style"
+              value={formData.global_voice_style}
               onChange={handleChange}
               onBlur={handleBlur}
               className={baseInputStyle}
@@ -200,13 +262,16 @@ export default function OverviewTab({ activeProject, refreshProjectData }: Overv
             <label className="flex items-center gap-2 text-xs font-semibold text-card-foreground/80 tracking-wide uppercase">
               <Code size={14} className="text-primary" /> Structured Script & Scene (JSON)
             </label>
-            <button className="p-1 text-zinc-400 hover:text-primary hover:bg-zinc-100 dark:hover:bg-zinc-900 rounded transition-colors cursor-pointer">
-              <Wand2 size={14} />
-            </button>
+            <div className="flex items-center gap-2">
+              {renderStatus("structured_json_data")}
+              <button className="p-1 text-zinc-400 hover:text-primary hover:bg-zinc-100 dark:hover:bg-zinc-900 rounded transition-colors cursor-pointer">
+                <Wand2 size={14} />
+              </button>
+            </div>
           </div>
           <textarea
-            name="scenes_json"
-            value={formData.scenes_json}
+            name="structured_json_data"
+            value={formData.structured_json_data}
             onChange={handleChange}
             onBlur={handleBlur}
             className={jsonInputStyle}

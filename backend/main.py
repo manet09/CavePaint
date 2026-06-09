@@ -309,11 +309,13 @@ async def delete_scene_image(scene_id: int, db: Session = Depends(get_db)):
     if not scene:
         raise HTTPException(status_code=404, detail="Scene not found")
         
-    if scene.image_path and os.path.exists(scene.image_path):
-        try:
-            os.remove(scene.image_path)
-        except OSError as e:
-            print(f"Error removing file {scene.image_path}: {e}")
+    if scene.image_path:
+        full_path = os.path.join(workspace_dir, scene.image_path)
+        if os.path.exists(full_path):
+            try:
+                os.remove(full_path)
+            except OSError as e:
+                print(f"Error removing file {full_path}: {e}")
             
     scene.image_path = None
     scene.image_status = "idle"
