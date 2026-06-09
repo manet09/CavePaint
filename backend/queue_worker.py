@@ -26,8 +26,9 @@ async def process_task(task: GenerationTask):
             return
 
         if task.task_type == "image":
-            scene.image_status = "processing"
-            db.commit()
+            if scene.image_status != "processing":
+                print("Task cancelled in queue. Skipping.")
+                return
             
             prompt = task.payload.get("prompt") or ""
             style = task.payload.get("style") or ""
@@ -47,6 +48,11 @@ async def process_task(task: GenerationTask):
             }
             width, height = ar_map.get(aspect_ratio, (1024, 576))
 
+            workspace_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "workspace"))
+            init_image_path = None
+            if scene.image_path:
+                init_image_path = os.path.join(workspace_dir, scene.image_path)
+
             loop = asyncio.get_running_loop()
             save_path = await loop.run_in_executor(
                 None, 
@@ -57,11 +63,15 @@ async def process_task(task: GenerationTask):
                 width,
                 height,
                 guidance_scale,
-                inference_steps
+                inference_steps,
+                init_image_path
             )
             
+            db.refresh(scene)
+            if scene.image_status == "idle":
+                print("Task was cancelled during execution.")
+                return
             
-            workspace_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "workspace"))
             rel_save_path = os.path.relpath(save_path, workspace_dir).replace("\\", "/")
             scene.image_path = rel_save_path
             scene.image_status = "completed"

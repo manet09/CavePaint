@@ -2,15 +2,17 @@ import os
 import base64
 import requests
 
-def trigger_local_render(prompt: str, project_name: str, scene_number: int, width: int = 576, height: int = 1024, cfg_scale: float = 7.5, steps: int = 30) -> str:
+def trigger_local_render(prompt: str, project_name: str, scene_number: int, width: int = 576, height: int = 1024, cfg_scale: float = 7.5, steps: int = 30, init_image_path: str = None) -> str:
     # Determine save path
     workspace_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "workspace"))
-    scene_dir = os.path.join(workspace_dir, project_name, f"scene_{scene_number}")
-    os.makedirs(scene_dir, exist_ok=True)
+    project_dir = os.path.join(workspace_dir, project_name)
+    os.makedirs(project_dir, exist_ok=True)
     
-    save_path = os.path.join(scene_dir, "image.png")
+    padded_scene_number = f"{int(scene_number):02d}"
+    save_path = os.path.join(project_dir, f"scene_{padded_scene_number}.png")
     
     # Send request to Draw Things API
+    endpoint = "http://127.0.0.1:7860/sdapi/v1/txt2img"
     payload = {
         "prompt": prompt,
         "steps": steps,
@@ -19,8 +21,18 @@ def trigger_local_render(prompt: str, project_name: str, scene_number: int, widt
         "height": height
     }
     
+    if init_image_path and os.path.exists(init_image_path):
+        try:
+            with open(init_image_path, "rb") as f:
+                b64_init = base64.b64encode(f.read()).decode("utf-8")
+            payload["init_images"] = [f"data:image/png;base64,{b64_init}"]
+            payload["denoising_strength"] = 0.7
+            endpoint = "http://127.0.0.1:7860/sdapi/v1/img2img"
+        except Exception as e:
+            print(f"Failed to load init image, falling back to txt2img: {e}")
+    
     try:
-        response = requests.post("http://127.0.0.1:7860/sdapi/v1/txt2img", json=payload, timeout=300)
+        response = requests.post(endpoint, json=payload, timeout=300)
         response.raise_for_status()
         data = response.json()
         

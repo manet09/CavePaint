@@ -60,7 +60,7 @@ export const ProjectProvider = ({ children }: { children: ReactNode }) => {
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   
-  const [activeTab, setActiveTab] = useState<string>("overview");
+  const [activeTab, setActiveTabState] = useState<string>("overview");
   const [theme, setThemeState] = useState<"dark" | "light">("dark");
 
   useEffect(() => {
@@ -90,6 +90,15 @@ export const ProjectProvider = ({ children }: { children: ReactNode }) => {
       } else {
         setError("Failed to fetch projects");
       }
+      
+      // Sync active project if one is selected so tabs get fresh scene data
+      if (activeProject) {
+        const projRes = await fetch(`${API_BASE}/api/projects/${activeProject.id}`);
+        if (projRes.ok) {
+          const projData = await projRes.json();
+          setActiveProjectState(projData);
+        }
+      }
     } catch (err) {
       console.error(err);
       setError("Error fetching projects");
@@ -106,6 +115,7 @@ export const ProjectProvider = ({ children }: { children: ReactNode }) => {
       if (response.ok) {
         const data = await response.json();
         setActiveProjectState(data);
+        if (typeof window !== "undefined") localStorage.setItem("activeProjectId", String(data.id));
       } else {
         setError("Failed to load project details");
       }
@@ -122,6 +132,7 @@ export const ProjectProvider = ({ children }: { children: ReactNode }) => {
       selectProject(project.id);
     } else {
       setActiveProjectState(null);
+      if (typeof window !== "undefined") localStorage.removeItem("activeProjectId");
     }
   };
 
@@ -223,7 +234,23 @@ export const ProjectProvider = ({ children }: { children: ReactNode }) => {
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     refreshProjects();
+    
+    if (typeof window !== "undefined") {
+      const savedProjectId = localStorage.getItem("activeProjectId");
+      if (savedProjectId) {
+        selectProject(parseInt(savedProjectId, 10));
+      }
+      const savedTab = localStorage.getItem("activeTab");
+      if (savedTab) {
+        setActiveTabState(savedTab);
+      }
+    }
   }, []);
+
+  const setActiveTab = (tab: string) => {
+    setActiveTabState(tab);
+    if (typeof window !== "undefined") localStorage.setItem("activeTab", tab);
+  };
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);

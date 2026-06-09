@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { useProjectContext, SceneData } from "../context/ProjectContext";
-import { CornerDownLeft, Image as ImageIcon, SlidersHorizontal, Wand2, Trash2, Loader2, Check } from "lucide-react";
+import { CornerDownLeft, Image as ImageIcon, SlidersHorizontal, Wand2, Trash2, Loader2, Check, Maximize2, X, CheckCircle2 } from "lucide-react";
 
 interface ImagesTabProps {
   activeProject?: any;
@@ -15,15 +15,15 @@ export default function ImagesTab(props: ImagesTabProps) {
   const [activeSceneIndex, setActiveSceneIndex] = useState(0);
   const [refinementInput, setRefinementInput] = useState("");
   
-  const [aspectRatioValue, setAspectRatioValue] = useState("3");
-  const [guidanceScale, setGuidanceScale] = useState(7.5);
-  const [inferenceSteps, setInferenceSteps] = useState(30);
+  const [aspectRatioValue, setAspectRatioValue] = useState("16:9");
+  const [inferenceSteps, setInferenceSteps] = useState(10);
   const [isGenerating, setIsGenerating] = useState(false);
   const [cacheBuster, setCacheBuster] = useState(Date.now());
   
   const [localPositive, setLocalPositive] = useState("");
   const [localNegative, setLocalNegative] = useState("");
   const [savingState, setSavingState] = useState<"idle" | "saving" | "saved">("idle");
+  const [isZoomed, setIsZoomed] = useState(false);
 
   const scenes = activeProject?.scenes || [];
   const activeScene = scenes[activeSceneIndex] || null;
@@ -43,8 +43,8 @@ export default function ImagesTab(props: ImagesTabProps) {
     if (activeScene && activeScene.image_status === "processing") {
       setIsGenerating(true);
       interval = setInterval(() => {
-        refreshProjects();
-      }, 3000);
+        if (props.refreshProjectData) props.refreshProjectData();
+      }, 1500);
     } else {
       if (isGenerating) {
         setCacheBuster(Date.now());
@@ -89,16 +89,11 @@ export default function ImagesTab(props: ImagesTabProps) {
       });
       if (response.ok) {
         setRefinementInput("");
-        await refreshProjects();
+        if (props.refreshProjectData) await props.refreshProjectData();
       }
     } catch (error) {
       console.error("Error refining prompt:", error);
     }
-  };
-
-  const getAspectRatioLabel = (val: string) => {
-    const map: Record<string, string> = { "1": "1:1", "2": "4:3", "3": "16:9", "4": "9:16", "5": "2:3" };
-    return map[val] || "16:9";
   };
 
   const handleGenerate = async () => {
@@ -106,8 +101,8 @@ export default function ImagesTab(props: ImagesTabProps) {
     setIsGenerating(true);
 
     const payload = {
-      aspect_ratio: getAspectRatioLabel(aspectRatioValue),
-      guidance_scale: guidanceScale,
+      aspect_ratio: aspectRatioValue,
+      guidance_scale: 7.5,
       inference_steps: inferenceSteps
     };
 
@@ -118,13 +113,27 @@ export default function ImagesTab(props: ImagesTabProps) {
         body: JSON.stringify(payload),
       });
       if (response.ok) {
-        await refreshProjects();
+        if (props.refreshProjectData) await props.refreshProjectData();
       } else {
         setIsGenerating(false);
       }
     } catch (error) {
       console.error("Error triggering generation:", error);
       setIsGenerating(false);
+    }
+  };
+
+  const handleStop = async () => {
+    if (!activeScene) return;
+    try {
+      const response = await fetch(`http://localhost:8000/api/scenes/${activeScene.id}/stop`, {
+        method: "POST",
+      });
+      if (response.ok) {
+        if (props.refreshProjectData) await props.refreshProjectData();
+      }
+    } catch (error) {
+      console.error("Error stopping generation:", error);
     }
   };
 
@@ -135,7 +144,7 @@ export default function ImagesTab(props: ImagesTabProps) {
         method: "DELETE",
       });
       if (response.ok) {
-        await refreshProjects();
+        if (props.refreshProjectData) await props.refreshProjectData();
       }
     } catch (error) {
       console.error("Error deleting image:", error);
@@ -145,11 +154,11 @@ export default function ImagesTab(props: ImagesTabProps) {
   if (!activeProject) return null;
 
   return (
-    <div className="h-[calc(100vh-160px)] pb-12 overflow-hidden animate-in fade-in duration-500">
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 items-stretch w-full h-full">
+    <div className="h-[calc(100vh-160px)] pb-12 overflow-hidden animate-in fade-in duration-500 relative">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch w-full h-full">
         
         {/* Column 1: Left List Panel */}
-        <div className="lg:col-span-1 h-full flex flex-col overflow-hidden">
+        <div className="lg:col-span-3 h-full flex flex-col overflow-hidden">
           {/* Top Card (Image Style Box) */}
           <div className="bg-card rounded-xl border border-border flex flex-col h-40 overflow-hidden shrink-0">
             <div className="bg-zinc-50/70 dark:bg-zinc-900/40 px-4 py-2 border-b border-border/60 text-xs font-semibold tracking-wide uppercase text-card-foreground">
@@ -182,7 +191,10 @@ export default function ImagesTab(props: ImagesTabProps) {
                         : "bg-background border-border/50 hover:border-primary/30"
                     }`}
                   >
-                    <div className="text-xs font-bold mb-1">Scene #{String(scene.scene_number || idx + 1).padStart(2, '0')}</div>
+                    <div className="text-xs font-bold mb-1 flex items-center gap-2">
+                      Scene #{String(scene.scene_number || idx + 1).padStart(2, '0')}
+                      {scene.image_path && <CheckCircle2 size={14} className="text-emerald-500" />}
+                    </div>
                     <div className="text-xs text-foreground/60 line-clamp-2 leading-relaxed">
                       {scene.image_prompt_english || "No prompt available"}
                     </div>
@@ -204,7 +216,7 @@ export default function ImagesTab(props: ImagesTabProps) {
         ) : (
           <>
             {/* Column 2: Center Workspace Editor */}
-            <div className="lg:col-span-2 h-full flex flex-col overflow-hidden">
+            <div className="lg:col-span-4 h-full flex flex-col overflow-hidden">
               <form 
                 onSubmit={handleRefineSubmit}
                 className="bg-card rounded-xl border border-border flex flex-col h-full overflow-hidden relative"
@@ -273,7 +285,7 @@ export default function ImagesTab(props: ImagesTabProps) {
             </div>
 
             {/* Column 3: Right Operations Board */}
-            <div className="lg:col-span-1 h-full flex flex-col overflow-hidden">
+            <div className="lg:col-span-5 h-full flex flex-col overflow-hidden">
               {/* Top Card (Configuration Panel) */}
               <div className="bg-card rounded-xl border border-border p-4 shrink-0">
                 <div className="flex items-center gap-2 mb-4">
@@ -285,19 +297,25 @@ export default function ImagesTab(props: ImagesTabProps) {
                 
                 <div className="space-y-4">
                   <div className="space-y-1.5">
-                    <div className="flex justify-between text-xs text-foreground/70">
+                    <div className="flex justify-between text-xs text-foreground/70 mb-2">
                       <span>Aspect Ratio</span>
-                      <span className="font-mono">{getAspectRatioLabel(aspectRatioValue)}</span>
                     </div>
-                    <input type="range" min="1" max="5" value={aspectRatioValue} onChange={(e) => setAspectRatioValue(e.target.value)} className="w-full accent-primary h-1 bg-border rounded-lg appearance-none cursor-pointer" />
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <div className="flex justify-between text-xs text-foreground/70">
-                      <span>Guidance Scale</span>
-                      <span className="font-mono">{guidanceScale}</span>
+                    <div className="grid grid-cols-5 gap-2">
+                      {["1:1", "4:3", "16:9", "9:16", "2:3"].map((ratio) => (
+                        <button
+                          key={ratio}
+                          type="button"
+                          onClick={() => setAspectRatioValue(ratio)}
+                          className={`py-1.5 text-xs font-mono rounded border transition-all ${
+                            aspectRatioValue === ratio 
+                              ? "bg-primary/5 border-primary text-primary" 
+                              : "bg-background border-border/50 text-foreground/70 hover:border-primary/40 hover:text-foreground"
+                          }`}
+                        >
+                          {ratio}
+                        </button>
+                      ))}
                     </div>
-                    <input type="range" min="1" max="20" step="0.1" value={guidanceScale} onChange={(e) => setGuidanceScale(parseFloat(e.target.value))} className="w-full accent-primary h-1 bg-border rounded-lg appearance-none cursor-pointer" />
                   </div>
 
                   <div className="space-y-1.5">
@@ -305,7 +323,7 @@ export default function ImagesTab(props: ImagesTabProps) {
                       <span>Inference Steps</span>
                       <span className="font-mono">{inferenceSteps}</span>
                     </div>
-                    <input type="range" min="10" max="100" value={inferenceSteps} onChange={(e) => setInferenceSteps(parseInt(e.target.value, 10))} className="w-full accent-primary h-1 bg-border rounded-lg appearance-none cursor-pointer" />
+                    <input type="range" min="5" max="30" value={inferenceSteps} onChange={(e) => setInferenceSteps(parseInt(e.target.value, 10))} className="w-full accent-primary h-1 bg-border rounded-lg appearance-none cursor-pointer" />
                   </div>
                 </div>
               </div>
@@ -320,14 +338,22 @@ export default function ImagesTab(props: ImagesTabProps) {
                   {isGenerating ? (
                     <div className="flex flex-col items-center justify-center text-primary p-6">
                       <Loader2 size={32} className="mb-3 animate-spin opacity-80" />
-                      <p className="text-xs uppercase tracking-widest font-medium">Synthesizing Visual...</p>
+                      <p className="text-xs uppercase tracking-widest font-medium">Synthesizing frame via local Draw Things pipeline...</p>
                     </div>
                   ) : activeScene?.image_path ? (
-                    <img 
-                      src={`http://localhost:8000/static/${activeScene.image_path}?t=${cacheBuster}`} 
-                      alt={`Scene ${activeScene.scene_number}`} 
-                      className="w-full h-full object-contain"
-                    />
+                    <div className="w-full h-full relative group">
+                      <img 
+                        src={`http://localhost:8000/static/${activeProject.slug}/scene_${String(activeScene.scene_number).padStart(2, '0')}.png?t=${cacheBuster}`} 
+                        alt={`Scene ${activeScene.scene_number}`} 
+                        className="w-full h-full object-contain"
+                      />
+                      <button 
+                        onClick={() => setIsZoomed(true)}
+                        className="absolute top-2 right-2 p-2 bg-black/50 hover:bg-black/80 text-white rounded-lg opacity-0 group-hover:opacity-100 transition-opacity backdrop-blur-sm"
+                      >
+                        <Maximize2 size={18} />
+                      </button>
+                    </div>
                   ) : (
                     <div className="flex flex-col items-center justify-center text-foreground/30 text-center p-6">
                       <ImageIcon size={32} className="mb-3 opacity-20" />
@@ -340,15 +366,26 @@ export default function ImagesTab(props: ImagesTabProps) {
 
               {/* Footer Buttons */}
               <div className="flex gap-3 mt-4 shrink-0">
-                <button 
-                  type="button"
-                  onClick={handleGenerate}
-                  disabled={isGenerating || !activeScene}
-                  className="flex-1 bg-primary text-primary-foreground hover:bg-primary/90 py-3 rounded-xl text-sm font-semibold shadow-sm transition-all flex items-center justify-center gap-2 disabled:opacity-50"
-                >
-                  {isGenerating ? <Loader2 size={16} className="animate-spin" /> : <Wand2 size={16} />}
-                  {isGenerating ? "Generating..." : "Generate"}
-                </button>
+                {activeScene.image_status === "processing" ? (
+                  <button 
+                    type="button"
+                    onClick={handleStop}
+                    className="flex-1 bg-red-600 text-white hover:bg-red-700 py-3 rounded-xl text-sm font-semibold shadow-sm transition-all flex items-center justify-center gap-2"
+                  >
+                    <X size={16} />
+                    Stop Rendering
+                  </button>
+                ) : (
+                  <button 
+                    type="button"
+                    onClick={handleGenerate}
+                    disabled={isGenerating || !activeScene}
+                    className="flex-1 bg-primary text-primary-foreground hover:bg-primary/90 py-3 rounded-xl text-sm font-semibold shadow-sm transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                  >
+                    {isGenerating ? <Loader2 size={16} className="animate-spin" /> : <Wand2 size={16} />}
+                    {isGenerating ? "Generating..." : "Generate"}
+                  </button>
+                )}
                 <button 
                   type="button"
                   onClick={handleTrash}
@@ -362,6 +399,27 @@ export default function ImagesTab(props: ImagesTabProps) {
           </>
         )}
       </div>
+
+      {/* Lightbox Modal Overlay */}
+      {isZoomed && activeScene?.image_path && (
+        <div 
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 backdrop-blur-sm p-8 animate-in fade-in duration-200"
+          onClick={() => setIsZoomed(false)}
+        >
+          <button 
+            className="absolute top-6 right-6 p-3 text-white/50 hover:text-white hover:bg-white/10 rounded-full transition-colors"
+            onClick={() => setIsZoomed(false)}
+          >
+            <X size={24} />
+          </button>
+          <img 
+            src={`http://localhost:8000/static/${activeProject.slug}/scene_${String(activeScene.scene_number).padStart(2, '0')}.png?t=${cacheBuster}`} 
+            alt={`Scene ${activeScene.scene_number} Zoomed`} 
+            className="max-w-full max-h-full object-contain shadow-2xl rounded-sm"
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      )}
     </div>
   );
 }

@@ -2,6 +2,7 @@ import os
 import re
 import json
 import asyncio
+import requests
 from contextlib import asynccontextmanager
 from typing import List, Optional
 from pydantic import BaseModel, ConfigDict
@@ -164,6 +165,27 @@ async def get_project_details(project_id: int, db: Session = Depends(get_db)):
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
+        
+    # Auto-healing filesystem validation
+    modified = False
+    for scene in project.scenes:
+        if scene.image_path:
+            full_path = os.path.join(workspace_dir, scene.image_path)
+            if not os.path.exists(full_path):
+                scene.image_path = None
+                scene.image_status = "idle"
+                modified = True
+                
+        if scene.audio_path:
+            full_path = os.path.join(workspace_dir, scene.audio_path)
+            if not os.path.exists(full_path):
+                scene.audio_path = None
+                scene.audio_status = "idle"
+                modified = True
+                
+    if modified:
+        db.commit()
+        db.refresh(project)
         
     # Eagerly loaded implicitly by SQLAlchemy relationship
     project.scenes.sort(key=lambda x: x.scene_number)
@@ -332,6 +354,22 @@ async def generate_scene_image(scene_id: int, payload: ImageGeneratePayload, db:
     scene.image_status = "processing"
     db.commit()
     return {"status": "queued"}
+
+@app.post("/api/scenes/{scene_id}/stop")
+async def stop_scene_generation(scene_id: int, db: Session = Depends(get_db)):
+    scene = db.query(Scene).filter(Scene.id == scene_id).first()
+    if not scene:
+        raise HTTPException(status_code=404, detail="Scene not found")
+        
+    scene.image_status = "idle"
+    db.commit()
+    
+    try:
+        requests.post("http://127.0.0.1:7860/sdapi/v1/interrupt", timeout=2)
+    except Exception as e:
+        print(f"Interrupt API unreachable or failed: {e}")
+        
+    return {"status": "stopped"}
 
 @app.delete("/api/scenes/{scene_id}/image")
 async def delete_scene_image(scene_id: int, db: Session = Depends(get_db)):
