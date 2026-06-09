@@ -32,21 +32,22 @@ async def process_task(task: GenerationTask):
             
             prompt = task.payload.get("prompt") or ""
             style = task.payload.get("style") or ""
+            negative_prompt = task.payload.get("negative_prompt") or ""
             full_prompt = f"{style}, {prompt}".strip(", ")
             
             aspect_ratio = task.payload.get("aspect_ratio", "16:9")
-            guidance_scale = task.payload.get("guidance_scale", 7.5)
-            inference_steps = task.payload.get("inference_steps", 30)
+            guidance_scale = float(task.payload.get("guidance_scale", 7.5))
+            inference_steps = int(task.payload.get("inference_steps", 10))
 
             # Map aspect ratio to width and height
             ar_map = {
-                "1:1": (512, 512),
-                "4:3": (768, 576),
+                "1:1": (768, 768),
+                "4:3": (1024, 768),
                 "16:9": (1024, 576),
                 "9:16": (576, 1024),
-                "3:4": (576, 768)
+                "2:3": (640, 960)
             }
-            width, height = ar_map.get(aspect_ratio, (1024, 576))
+            width, height = ar_map.get(aspect_ratio, (576, 1024))
 
             workspace_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "workspace"))
             init_image_path = None
@@ -64,7 +65,8 @@ async def process_task(task: GenerationTask):
                 height,
                 guidance_scale,
                 inference_steps,
-                init_image_path
+                init_image_path,
+                negative_prompt
             )
             
             db.refresh(scene)

@@ -2,7 +2,7 @@ import os
 import base64
 import requests
 
-def trigger_local_render(prompt: str, project_name: str, scene_number: int, width: int = 576, height: int = 1024, cfg_scale: float = 7.5, steps: int = 30, init_image_path: str = None) -> str:
+def trigger_local_render(prompt: str, project_name: str, scene_number: int, width: int = 576, height: int = 1024, cfg_scale: float = 7.5, steps: int = 30, init_image_path: str = None, negative_prompt: str = "") -> str:
     # Determine save path
     workspace_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "workspace"))
     project_dir = os.path.join(workspace_dir, project_name)
@@ -15,18 +15,20 @@ def trigger_local_render(prompt: str, project_name: str, scene_number: int, widt
     endpoint = "http://127.0.0.1:7860/sdapi/v1/txt2img"
     payload = {
         "prompt": prompt,
+        "negative_prompt": negative_prompt,
         "steps": steps,
         "cfg_scale": cfg_scale,
         "width": width,
-        "height": height
+        "height": height,
+
     }
     
     if init_image_path and os.path.exists(init_image_path):
         try:
             with open(init_image_path, "rb") as f:
                 b64_init = base64.b64encode(f.read()).decode("utf-8")
-            payload["init_images"] = [f"data:image/png;base64,{b64_init}"]
-            payload["denoising_strength"] = 0.7
+            payload["init_images"] = [b64_init]
+            payload["denoising_strength"] = 0.55
             endpoint = "http://127.0.0.1:7860/sdapi/v1/img2img"
         except Exception as e:
             print(f"Failed to load init image, falling back to txt2img: {e}")
@@ -53,7 +55,7 @@ def trigger_local_render(prompt: str, project_name: str, scene_number: int, widt
     except requests.exceptions.ConnectionError:
         print("Draw Things API is unreachable. Generating a fallback placeholder image...")
         try:
-            from PIL import Image, ImageDraw, ImageFont
+            from PIL import Image, ImageDraw
             img = Image.new('RGB', (width, height), color = (30, 41, 59)) # Slate background
             d = ImageDraw.Draw(img)
             
