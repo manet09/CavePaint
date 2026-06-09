@@ -6,6 +6,7 @@ from typing import List, Optional
 from pydantic import BaseModel
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 
 from .database import get_db, Project, Scene
@@ -27,6 +28,11 @@ class ProjectUpdate(BaseModel):
 class SceneRefine(BaseModel):
     user_instruction: str
 
+class ImageGeneratePayload(BaseModel):
+    aspect_ratio: str
+    guidance_scale: float
+    inference_steps: int
+
 # Background worker task reference
 worker_task = None
 
@@ -45,6 +51,10 @@ async def lifespan(app: FastAPI):
             print("Queue worker gracefully shut down.")
 
 app = FastAPI(lifespan=lifespan)
+
+# Mount static files
+workspace_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "workspace"))
+app.mount("/static", StaticFiles(directory=workspace_dir), name="static")
 
 # CORS configuration targeting Next.js frontend
 app.add_middleware(
@@ -184,16 +194,26 @@ async def refine_scene_image_prompt(scene_id: int, payload: SceneRefine, db: Ses
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/scenes/{scene_id}/generate-image")
-async def generate_scene_image(scene_id: int, db: Session = Depends(get_db)):
+async def generate_scene_image(scene_id: int, payload: ImageGeneratePayload, db: Session = Depends(get_db)):
     scene = db.query(Scene).filter(Scene.id == scene_id).first()
     if not scene:
         raise HTTPException(status_code=404, detail="Scene not found")
         
+    project = db.query(Project).filter(Project.id == scene.project_id).first()
+        
+    task_payload = {
+        "prompt": scene.image_prompt_english,
+        "style": project.image_style,
+        "aspect_ratio": payload.aspect_ratio,
+        "guidance_scale": payload.guidance_scale,
+        "inference_steps": payload.inference_steps
+    }
+    
     task = GenerationTask(
         task_type="image",
         project_id=scene.project_id,
         scene_id=scene.id,
-        payload={"prompt": scene.image_prompt_english}
+        payload=task_payload
     )
     
     # Queue task

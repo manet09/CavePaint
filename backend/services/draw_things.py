@@ -2,7 +2,7 @@ import os
 import base64
 import requests
 
-def trigger_local_render(prompt: str, project_name: str, scene_number: int) -> str:
+def trigger_local_render(prompt: str, project_name: str, scene_number: int, width: int = 576, height: int = 1024, cfg_scale: float = 7.5, steps: int = 30) -> str:
     # Determine save path
     workspace_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "workspace"))
     scene_dir = os.path.join(workspace_dir, project_name, f"scene_{scene_number}")
@@ -13,10 +13,10 @@ def trigger_local_render(prompt: str, project_name: str, scene_number: int) -> s
     # Send request to Draw Things API
     payload = {
         "prompt": prompt,
-        "steps": 10,
-        "cfg_scale": 1.0,
-        "width": 576,
-        "height": 1024
+        "steps": steps,
+        "cfg_scale": cfg_scale,
+        "width": width,
+        "height": height
     }
     
     try:

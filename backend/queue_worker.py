@@ -28,14 +28,35 @@ async def process_task(task: GenerationTask):
             scene.image_status = "rendering"
             db.commit()
             
-            prompt = task.payload.get("prompt")
+            prompt = task.payload.get("prompt") or ""
+            style = task.payload.get("style") or ""
+            full_prompt = f"{style}, {prompt}".strip(", ")
+            
+            aspect_ratio = task.payload.get("aspect_ratio", "16:9")
+            guidance_scale = task.payload.get("guidance_scale", 7.5)
+            inference_steps = task.payload.get("inference_steps", 30)
+
+            # Map aspect ratio to width and height
+            ar_map = {
+                "1:1": (512, 512),
+                "4:3": (768, 576),
+                "16:9": (1024, 576),
+                "9:16": (576, 1024),
+                "3:4": (576, 768)
+            }
+            width, height = ar_map.get(aspect_ratio, (1024, 576))
+
             loop = asyncio.get_running_loop()
             save_path = await loop.run_in_executor(
                 None, 
                 draw_things.trigger_local_render, 
-                prompt, 
+                full_prompt, 
                 project.name, 
-                scene.scene_number
+                scene.scene_number,
+                width,
+                height,
+                guidance_scale,
+                inference_steps
             )
             
             scene.image_path = save_path

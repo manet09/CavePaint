@@ -1,16 +1,15 @@
-/* eslint-disable @next/next/no-img-element */
-/* eslint-disable react-hooks/set-state-in-effect */
 "use client";
 
 import React, { useState, useEffect } from "react";
 import { Project } from "../context/ProjectContext";
-import { Image as ImageIcon, Sparkles, Trash2, X, Check, Loader2, Cpu, WandSparkles } from "lucide-react";
+import { CornerDownLeft, Image as ImageIcon, SlidersHorizontal, Wand2, Trash2, Loader2 } from "lucide-react";
 
 interface ImagesTabProps {
   activeProject: Project;
   refreshProjectData: () => Promise<void>;
 }
 
+// Ensure SceneData interface matches the shape used throughout the app
 interface SceneData {
   id: number;
   scene_number: number;
@@ -21,135 +20,94 @@ interface SceneData {
   image_path?: string;
   audio_status?: string;
   image_status?: string;
+  negative_prompt?: string;
   [key: string]: unknown;
 }
 
 export default function ImagesTab({ activeProject, refreshProjectData }: ImagesTabProps) {
-  const [globalImageStyle, setGlobalImageStyle] = useState(activeProject.image_style || "");
-  const [isSavingStyle, setIsSavingStyle] = useState(false);
-  const [saveSuccess, setSaveSuccess] = useState(false);
-
-  // Modal / Detail state
-  const [selectedScene, setSelectedScene] = useState<SceneData | null>(null);
-  const [isRendering, setIsRendering] = useState(false);
+  const [activeSceneIndex, setActiveSceneIndex] = useState(0);
   const [refinementInput, setRefinementInput] = useState("");
-  const [countdown, setCountdown] = useState(15);
-  const [promptText, setPromptText] = useState("");
-  const [isRefining, setIsRefining] = useState(false);
-  const [isDeleting, setIsDeleting] = useState(false);
+  
+  const [aspectRatioValue, setAspectRatioValue] = useState("3");
+  const [guidanceScale, setGuidanceScale] = useState(7.5);
+  const [inferenceSteps, setInferenceSteps] = useState(30);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [cacheBuster, setCacheBuster] = useState(Date.now());
+  
+  const scenes = (activeProject?.scenes || []) as unknown as SceneData[];
+  const activeScene = scenes[activeSceneIndex] || null;
 
-  // Keep global style in sync if project changes
   useEffect(() => {
-    setGlobalImageStyle(activeProject.image_style || "");
-  }, [activeProject.image_style]);
-
-  // Update promptText when scene is selected
-  useEffect(() => {
-    if (selectedScene) {
-      setPromptText(selectedScene.image_prompt_english || "");
-      setRefinementInput("");
-    }
-  }, [selectedScene]);
-
-  // Countdown timer logic
-  useEffect(() => {
-    let timer: NodeJS.Timeout;
-    if (isRendering && countdown > 0) {
-      timer = setTimeout(() => setCountdown((c) => c - 1), 1000);
-    } else if (countdown === 0 && isRendering) {
-      // Refresh project to check if image is ready
-      refreshProjectData();
-      setIsRendering(false);
-      setCountdown(15);
-    }
-    return () => clearTimeout(timer);
-  }, [isRendering, countdown, refreshProjectData]);
-
-  // Update selectedScene locally when activeProject changes (e.g. after refresh)
-  useEffect(() => {
-    if (selectedScene && activeProject.scenes) {
-      const updatedScene = activeProject.scenes.find((s: unknown) => (s as SceneData).id === selectedScene.id) as SceneData | undefined;
-      if (updatedScene) {
-        // Only update if something changed (like image_path or image_status)
-        if (
-          updatedScene.image_path !== selectedScene.image_path ||
-          updatedScene.image_status !== selectedScene.image_status ||
-          updatedScene.image_prompt_english !== selectedScene.image_prompt_english
-        ) {
-          setSelectedScene(updatedScene);
-          if (updatedScene.image_prompt_english !== selectedScene.image_prompt_english && !isRefining) {
-             setPromptText(updatedScene.image_prompt_english || "");
-          }
-        }
+    let interval: NodeJS.Timeout;
+    if (activeScene && (activeScene.image_status === "pending" || activeScene.image_status === "rendering")) {
+      setIsGenerating(true);
+      interval = setInterval(() => {
+        refreshProjectData();
+      }, 3000);
+    } else {
+      if (isGenerating) {
+        setCacheBuster(Date.now());
       }
+      setIsGenerating(false);
     }
-  }, [activeProject.scenes, selectedScene, isRefining]);
+    return () => clearInterval(interval);
+  }, [activeScene, refreshProjectData, isGenerating]);
 
-  const handleSaveStyle = async () => {
-    setIsSavingStyle(true);
-    setSaveSuccess(false);
-    try {
-      const response = await fetch(`http://localhost:8000/api/projects/${activeProject.id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ image_style: globalImageStyle }),
-      });
-      if (response.ok) {
-        await refreshProjectData();
-        setSaveSuccess(true);
-        setTimeout(() => setSaveSuccess(false), 2000);
-      }
-    } catch (error) {
-      console.error("Error saving global style:", error);
-    } finally {
-      setIsSavingStyle(false);
-    }
-  };
+  const handleRefineSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!activeScene || !refinementInput.trim()) return;
 
-  const handleRefinePrompt = async () => {
-    if (!selectedScene || !refinementInput.trim()) return;
-    setIsRefining(true);
     try {
-      const response = await fetch(`http://localhost:8000/api/scenes/${selectedScene.id}/refine`, {
+      const response = await fetch(`http://localhost:8000/api/scenes/${activeScene.id}/refine`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ user_instruction: refinementInput }),
       });
       if (response.ok) {
-        const data = await response.json();
-        setPromptText(data.refined_prompt || "");
         setRefinementInput("");
         await refreshProjectData();
       }
     } catch (error) {
       console.error("Error refining prompt:", error);
-    } finally {
-      setIsRefining(false);
     }
   };
 
-  const handleGenerateFrame = async () => {
-    if (!selectedScene) return;
-    setIsRendering(true);
-    setCountdown(15);
+  const getAspectRatioLabel = (val: string) => {
+    const map: Record<string, string> = { "1": "1:1", "2": "4:3", "3": "16:9", "4": "9:16", "5": "3:4" };
+    return map[val] || "16:9";
+  };
+
+  const handleGenerate = async () => {
+    if (!activeScene) return;
+    setIsGenerating(true);
+
+    const payload = {
+      aspect_ratio: getAspectRatioLabel(aspectRatioValue),
+      guidance_scale: guidanceScale,
+      inference_steps: inferenceSteps
+    };
+
     try {
-      const response = await fetch(`http://localhost:8000/api/scenes/${selectedScene.id}/generate-image`, {
+      const response = await fetch(`http://localhost:8000/api/scenes/${activeScene.id}/generate-image`, {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
       });
       if (response.ok) {
         await refreshProjectData();
+      } else {
+        setIsGenerating(false);
       }
     } catch (error) {
-      console.error("Error generating frame:", error);
-      setIsRendering(false);
+      console.error("Error triggering generation:", error);
+      setIsGenerating(false);
     }
   };
 
-  const handleDiscardImage = async () => {
-    if (!selectedScene) return;
-    setIsDeleting(true);
+  const handleTrash = async () => {
+    if (!activeScene) return;
     try {
-      const response = await fetch(`http://localhost:8000/api/scenes/${selectedScene.id}/image`, {
+      const response = await fetch(`http://localhost:8000/api/scenes/${activeScene.id}/image`, {
         method: "DELETE",
       });
       if (response.ok) {
@@ -157,243 +115,216 @@ export default function ImagesTab({ activeProject, refreshProjectData }: ImagesT
       }
     } catch (error) {
       console.error("Error deleting image:", error);
-    } finally {
-      setIsDeleting(false);
     }
   };
 
-  const getImageUrl = (path: string) => {
-    if (!path) return "";
-    // If backend returns absolute path, we might need to rely on static mount
-    // Assuming backend mounts a static folder or path is relative to static
-    const filename = path.split("/").pop() || path.split("\\").pop();
-    return `http://localhost:8000/static/${filename}`;
-  };
-
-  const handlePromptBlur = async () => {
-    if (!selectedScene || promptText === selectedScene.image_prompt_english) return;
-    // We could potentially save manual prompt edits directly if there's an endpoint.
-    // Since there's no direct PUT /api/scenes/{id} mentioned, we might rely on refine endpoint or skip manual save.
-  };
-
   return (
-    <div className="flex flex-col gap-8 pb-10 animate-in fade-in slide-in-from-bottom-4 duration-500 relative">
-      
-      {/* Global Style Sync Bar */}
-      <div className="bg-card rounded-lg border border-border p-6 shadow-sm">
-        <label className="flex items-center gap-2 text-sm font-semibold mb-3 text-card-foreground">
-          <Sparkles size={16} className="text-primary" /> Global Image Style Configuration
-        </label>
-        <div className="flex gap-4 items-center">
-          <input
-            type="text"
-            value={globalImageStyle}
-            onChange={(e) => setGlobalImageStyle(e.target.value)}
-            onBlur={handleSaveStyle}
-            className="flex-1 p-3 bg-background text-foreground border border-border bg-opacity-50 font-sans focus:border-primary focus:ring-1 focus:ring-primary outline-none rounded-md"
-            placeholder="e.g. Cinematic lighting, hyper-realistic, 8k resolution, Unreal Engine 5"
-          />
-          <div className="flex items-center justify-center w-24">
-            {isSavingStyle ? (
-              <span className="text-xs text-foreground/50 italic flex items-center gap-1">
-                <Loader2 size={12} className="animate-spin" /> Saving...
-              </span>
-            ) : saveSuccess ? (
-              <span className="text-xs text-green-500 flex items-center gap-1 font-medium">
-                <Check size={14} /> Saved
-              </span>
-            ) : (
-              <span className="text-xs text-foreground/30">Synced</span>
-            )}
+    <div className="h-[calc(100vh-160px)] pb-12 overflow-hidden animate-in fade-in duration-500">
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 items-stretch w-full h-full">
+        
+        {/* Column 1: Left List Panel */}
+        <div className="lg:col-span-1 h-full flex flex-col overflow-hidden">
+          {/* Top Card (Image Style Box) */}
+          <div className="bg-card rounded-xl border border-border flex flex-col h-40 overflow-hidden shrink-0">
+            <div className="bg-zinc-50/70 dark:bg-zinc-900/40 px-4 py-2 border-b border-border/60 text-xs font-semibold tracking-wide uppercase text-card-foreground">
+              Style Reference
+            </div>
+            <textarea
+              readOnly
+              value={activeProject?.image_style || ""}
+              className="flex-1 w-full p-3 bg-transparent resize-none outline-none text-xs font-sans text-foreground/80 sleek-scroll"
+              placeholder="No global style defined."
+            />
+          </div>
+
+          {/* Bottom Card (Prompts Navigation Deck) */}
+          <div className="flex-1 bg-card rounded-xl border border-border flex flex-col overflow-hidden mt-4">
+            <div className="bg-zinc-50/70 dark:bg-zinc-900/40 px-4 py-2 border-b border-border/60 text-xs font-semibold tracking-wide uppercase text-card-foreground">
+              Parsed Scenes & Prompts
+            </div>
+            <div className="flex-1 overflow-y-auto p-3 space-y-2 sleek-scroll">
+              {scenes.length === 0 ? (
+                <div className="text-xs text-foreground/50 p-2 text-center">No scenes available.</div>
+              ) : (
+                scenes.map((scene, idx) => (
+                  <button
+                    key={scene.id || idx}
+                    onClick={() => setActiveSceneIndex(idx)}
+                    className={`w-full text-left p-3 rounded-lg border transition-all ${
+                      activeSceneIndex === idx 
+                        ? "bg-primary/5 border-primary shadow-sm" 
+                        : "bg-background border-border/50 hover:border-primary/30"
+                    }`}
+                  >
+                    <div className="text-xs font-bold mb-1">Scene #{String(scene.scene_number || idx + 1).padStart(2, '0')}</div>
+                    <div className="text-xs text-foreground/60 line-clamp-2 leading-relaxed">
+                      {scene.image_prompt_english || "No prompt available"}
+                    </div>
+                  </button>
+                ))
+              )}
+            </div>
           </div>
         </div>
-      </div>
 
-      {/* Interactive Scene Grid Layout */}
-      <div>
-        <h3 className="text-lg font-bold mb-4 text-card-foreground">Scene Sequence</h3>
-        {(!activeProject.scenes || activeProject.scenes.length === 0) ? (
-          <div className="text-center p-12 border border-dashed border-border rounded-lg text-foreground/50">
-            No scenes available. Parse the script in the Overview tab first.
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            {activeProject.scenes.map((scene: unknown, index: number) => {
-              const sceneData = scene as SceneData;
-              return (
-              <div 
-                key={sceneData.id || index}
-                onClick={() => setSelectedScene(sceneData)}
-                className="bg-card rounded-lg border border-border overflow-hidden cursor-pointer hover:border-primary/50 transition-all hover:shadow-md group flex flex-col h-72"
-              >
-                <div className="p-3 border-b border-border bg-background/50 flex justify-between items-center">
-                  <span className="font-bold text-sm tracking-wide text-card-foreground">
-                    Scene #{String(sceneData.scene_number || index + 1).padStart(2, '0')}
-                  </span>
-                  {sceneData.image_path ? (
-                    <span className="flex items-center gap-1 text-xs text-green-500 font-medium bg-green-500/10 px-2 py-1 rounded">
-                      <Check size={12} /> Rendered
-                    </span>
-                  ) : sceneData.image_status === "pending" || sceneData.image_status === "rendering" ? (
-                    <span className="flex items-center gap-1 text-xs text-yellow-500 font-medium bg-yellow-500/10 px-2 py-1 rounded">
-                      <Loader2 size={12} className={sceneData.image_status === "rendering" ? "animate-spin" : ""} /> Pending
-                    </span>
-                  ) : null}
-                </div>
-                
-                <div className="flex-1 bg-neutral-900 dark:bg-black relative overflow-hidden flex items-center justify-center">
-                  {sceneData.image_path ? (
-                    <img 
-                      src={getImageUrl(sceneData.image_path)} 
-                      alt={`Scene ${sceneData.scene_number}`}
-                      className="w-full h-full object-cover opacity-90 group-hover:opacity-100 transition-opacity"
-                    />
-                  ) : (
-                    <div className="flex flex-col items-center justify-center text-foreground/30 gap-2 p-4 text-center">
-                      <ImageIcon size={32} className="opacity-20 mb-1" />
-                      <span className="text-xs font-medium uppercase tracking-wider">Awaiting Generation</span>
-                    </div>
-                  )}
+        {/* Column 2: Center Workspace Editor */}
+        <div className="lg:col-span-2 h-full flex flex-col overflow-hidden">
+          <form 
+            onSubmit={handleRefineSubmit}
+            className="bg-card rounded-xl border border-border flex flex-col h-full overflow-hidden relative"
+          >
+            {activeScene ? (
+              <>
+                {/* Block A - Narrative Fragment */}
+                <div className="border-b border-border p-4 bg-background/50">
+                  <label className="text-xs font-semibold tracking-wide uppercase text-foreground/50 mb-2 block">
+                    Scene Script Segment
+                  </label>
+                  <div className="text-sm text-foreground/80 leading-relaxed font-serif">
+                    {activeScene.narration_khmer || "No script segment attached to this scene."}
+                  </div>
                 </div>
 
-                <div className="p-4 border-t border-border bg-card h-24 overflow-hidden">
-                  <p className="text-xs text-foreground/70 line-clamp-3 leading-relaxed">
-                    {sceneData.narration_khmer || "No script available for this scene."}
-                  </p>
-                </div>
-              </div>
-            )})}
-          </div>
-        )}
-      </div>
-
-      {/* Scene Detail Expansion Modal / Focus Overlay */}
-      {selectedScene && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-md p-4 sm:p-8">
-          <div className="bg-card w-full max-w-6xl h-full max-h-[90vh] rounded-xl border border-border shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-200">
-            
-            {/* Modal Header */}
-            <div className="p-4 border-b border-border flex justify-between items-center bg-background/50">
-              <h2 className="text-xl font-bold flex items-center gap-2">
-                Scene #{String(selectedScene.scene_number).padStart(2, '0')} Detail
-              </h2>
-              <button 
-                onClick={() => setSelectedScene(null)}
-                className="p-2 hover:bg-foreground/10 rounded-full transition-colors"
-              >
-                <X size={20} />
-              </button>
-            </div>
-
-            {/* Modal Body: Dual Column */}
-            <div className="flex flex-1 overflow-hidden flex-col md:flex-row">
-              
-              {/* LEFT CONTROL COLUMN: Prompt Architecture */}
-              <div className="flex-1 p-6 md:p-8 overflow-y-auto border-r border-border flex flex-col gap-6 bg-card">
-                
-                <div>
-                  <label className="text-sm font-semibold mb-2 block text-card-foreground">
-                    Interactive Core Prompt
+                {/* Block B - Current Positive Prompt */}
+                <div className="flex-1 flex flex-col p-4 border-b border-border min-h-0">
+                  <label className="text-xs font-semibold tracking-wide uppercase text-foreground/50 mb-2 block">
+                    Engine Prompt Configuration
                   </label>
                   <textarea
-                    value={promptText}
-                    onChange={(e) => setPromptText(e.target.value)}
-                    onBlur={handlePromptBlur}
-                    className="w-full h-48 p-4 bg-background text-foreground border border-border bg-opacity-50 font-sans focus:border-primary focus:ring-1 focus:ring-primary outline-none rounded-lg resize-y leading-relaxed"
-                    placeholder="Enter or edit the visual prompt here..."
+                    defaultValue={activeScene.image_prompt_english || ""}
+                    className="flex-1 w-full bg-transparent resize-none outline-none text-xs font-sans text-foreground leading-relaxed sleek-scroll"
+                    placeholder="Describe the image you want to generate..."
                   />
                 </div>
 
-                <div className="bg-background rounded-lg border border-border p-5">
-                  <label className="text-sm font-semibold mb-3 block text-card-foreground">
-                    AI Refinement Control
+                {/* Block C - Negative Prompt */}
+                <div className="h-32 flex flex-col p-4 border-b border-border shrink-0">
+                  <label className="text-xs font-semibold tracking-wide uppercase text-foreground/50 mb-2 block">
+                    Acoustic / Negative Constraints
                   </label>
-                  <div className="flex flex-col sm:flex-row gap-3">
+                  <textarea
+                    defaultValue={activeScene.negative_prompt || ""}
+                    className="flex-1 w-full bg-transparent resize-none outline-none text-xs font-sans text-foreground/70 sleek-scroll"
+                    placeholder="Enter elements to exclude (e.g. text, watermark, bad anatomy)..."
+                  />
+                </div>
+
+                {/* Block D - User Iteration Bar */}
+                <div className="p-4 bg-background/30 shrink-0 border-t border-border">
+                  <div className="relative flex items-center">
                     <input
                       type="text"
                       value={refinementInput}
                       onChange={(e) => setRefinementInput(e.target.value)}
-                      placeholder="Instruct AI to detail this prompt..."
-                      className="flex-1 p-3 bg-card border border-border focus:border-primary focus:ring-1 focus:ring-primary outline-none rounded-md text-sm"
-                      onKeyDown={(e) => { if (e.key === 'Enter') handleRefinePrompt(); }}
+                      placeholder="Refine prompt instructions..."
+                      className="w-full pl-4 pr-12 py-3 bg-background border border-border rounded-lg text-sm focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all"
                     />
-                    <button
-                      onClick={handleRefinePrompt}
-                      disabled={isRefining || !refinementInput.trim()}
-                      className="px-5 py-3 bg-card border border-border hover:bg-foreground/5 text-foreground rounded-md transition-colors font-medium flex items-center justify-center gap-2 text-sm whitespace-nowrap disabled:opacity-50"
+                    <button 
+                      type="submit"
+                      className="absolute right-2 p-1.5 text-primary hover:bg-primary/10 rounded-md transition-colors"
                     >
-                      {isRefining ? <Loader2 size={16} className="animate-spin" /> : <WandSparkles size={16} className="text-primary" />}
-                      AI Refine
+                      <CornerDownLeft size={16} />
                     </button>
                   </div>
                 </div>
+              </>
+            ) : (
+              <div className="flex-1 flex items-center justify-center text-foreground/40 text-sm">
+                Select a scene from the left panel to begin editing.
+              </div>
+            )}
+          </form>
+        </div>
 
-                <div className="mt-auto pt-6 border-t border-border flex gap-4">
-                  <button
-                    onClick={handleGenerateFrame}
-                    disabled={isRendering || isDeleting || isRefining}
-                    className="flex-1 bg-primary text-white hover:bg-primary-hover hover:opacity-90 py-3 rounded-lg font-medium flex justify-center items-center gap-2 transition-colors disabled:opacity-50 shadow-sm"
-                  >
-                    {isRendering ? <Loader2 size={18} className="animate-spin" /> : <Cpu size={18} />}
-                    {isRendering ? "Queued..." : "Generate Frame"}
-                  </button>
-                  
-                  {selectedScene.image_path && (
-                    <button
-                      onClick={handleDiscardImage}
-                      disabled={isDeleting || isRendering}
-                      className="px-5 bg-neutral-800 hover:bg-red-900/50 text-red-400 py-3 rounded-lg font-medium flex justify-center items-center gap-2 transition-colors disabled:opacity-50 border border-red-900/30"
-                    >
-                      {isDeleting ? <Loader2 size={18} className="animate-spin" /> : <Trash2 size={18} />}
-                      Discard
-                    </button>
-                  )}
+        {/* Column 3: Right Operations Board */}
+        <div className="lg:col-span-1 h-full flex flex-col overflow-hidden">
+          {/* Top Card (Configuration Panel) */}
+          <div className="bg-card rounded-xl border border-border p-4 shrink-0">
+            <div className="flex items-center gap-2 mb-4">
+              <SlidersHorizontal size={14} className="text-primary" />
+              <h3 className="text-xs font-semibold tracking-wide uppercase text-card-foreground">
+                Python Engine Parameters
+              </h3>
+            </div>
+            
+            <div className="space-y-4">
+              <div className="space-y-1.5">
+                <div className="flex justify-between text-xs text-foreground/70">
+                  <span>Aspect Ratio</span>
+                  <span className="font-mono">{getAspectRatioLabel(aspectRatioValue)}</span>
                 </div>
+                <input type="range" min="1" max="5" value={aspectRatioValue} onChange={(e) => setAspectRatioValue(e.target.value)} className="w-full accent-primary h-1 bg-border rounded-lg appearance-none cursor-pointer" />
               </div>
 
-              {/* RIGHT COLUMN: Real-Time Live Render Canvas Frame */}
-              <div className="flex-1 p-6 md:p-8 bg-background/50 flex flex-col items-center justify-center relative min-h-[400px]">
-                <div className="w-full max-w-sm aspect-[9/16] bg-neutral-900 dark:bg-black rounded-xl border border-border overflow-hidden shadow-2xl relative flex items-center justify-center">
-                  
-                  {isRendering ? (
-                    <div className="flex flex-col items-center justify-center p-8 text-center animate-in fade-in duration-300">
-                      <div className="relative w-20 h-20 flex items-center justify-center mb-6">
-                        <div className="absolute inset-0 border-4 border-primary/30 border-t-primary rounded-full animate-spin"></div>
-                        <Cpu size={32} className="text-primary animate-pulse" />
-                      </div>
-                      <h3 className="text-lg font-bold mb-2">Rendering Frame</h3>
-                      <p className="text-foreground/50 text-sm mb-6">Synthesizing visual assets via local engine...</p>
-                      
-                      <div className="text-3xl font-mono font-bold text-primary tabular-nums">
-                        00:{String(countdown).padStart(2, '0')}
-                      </div>
-                      <div className="mt-4 w-full h-1 bg-foreground/10 rounded-full overflow-hidden">
-                        <div 
-                          className="h-full bg-primary transition-all duration-1000 ease-linear"
-                          style={{ width: `${(15 - countdown) / 15 * 100}%` }}
-                        ></div>
-                      </div>
-                    </div>
-                  ) : selectedScene.image_path ? (
-                    <img 
-                      src={getImageUrl(selectedScene.image_path)} 
-                      alt="Rendered scene" 
-                      className="w-full h-full object-cover animate-in fade-in zoom-in-95 duration-500"
-                    />
-                  ) : (
-                    <div className="flex flex-col items-center justify-center text-foreground/30 p-8 text-center">
-                      <ImageIcon size={48} className="opacity-20 mb-4" />
-                      <p className="text-sm font-medium">9:16 Canvas Frame</p>
-                      <p className="text-xs mt-2 opacity-60">Awaiting generation trigger</p>
-                    </div>
-                  )}
-
+              <div className="space-y-1.5">
+                <div className="flex justify-between text-xs text-foreground/70">
+                  <span>Guidance Scale</span>
+                  <span className="font-mono">{guidanceScale}</span>
                 </div>
+                <input type="range" min="1" max="20" step="0.1" value={guidanceScale} onChange={(e) => setGuidanceScale(parseFloat(e.target.value))} className="w-full accent-primary h-1 bg-border rounded-lg appearance-none cursor-pointer" />
+              </div>
+
+              <div className="space-y-1.5">
+                <div className="flex justify-between text-xs text-foreground/70">
+                  <span>Inference Steps</span>
+                  <span className="font-mono">{inferenceSteps}</span>
+                </div>
+                <input type="range" min="10" max="100" value={inferenceSteps} onChange={(e) => setInferenceSteps(parseInt(e.target.value, 10))} className="w-full accent-primary h-1 bg-border rounded-lg appearance-none cursor-pointer" />
               </div>
             </div>
           </div>
+
+          {/* Bottom Card (Canvas Output Display) */}
+          <div className="flex-1 mt-4 bg-card rounded-xl border border-border flex flex-col overflow-hidden relative">
+            <div className="bg-zinc-50/70 dark:bg-zinc-900/40 px-4 py-2 border-b border-border/60 text-xs font-semibold tracking-wide uppercase text-card-foreground absolute top-0 w-full z-10">
+              Render Output Frame
+            </div>
+            
+            <div className="flex-1 flex items-center justify-center bg-neutral-100 dark:bg-neutral-900 overflow-hidden relative pt-8">
+              {isGenerating ? (
+                <div className="flex flex-col items-center justify-center text-primary p-6">
+                  <Loader2 size={32} className="mb-3 animate-spin opacity-80" />
+                  <p className="text-xs uppercase tracking-widest font-medium">Synthesizing Visual...</p>
+                </div>
+              ) : activeScene?.image_path ? (
+                <img 
+                  src={`http://localhost:8000/static/${activeScene.image_path.split('/').pop()}?t=${cacheBuster}`} 
+                  alt={`Scene ${activeScene.scene_number}`} 
+                  className="w-full h-full object-contain"
+                />
+              ) : (
+                <div className="flex flex-col items-center justify-center text-foreground/30 text-center p-6">
+                  <ImageIcon size={32} className="mb-3 opacity-20" />
+                  <p className="text-xs uppercase tracking-widest font-medium">No Render Output</p>
+                  <p className="text-[10px] mt-1 max-w-[150px] leading-relaxed">Run engine parameters to synthesize visual.</p>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Footer Buttons */}
+          <div className="flex gap-3 mt-4 shrink-0">
+            <button 
+              type="button"
+              onClick={handleGenerate}
+              disabled={isGenerating || !activeScene}
+              className="flex-1 bg-primary text-primary-foreground hover:bg-primary/90 py-3 rounded-xl text-sm font-semibold shadow-sm transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+            >
+              {isGenerating ? <Loader2 size={16} className="animate-spin" /> : <Wand2 size={16} />}
+              {isGenerating ? "Generating..." : "Generate"}
+            </button>
+            <button 
+              type="button"
+              onClick={handleTrash}
+              disabled={isGenerating || !activeScene || !activeScene.image_path}
+              className="bg-red-50 hover:bg-red-100 text-red-600 dark:bg-red-500/10 dark:hover:bg-red-500/20 px-4 rounded-xl text-sm font-semibold transition-all flex items-center justify-center disabled:opacity-50"
+            >
+              <Trash2 size={16} />
+            </button>
+          </div>
         </div>
-      )}
+
+      </div>
     </div>
   );
 }
