@@ -8,7 +8,7 @@ def trigger_local_render(prompt: str, project_name: str, scene_number: int, widt
     project_dir = os.path.join(workspace_dir, project_name)
     os.makedirs(project_dir, exist_ok=True)
     
-    padded_scene_number = f"{int(scene_number):02d}"
+    padded_scene_number = f"{int(scene_number):03d}"
     save_path = os.path.join(project_dir, f"scene_{padded_scene_number}.png")
     
     # Send request to Draw Things API

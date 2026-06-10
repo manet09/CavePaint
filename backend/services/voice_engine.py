@@ -154,7 +154,8 @@ def generate_scene_audio_chunk(text: str, project_slug: str, profile_tag: str, s
     padded_audio = np.concatenate((audio_data, silence))
     
     # Flattened path layout
-    save_path = os.path.join(project_dir, f"scene_{scene_number}.wav")
+    padded_scene_number = f"{int(scene_number):03d}"
+    save_path = os.path.join(project_dir, f"scene_{padded_scene_number}.wav")
     
     try:
         sf.write(save_path, padded_audio, sample_rate)
@@ -211,7 +212,8 @@ def generate_single_scene_audio(text: str, project_slug: str, scene_number: int)
     silence = np.zeros(silence_frames, dtype=np.float32)
     padded_audio = np.concatenate((audio_data, silence))
     
-    save_path = os.path.join(project_dir, f"scene_{scene_number}.wav")
+    padded_scene_number = f"{int(scene_number):03d}"
+    save_path = os.path.join(project_dir, f"scene_{padded_scene_number}.wav")
     
     try:
         sf.write(save_path, padded_audio, sample_rate)
@@ -239,7 +241,9 @@ def compile_master_voiceover(project_id: int, db_session):
     
     for scene in scenes:
         if scene.audio_path:
-            full_path = os.path.join(workspace_dir, scene.audio_path)
+            padded_scene_number = f"{int(scene.scene_number):03d}"
+            expected_audio_path = os.path.join(project.slug, f"scene_{padded_scene_number}.wav")
+            full_path = os.path.join(workspace_dir, expected_audio_path)
             if os.path.exists(full_path):
                 try:
                     data, sr = sf.read(full_path)

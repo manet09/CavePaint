@@ -1,9 +1,9 @@
 /* eslint-disable */
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useProjectContext, SceneData } from "../context/ProjectContext";
-import { CornerDownLeft, Image as ImageIcon, SlidersHorizontal, Wand2, Trash2, Loader2, Check, Maximize2, X, CheckCircle2 } from "lucide-react";
+import { CornerDownLeft, Image as ImageIcon, SlidersHorizontal, Wand2, Trash2, Loader2, Check, Maximize2, X, CheckCircle2, Palette } from "lucide-react";
 
 interface ImagesTabProps {
   activeProject?: any;
@@ -15,6 +15,14 @@ export default function ImagesTab(props: ImagesTabProps) {
   
   const [activeSceneIndex, setActiveSceneIndex] = useState(0);
   const [refinementInput, setRefinementInput] = useState("");
+  const refinementRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    if (refinementRef.current) {
+      refinementRef.current.style.height = "auto";
+      refinementRef.current.style.height = `${Math.min(refinementRef.current.scrollHeight, 84)}px`;
+    }
+  }, [refinementInput]);
   
   const [aspectRatioValue, setAspectRatioValue] = useState("16:9");
   const [inferenceSteps, setInferenceSteps] = useState(10);
@@ -162,8 +170,8 @@ export default function ImagesTab(props: ImagesTabProps) {
         <div className="lg:col-span-3 h-full flex flex-col overflow-hidden">
           {/* Top Card (Image Style Box) */}
           <div className="bg-card rounded-xl border border-border flex flex-col h-40 overflow-hidden shrink-0">
-            <div className="bg-zinc-50/70 dark:bg-zinc-900/40 px-4 py-2 border-b border-border/60 text-xs font-semibold tracking-wide uppercase text-card-foreground">
-              Style Reference
+            <div className="bg-zinc-50/70 dark:bg-zinc-900/40 px-4 py-2 border-b border-border/60 flex items-center gap-2 text-xs font-semibold tracking-wide uppercase text-card-foreground">
+              <Palette size={14} className="text-primary" /> Illustration Style
             </div>
             <textarea
               readOnly
@@ -193,7 +201,7 @@ export default function ImagesTab(props: ImagesTabProps) {
                     }`}
                   >
                     <div className="text-xs font-bold mb-1 flex items-center gap-2">
-                      Scene #{String(scene.scene_number || idx + 1).padStart(2, '0')}
+                      Scene #{String(scene.scene_number || idx + 1).padStart(3, '0')}
                       {scene.image_path && <CheckCircle2 size={14} className="text-emerald-500" />}
                     </div>
                     <div className="text-xs text-foreground/60 line-clamp-2 leading-relaxed">
@@ -251,7 +259,7 @@ export default function ImagesTab(props: ImagesTabProps) {
                 </div>
 
                 {/* Block C - Negative Prompt */}
-                <div className="h-32 flex flex-col p-4 border-b border-border shrink-0">
+                <div className="h-45 flex flex-col p-4 border-b border-border shrink-0">
                   <label className="text-xs font-semibold tracking-wide uppercase text-foreground/50 mb-2 block">
                     Acoustic / Negative Constraints
                   </label>
@@ -267,12 +275,21 @@ export default function ImagesTab(props: ImagesTabProps) {
                 {/* Block D - User Iteration Bar */}
                 <div className="p-4 bg-background/30 shrink-0 border-t border-border">
                   <div className="relative flex items-center">
-                    <input
-                      type="text"
+                    <textarea
+                      ref={refinementRef}
+                      rows={1}
                       value={refinementInput}
                       onChange={(e) => setRefinementInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && !e.shiftKey) {
+                          e.preventDefault();
+                          if (refinementInput.trim()) {
+                            handleRefineSubmit(e as any);
+                          }
+                        }
+                      }}
                       placeholder="Refine prompt instructions..."
-                      className="w-full pl-4 pr-12 py-3 bg-background border border-border rounded-lg text-sm focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all"
+                      className="w-full pl-4 pr-12 py-3 bg-background border border-border rounded-lg text-sm focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all resize-none sleek-scroll"
                     />
                     <button 
                       type="submit"
@@ -302,20 +319,33 @@ export default function ImagesTab(props: ImagesTabProps) {
                       <span>Aspect Ratio</span>
                     </div>
                     <div className="grid grid-cols-5 gap-2">
-                      {["1:1", "4:3", "16:9", "9:16", "2:3"].map((ratio) => (
-                        <button
-                          key={ratio}
-                          type="button"
-                          onClick={() => setAspectRatioValue(ratio)}
-                          className={`py-1.5 text-xs font-mono rounded border transition-all ${
-                            aspectRatioValue === ratio 
-                              ? "bg-primary/5 border-primary text-primary" 
-                              : "bg-background border-border/50 text-foreground/70 hover:border-primary/40 hover:text-foreground"
-                          }`}
-                        >
-                          {ratio}
-                        </button>
-                      ))}
+                      {["1:1", "4:3", "16:9", "9:16", "2:3"].map((ratio) => {
+                        const getDimensions = (r: string) => {
+                          switch (r) {
+                            case "1:1": return { width: 14, height: 14 };
+                            case "4:3": return { width: 16, height: 12 };
+                            case "16:9": return { width: 18, height: 10 };
+                            case "9:16": return { width: 10, height: 18 };
+                            case "2:3": return { width: 12, height: 18 };
+                            default: return { width: 14, height: 14 };
+                          }
+                        };
+                        return (
+                          <button
+                            key={ratio}
+                            type="button"
+                            onClick={() => setAspectRatioValue(ratio)}
+                            className={`py-2 flex flex-col items-center justify-center gap-1.5 text-[10px] font-mono rounded border transition-all ${
+                              aspectRatioValue === ratio 
+                                ? "bg-primary/5 border-primary text-primary" 
+                                : "bg-background border-border/50 text-foreground/70 hover:border-primary/40 hover:text-foreground"
+                            }`}
+                          >
+                            <div className={`border-2 rounded-sm ${aspectRatioValue === ratio ? 'border-primary' : 'border-current'}`} style={getDimensions(ratio)} />
+                            <span>{ratio}</span>
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
 
@@ -344,7 +374,7 @@ export default function ImagesTab(props: ImagesTabProps) {
                   ) : activeScene?.image_path ? (
                     <div className="w-full h-full relative group">
                       <img 
-                        src={`http://localhost:8000/static/${activeProject.slug}/scene_${String(activeScene.scene_number).padStart(2, '0')}.png?t=${cacheBuster}`} 
+                        src={`http://localhost:8000/static/${activeProject.slug}/scene_${String(activeScene.scene_number).padStart(3, '0')}.png?t=${cacheBuster}`} 
                         alt={`Scene ${activeScene.scene_number}`} 
                         className="w-full h-full object-contain"
                       />
@@ -414,7 +444,7 @@ export default function ImagesTab(props: ImagesTabProps) {
             <X size={24} />
           </button>
           <img 
-            src={`http://localhost:8000/static/${activeProject.slug}/scene_${String(activeScene.scene_number).padStart(2, '0')}.png?t=${cacheBuster}`} 
+            src={`http://localhost:8000/static/${activeProject.slug}/scene_${String(activeScene.scene_number).padStart(3, '0')}.png?t=${cacheBuster}`} 
             alt={`Scene ${activeScene.scene_number} Zoomed`} 
             className="max-w-full max-h-full object-contain shadow-2xl rounded-sm"
             onClick={(e) => e.stopPropagation()}

@@ -296,7 +296,7 @@ export default function VoiceTab({ activeProject, refreshProjectData }: VoiceTab
               <div key={scene.id} className="bg-background border border-border rounded-md p-3 flex flex-col gap-2 relative shadow-sm">
                 <div className="flex justify-between items-start">
                   <span className="text-xs font-bold text-foreground/50">
-                    Scene #{String(scene.scene_number).padStart(2, '0')}
+                    Scene #{String(scene.scene_number).padStart(3, '0')}
                   </span>
                   
                   {/* Status Badges */}
@@ -332,7 +332,7 @@ export default function VoiceTab({ activeProject, refreshProjectData }: VoiceTab
                     <audio 
                       controls 
                       className="w-full max-w-[220px] h-8 scale-90 origin-left"
-                      src={`http://localhost:8000/static/${activeProject.slug}/scene_${scene.scene_number}.wav?t=${cacheBuster}`}
+                      src={`http://localhost:8000/static/${activeProject.slug}/scene_${String(scene.scene_number).padStart(3, '0')}.wav?t=${cacheBuster}`}
                     />
                   </div>
                 )}
