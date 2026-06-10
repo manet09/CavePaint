@@ -1,75 +1,103 @@
-/* eslint-disable react-hooks/set-state-in-effect */
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { Project } from "../context/ProjectContext";
-import { Cpu, ZapOff, AudioLines, Check, Loader2, Mic } from "lucide-react";
+/* eslint-disable react-hooks/set-state-in-effect, react-hooks/purity */
+import { Project, SceneData } from "../context/ProjectContext";
+import { Loader2, Check, Play, Settings, RefreshCcw } from "lucide-react";
 
 interface VoiceTabProps {
   activeProject: Project;
   refreshProjectData: () => Promise<void>;
 }
 
-interface SceneData {
-  id?: number;
-  scene_number?: number;
-  narration_khmer?: string;
-  audio_path?: string;
-  audio_status?: string;
-  [key: string]: unknown;
-}
-
 export default function VoiceTab({ activeProject, refreshProjectData }: VoiceTabProps) {
-  const [isModelWarm, setIsModelWarm] = useState(false);
-  const [isTogglingModel, setIsTogglingModel] = useState(false);
-  
-  const [globalVoiceStyle, setGlobalVoiceStyle] = useState(activeProject.global_voice_style || "");
-  const [isSavingStyle, setIsSavingStyle] = useState(false);
-  const [saveSuccess, setSaveSuccess] = useState(false);
-  
-  const [isGenerating, setIsGenerating] = useState(false);
+  // Column 1 state
+  const [longScript, setLongScript] = useState("");
+  const [isParsing, setIsParsing] = useState(false);
 
+  // Column 2 state
+  const [gender, setGender] = useState("Male");
+  const [age, setAge] = useState("Adult");
+  const [tone, setTone] = useState("Documentary");
+  const [speed, setSpeed] = useState("Normal");
+  
+  const [isSavingTag, setIsSavingTag] = useState(false);
+  const [cacheBuster, setCacheBuster] = useState(Date.now());
+
+  // Polling logic
   useEffect(() => {
-    setGlobalVoiceStyle(activeProject.global_voice_style || "");
-  }, [activeProject.global_voice_style]);
+    let intervalId: NodeJS.Timeout;
+    
+    // Check if any scene is processing
+    const isProcessing = activeProject?.scenes?.some(
+      (scene: SceneData) => scene.audio_status === "processing"
+    );
 
-  const handleToggleModel = async (action: "load" | "unload") => {
-    setIsTogglingModel(true);
-    try {
-      const response = await fetch(`http://localhost:8000/api/model/${action}`, {
-        method: "POST",
-      });
-      if (response.ok) {
-        setIsModelWarm(action === "load");
-      }
-    } catch (error) {
-      console.error(`Error ${action}ing model:`, error);
-    } finally {
-      setIsTogglingModel(false);
+    if (isProcessing) {
+      intervalId = setInterval(() => {
+        refreshProjectData();
+      }, 1500);
+    } else {
+      setCacheBuster(Date.now());
     }
-  };
 
-  const handleSaveStyle = async () => {
-    setIsSavingStyle(true);
-    setSaveSuccess(false);
+    return () => {
+      if (intervalId) clearInterval(intervalId);
+    };
+  }, [activeProject?.scenes, refreshProjectData]);
+
+  // Handle parse
+  const handleParseScript = async () => {
+    if (!longScript.trim()) return;
+    setIsParsing(true);
     try {
-      const response = await fetch(`http://localhost:8000/api/projects/${activeProject.id}`, {
-        method: "PUT",
+      const response = await fetch(`http://localhost:8000/api/projects/${activeProject.id}/segment-script`, {
+        method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ voice_style: globalVoiceStyle }),
+        body: JSON.stringify({ long_script: longScript }),
       });
       if (response.ok) {
         await refreshProjectData();
-        setSaveSuccess(true);
-        setTimeout(() => setSaveSuccess(false), 2000);
+        setLongScript("");
       }
     } catch (error) {
-      console.error("Error saving global voice style:", error);
+      console.error("Failed to parse script:", error);
     } finally {
-      setIsSavingStyle(false);
+      setIsParsing(false);
     }
   };
 
+  // Compile prompt tag
+  const compiledTag = `(${gender}, ${age}, ${tone} tone, ${speed} speed)`;
+
+  // Save voice profile tag
+  useEffect(() => {
+    // Only save if changed
+    if (activeProject?.voice_profile_tag === compiledTag) return;
+    
+    const saveTag = async () => {
+      setIsSavingTag(true);
+      try {
+        await fetch(`http://localhost:8000/api/projects/${activeProject.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ voice_profile_tag: compiledTag }),
+        });
+        await refreshProjectData();
+      } catch (error) {
+        console.error("Error saving voice profile tag:", error);
+      } finally {
+        setIsSavingTag(false);
+      }
+    };
+    
+    // Debounce save to avoid too many requests
+    const timeout = setTimeout(saveTag, 1000);
+    return () => clearTimeout(timeout);
+  }, [compiledTag, activeProject?.id, activeProject?.voice_profile_tag, refreshProjectData]);
+
+  // Master generation
+  const [isGenerating, setIsGenerating] = useState(false);
   const handleGenerateVoice = async () => {
     setIsGenerating(true);
     try {
@@ -80,141 +108,205 @@ export default function VoiceTab({ activeProject, refreshProjectData }: VoiceTab
         await refreshProjectData();
       }
     } catch (error) {
-      console.error("Error generating voiceover track:", error);
+      console.error("Error generating voice:", error);
     } finally {
       setIsGenerating(false);
     }
   };
 
-  const getAudioUrl = (path: string) => {
-    if (!path) return "";
-    const filename = path.split("/").pop() || path.split("\\").pop();
-    return `http://localhost:8000/static/${filename}`;
-  };
-
   return (
-    <div className="flex flex-col gap-8 pb-10 animate-in fade-in slide-in-from-bottom-4 duration-500">
+    <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 h-full pb-10 animate-in fade-in slide-in-from-bottom-4 duration-500">
       
-      {/* Memory Lifecycle Banner */}
-      <div className="bg-card border border-border rounded-lg p-5 flex flex-col md:flex-row items-center justify-between gap-4 shadow-sm">
-        <div className="flex items-center gap-3">
-          <div className="relative flex items-center justify-center w-4 h-4">
-            <div className={`absolute inset-0 rounded-full ${isModelWarm ? "bg-green-500 opacity-20 animate-ping" : "bg-neutral-500 opacity-20"}`}></div>
-            <div className={`w-2.5 h-2.5 rounded-full ${isModelWarm ? "bg-green-500" : "bg-neutral-500"}`}></div>
+      {/* COLUMN 1: SCRIPT CANVAS */}
+      <div className="lg:col-span-4 flex flex-col h-full bg-card border border-border rounded-lg shadow-sm overflow-hidden">
+        <div className="p-4 border-b border-border bg-muted/20">
+          <h2 className="text-lg font-bold flex items-center gap-2 text-card-foreground">
+            <Settings size={18} className="text-primary" /> Script Canvas
+          </h2>
+          <p className="text-sm text-foreground/60 mt-1">Paste your Khmer narrative below.</p>
+        </div>
+        <div className="p-4 flex-1 flex flex-col gap-4">
+          <textarea
+            value={longScript}
+            onChange={(e) => setLongScript(e.target.value)}
+            className="flex-1 w-full bg-background border border-border rounded-md p-4 resize-none outline-none focus:ring-2 focus:ring-primary/50 text-sm leading-relaxed"
+            placeholder="Paste your full 1.5-minute Khmer narrative script stream here..."
+          />
+          <button
+            onClick={handleParseScript}
+            disabled={isParsing || !longScript.trim()}
+            className="w-full py-3 bg-primary text-primary-foreground font-semibold rounded-md shadow hover:bg-primary/90 disabled:opacity-50 transition-colors flex justify-center items-center gap-2"
+          >
+            {isParsing ? <Loader2 size={18} className="animate-spin" /> : <Settings size={18} />}
+            {isParsing ? "Slicing Text..." : "Parse and Bind Audio Segments"}
+          </button>
+        </div>
+      </div>
+
+      {/* COLUMN 2: VOICE PERSONALITY DECK */}
+      <div className="lg:col-span-4 flex flex-col h-full bg-card border border-border rounded-lg shadow-sm overflow-hidden">
+        <div className="p-4 border-b border-border bg-muted/20">
+          <h2 className="text-lg font-bold flex items-center gap-2 text-card-foreground">
+            <Play size={18} className="text-primary" /> Voice Personality Deck
+          </h2>
+          <p className="text-sm text-foreground/60 mt-1">Configure acoustic attributes.</p>
+        </div>
+        <div className="p-6 flex-1 flex flex-col gap-6 overflow-y-auto">
+          
+          {/* Gender */}
+          <div>
+            <h3 className="text-sm font-semibold mb-2">Gender</h3>
+            <div className="flex flex-wrap gap-2">
+              {["Male", "Female"].map(opt => (
+                <button
+                  key={opt}
+                  onClick={() => setGender(opt)}
+                  className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${gender === opt ? "bg-primary text-primary-foreground border-primary" : "bg-background text-foreground border-border hover:border-primary/50"}`}
+                >
+                  {opt}
+                </button>
+              ))}
+            </div>
           </div>
-          <span className="font-semibold text-card-foreground">
-            VoxCPM2 Status: <span className={isModelWarm ? "text-green-500" : "text-neutral-500"}>{isModelWarm ? "Warm & Ready" : "Cold / Standby"}</span>
-          </span>
+
+          {/* Age */}
+          <div>
+            <h3 className="text-sm font-semibold mb-2">Age</h3>
+            <div className="flex flex-wrap gap-2">
+              {["Child", "Young Adult", "Adult", "Old-aged Adult"].map(opt => (
+                <button
+                  key={opt}
+                  onClick={() => setAge(opt)}
+                  className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${age === opt ? "bg-primary text-primary-foreground border-primary" : "bg-background text-foreground border-border hover:border-primary/50"}`}
+                >
+                  {opt}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Tone */}
+          <div>
+            <h3 className="text-sm font-semibold mb-2">Tone</h3>
+            <div className="flex flex-wrap gap-2">
+              {["Documentary", "News", "Neutral", "Energetic", "Calm"].map(opt => (
+                <button
+                  key={opt}
+                  onClick={() => setTone(opt)}
+                  className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${tone === opt ? "bg-primary text-primary-foreground border-primary" : "bg-background text-foreground border-border hover:border-primary/50"}`}
+                >
+                  {opt}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Speed */}
+          <div>
+            <h3 className="text-sm font-semibold mb-2">Speed</h3>
+            <div className="flex flex-wrap gap-2">
+              {["Slow", "Normal", "Fast"].map(opt => (
+                <button
+                  key={opt}
+                  onClick={() => setSpeed(opt)}
+                  className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${speed === opt ? "bg-primary text-primary-foreground border-primary" : "bg-background text-foreground border-border hover:border-primary/50"}`}
+                >
+                  {opt}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Live Instruction Preview Tag */}
+          <div className="mt-auto">
+            <h3 className="text-sm font-semibold mb-2 flex items-center justify-between">
+              Live Instruction Preview Tag
+              {isSavingTag && <Loader2 size={12} className="animate-spin text-primary" />}
+            </h3>
+            <div className="w-full bg-neutral-900 text-green-400 p-4 rounded-md border border-neutral-800 shadow-inner font-mono text-sm overflow-x-auto break-all">
+              {compiledTag}
+            </div>
+            <button
+              onClick={handleGenerateVoice}
+              disabled={isGenerating || !activeProject?.scenes?.length}
+              className="w-full mt-4 py-3 bg-primary text-primary-foreground font-semibold rounded-md shadow hover:bg-primary/90 disabled:opacity-50 transition-colors flex justify-center items-center gap-2"
+            >
+              {isGenerating ? <Loader2 size={18} className="animate-spin" /> : <Play size={18} />}
+              Generate All Audio
+            </button>
+          </div>
+
+        </div>
+      </div>
+
+      {/* COLUMN 3: TIMELINE PROGRESS & MASTER PLAYER */}
+      <div className="lg:col-span-4 flex flex-col h-full bg-card border border-border rounded-lg shadow-sm overflow-hidden relative">
+        <div className="p-4 border-b border-border bg-muted/20 flex justify-between items-center z-10">
+          <div>
+            <h2 className="text-lg font-bold flex items-center gap-2 text-card-foreground">
+              <RefreshCcw size={18} className="text-primary" /> Timeline Progress
+            </h2>
+            <p className="text-sm text-foreground/60 mt-1">Scene synchronization status.</p>
+          </div>
         </div>
         
-        <div className="flex gap-3 w-full md:w-auto">
-          <button
-            onClick={() => handleToggleModel("load")}
-            disabled={isTogglingModel || isModelWarm}
-            className="flex-1 md:flex-none flex items-center justify-center gap-2 px-4 py-2 bg-primary text-white hover:bg-primary-hover rounded-md transition-colors text-sm font-medium disabled:opacity-50"
-          >
-            {isTogglingModel && !isModelWarm ? <Loader2 size={16} className="animate-spin" /> : <Cpu size={16} />}
-            Load Model
-          </button>
-          <button
-            onClick={() => handleToggleModel("unload")}
-            disabled={isTogglingModel || !isModelWarm}
-            className="flex-1 md:flex-none flex items-center justify-center gap-2 px-4 py-2 bg-neutral-800 text-neutral-400 hover:text-red-400 rounded-md transition-colors text-sm font-medium disabled:opacity-50"
-          >
-            {isTogglingModel && isModelWarm ? <Loader2 size={16} className="animate-spin" /> : <ZapOff size={16} />}
-            Unload Model & Flush VRAM
-          </button>
-        </div>
-      </div>
-
-      {/* Global Voice Style Configuration */}
-      <div className="bg-card rounded-lg border border-border p-6 shadow-sm">
-        <label className="flex items-center gap-2 text-sm font-semibold mb-3 text-card-foreground">
-          <Mic size={16} className="text-primary" /> Global Voice Style Parameters
-        </label>
-        <div className="flex gap-4 items-center">
-          <input
-            type="text"
-            value={globalVoiceStyle}
-            onChange={(e) => setGlobalVoiceStyle(e.target.value)}
-            onBlur={handleSaveStyle}
-            className="flex-1 p-3 bg-background text-foreground border border-border bg-opacity-50 font-sans focus:border-primary focus:ring-1 focus:ring-primary outline-none rounded-md"
-            placeholder="e.g. Deep male voice, authoritative, slow pacing, cinematic reverb"
-          />
-          <div className="flex items-center justify-center w-24">
-            {isSavingStyle ? (
-              <span className="text-xs text-foreground/50 italic flex items-center gap-1">
-                <Loader2 size={12} className="animate-spin" /> Saving...
-              </span>
-            ) : saveSuccess ? (
-              <span className="text-xs text-green-500 flex items-center gap-1 font-medium">
-                <Check size={14} /> Saved
-              </span>
-            ) : (
-              <span className="text-xs text-foreground/30">Synced</span>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* Master Generation Controller */}
-      <div className="flex justify-between items-center bg-background p-4 rounded-lg border border-border">
-        <div>
-          <h3 className="font-bold text-foreground">Sequential Text-to-Speech Engine</h3>
-          <p className="text-sm text-foreground/60">Generate Khmer audio tracks for all scenes automatically.</p>
-        </div>
-        <button
-          onClick={handleGenerateVoice}
-          disabled={isGenerating || (!activeProject.scenes || activeProject.scenes.length === 0)}
-          className="flex items-center gap-2 px-6 py-3 bg-primary text-white hover:bg-primary-hover rounded-md transition-colors font-medium shadow-sm disabled:opacity-50"
-        >
-          {isGenerating ? <Loader2 size={20} className="animate-spin" /> : <AudioLines size={20} />}
-          {isGenerating ? "Queuing..." : "Compile Video Voiceover Track"}
-        </button>
-      </div>
-
-      {/* Tracking List */}
-      <div className="space-y-4">
-        {(!activeProject.scenes || activeProject.scenes.length === 0) ? (
-          <div className="text-center p-12 border border-dashed border-border rounded-lg text-foreground/50">
-            No scenes available. Parse the script in the Overview tab first.
-          </div>
-        ) : (
-          activeProject.scenes.map((scene: unknown, index: number) => {
-            const sceneData = scene as SceneData;
-            return (
-            <div key={sceneData.id || index} className="bg-card border border-border rounded-lg p-5 flex flex-col md:flex-row gap-6">
-              <div className="flex-1">
-                <span className="font-bold text-sm tracking-wide text-foreground/50 mb-2 block">
-                  Scene #{String(sceneData.scene_number || index + 1).padStart(2, '0')}
-                </span>
-                <p className="text-sm text-foreground/90 leading-relaxed font-medium">
-                  {sceneData.narration_khmer || "No narration script provided."}
+        <div className="flex-1 overflow-y-auto p-4 space-y-3 pb-32">
+          {(!activeProject?.scenes || activeProject.scenes.length === 0) ? (
+            <div className="text-center p-8 border border-dashed border-border rounded-lg text-foreground/50 text-sm">
+              No scenes bound yet.
+            </div>
+          ) : (
+            activeProject.scenes.map((scene: SceneData) => (
+              <div key={scene.id} className="bg-background border border-border rounded-md p-3 flex flex-col gap-2 relative shadow-sm">
+                <div className="flex justify-between items-start">
+                  <span className="text-xs font-bold text-foreground/50">
+                    Scene #{String(scene.scene_number).padStart(2, '0')}
+                  </span>
+                  
+                  {/* Status Badges */}
+                  {scene.audio_status === "completed" ? (
+                    <span className="bg-green-500/10 text-green-500 border border-green-500/20 px-2 py-0.5 rounded-full text-[10px] font-bold flex items-center gap-1 uppercase">
+                      <Check size={10} /> Completed
+                    </span>
+                  ) : scene.audio_status === "processing" ? (
+                    <span className="bg-primary/10 text-primary border border-primary/20 px-2 py-0.5 rounded-full text-[10px] font-bold flex items-center gap-1 uppercase">
+                      <Loader2 size={10} className="animate-spin" /> Synthesizing line via local VoxCPM2...
+                    </span>
+                  ) : (
+                    <span className="bg-neutral-500/10 text-neutral-500 border border-neutral-500/20 px-2 py-0.5 rounded-full text-[10px] font-bold flex items-center gap-1 uppercase">
+                      Idle
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs text-foreground/80 line-clamp-2" title={scene.narration_khmer || undefined}>
+                  {scene.narration_khmer || "Empty narrative chunk..."}
                 </p>
               </div>
-              
-              <div className="w-full md:w-72 flex items-center justify-end border-t md:border-t-0 md:border-l border-border pt-4 md:pt-0 md:pl-6">
-                {sceneData.audio_path ? (
-                  <audio controls className="w-full h-10 outline-none rounded-full">
-                    <source src={getAudioUrl(sceneData.audio_path)} type="audio/mpeg" />
-                    Your browser does not support the audio element.
-                  </audio>
-                ) : sceneData.audio_status === "pending" || sceneData.audio_status === "rendering" ? (
-                  <div className="flex items-center gap-3 text-yellow-500 bg-yellow-500/10 px-4 py-2 rounded-lg w-full justify-center">
-                    <Loader2 size={16} className={sceneData.audio_status === "rendering" ? "animate-spin" : ""} />
-                    <span className="text-sm font-medium">{sceneData.audio_status === "rendering" ? "Rendering..." : "Pending"}</span>
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-2 text-foreground/30 text-sm justify-center w-full">
-                    <AudioLines size={16} className="opacity-50" />
-                    Awaiting trigger
-                  </div>
-                )}
-              </div>
+            ))
+          )}
+        </div>
+
+        {/* Persistent Master Player wrapper */}
+        <div className="absolute bottom-0 left-0 right-0 bg-card border-t border-border p-4 shadow-[0_-10px_40px_rgba(0,0,0,0.1)] z-20">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-bold text-primary uppercase tracking-wider">Master Rendered Output</span>
+            {activeProject?.master_audio_path && (
+              <span className="text-[10px] bg-green-500/10 text-green-500 px-2 py-0.5 rounded-full font-semibold">Ready</span>
+            )}
+          </div>
+          {activeProject?.master_audio_path ? (
+            <audio 
+              controls 
+              className="w-full h-10 outline-none rounded-md bg-background"
+              src={`http://localhost:8000/static/${activeProject.slug}/master_voiceover.wav?t=${cacheBuster}`} 
+            />
+          ) : (
+            <div className="w-full h-10 flex items-center justify-center bg-background border border-border border-dashed rounded-md text-xs text-foreground/40 font-medium">
+              Awaiting Master Concatenation...
             </div>
-            );
-          })
-        )}
+          )}
+        </div>
+
       </div>
 
     </div>

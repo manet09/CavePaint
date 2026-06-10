@@ -50,6 +50,8 @@ class ProjectBase(BaseModel):
     global_voice_style: Optional[str] = None
     structured_json_data: Optional[str] = None
     status: Optional[str] = "draft"
+    master_audio_path: Optional[str] = None
+    voice_profile_tag: Optional[str] = None
 
 class ProjectCreate(BaseModel):
     title: str
@@ -63,6 +65,8 @@ class ProjectUpdate(BaseModel):
     global_voice_style: Optional[str] = None
     structured_json_data: Optional[str] = None
     status: Optional[str] = None
+    master_audio_path: Optional[str] = None
+    voice_profile_tag: Optional[str] = None
 
 class ProjectOutList(ProjectBase):
     id: int
@@ -300,6 +304,39 @@ async def parse_project_scenes(project_id: int, db: Session = Depends(get_db)):
     project.structured_json_data = json.dumps(clean_json_array)
     db.commit()
     return {"status": "success", "scenes_created": len(new_scenes)}
+
+
+class ScriptSegmentPayload(BaseModel):
+    long_script: str
+
+@app.post("/api/projects/{project_id}/segment-script")
+async def segment_project_script(project_id: int, payload: ScriptSegmentPayload, db: Session = Depends(get_db)):
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    long_script = payload.long_script or ""
+    clean_script = re.sub(r"\(.*?\)", "", long_script)
+    chunks = [c.strip() for c in re.split(r"[។\n]+", clean_script) if c.strip()]
+    
+    scenes = db.query(Scene).filter(Scene.project_id == project_id).order_by(Scene.scene_number).all()
+    
+    for i, chunk in enumerate(chunks):
+        if i < len(scenes):
+            if scenes[i].narration_khmer != chunk:
+                scenes[i].narration_khmer = chunk
+        else:
+            new_scene = Scene(
+                project_id=project.id,
+                scene_number=i + 1,
+                narration_khmer=chunk,
+                image_status="idle",
+                audio_status="idle"
+            )
+            db.add(new_scene)
+            
+    db.commit()
+    return {"status": "success", "chunks_mapped": len(chunks)}
 
 
 @app.post("/api/scenes/{scene_id}/refine")

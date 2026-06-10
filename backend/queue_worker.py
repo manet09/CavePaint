@@ -84,21 +84,30 @@ async def process_task(task: GenerationTask):
             db.commit()
             
             text = task.payload.get("text")
+            
+            workspace_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "workspace"))
+            
             loop = asyncio.get_running_loop()
             save_path = await loop.run_in_executor(
                 None,
-                voice_engine.generate_scene_audio,
+                voice_engine.generate_scene_audio_chunk,
                 text,
                 project.slug,
+                project.voice_profile_tag or "default",
                 scene.scene_number
             )
             
-            
-            workspace_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "workspace"))
             rel_save_path = os.path.relpath(save_path, workspace_dir).replace("\\", "/")
             scene.audio_path = rel_save_path
             scene.audio_status = "completed"
             db.commit()
+            
+            try:
+                # Compile master timeline immediately after a chunk completes
+                voice_engine.compile_master_voiceover(project.id, db)
+            except Exception as compile_err:
+                print(f"Failed to compile master voiceover: {compile_err}")
+                db.rollback()
             
     except Exception as e:
         print(f"Error processing task: {e}")

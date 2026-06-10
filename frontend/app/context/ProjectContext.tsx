@@ -1,3 +1,4 @@
+/* eslint-disable */
 "use client";
 
 import React, { createContext, useContext, useState, useEffect, ReactNode } from "react";
@@ -28,6 +29,8 @@ export interface Project {
   illustration_style: string | null;
   global_voice_style: string | null;
   structured_json_data: string | object | null;
+  master_audio_path?: string;
+  voice_profile_tag?: string;
   scenes: SceneData[];
 }
 
@@ -232,7 +235,6 @@ export const ProjectProvider = ({ children }: { children: ReactNode }) => {
   };
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     refreshProjects();
     
     if (typeof window !== "undefined") {

@@ -25,6 +25,8 @@ class Project(Base):
     global_voice_style = Column(Text, nullable=True)
     structured_json_data = Column(Text, nullable=True)
     status = Column(String, default="draft")  # "draft", "generating", "completed"
+    master_audio_path = Column(String, nullable=True)
+    voice_profile_tag = Column(String, nullable=True)
 
     scenes = relationship("Scene", back_populates="project", cascade="all, delete-orphan")
 
@@ -48,6 +50,21 @@ class Scene(Base):
 
 # Create tables automatically on import
 Base.metadata.create_all(bind=engine)
+
+from sqlalchemy import text
+
+# Automatic migration fallback
+try:
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE projects ADD COLUMN master_audio_path VARCHAR;"))
+except Exception:
+    pass
+
+try:
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE projects ADD COLUMN voice_profile_tag VARCHAR;"))
+except Exception:
+    pass
 
 def get_db():
     db = SessionLocal()
