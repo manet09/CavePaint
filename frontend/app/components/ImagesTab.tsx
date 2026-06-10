@@ -37,6 +37,14 @@ export default function ImagesTab(props: ImagesTabProps) {
   const scenes = activeProject?.scenes || [];
   const activeScene = scenes[activeSceneIndex] || null;
 
+  const [localIllustrationStyle, setLocalIllustrationStyle] = useState("");
+  
+  useEffect(() => {
+    if (activeProject) {
+      setLocalIllustrationStyle(activeProject.illustration_style || "");
+    }
+  }, [activeProject?.illustration_style]);
+
   useEffect(() => {
     if (activeScene) {
       setLocalPositive(activeScene.image_prompt_english || "");
@@ -46,6 +54,20 @@ export default function ImagesTab(props: ImagesTabProps) {
       setLocalNegative("");
     }
   }, [activeScene]);
+
+  const handleIllustrationStyleBlur = async () => {
+    if (localIllustrationStyle === (activeProject?.illustration_style || "")) return;
+    try {
+      await fetch(`http://localhost:8000/api/projects/${activeProject?.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ illustration_style: localIllustrationStyle }),
+      });
+      if (props.refreshProjectData) await props.refreshProjectData();
+    } catch (err) {
+      console.error(err);
+    }
+  };
 
   useEffect(() => {
     let interval: NodeJS.Timeout;
@@ -174,8 +196,9 @@ export default function ImagesTab(props: ImagesTabProps) {
               <Palette size={14} className="text-primary" /> Illustration Style
             </div>
             <textarea
-              readOnly
-              value={activeProject?.illustration_style || ""}
+              value={localIllustrationStyle}
+              onChange={(e) => setLocalIllustrationStyle(e.target.value)}
+              onBlur={handleIllustrationStyleBlur}
               className="flex-1 w-full p-3 bg-transparent resize-none outline-none text-xs font-sans text-foreground/80 sleek-scroll"
               placeholder="No global style defined."
             />

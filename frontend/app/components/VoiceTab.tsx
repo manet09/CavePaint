@@ -1,9 +1,77 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 /* eslint-disable react-hooks/set-state-in-effect, react-hooks/purity */
 import { Project, SceneData } from "../context/ProjectContext";
-import { Loader2, Check, Play, Settings, RefreshCcw } from "lucide-react";
+import { Loader2, Check, Play, Pause, Settings, RefreshCcw, FileText, Mic, Volume2 } from "lucide-react";
+
+const CustomAudioPlayer = ({ src, className = "" }: { src: string, className?: string }) => {
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [currentTime, setCurrentTime] = useState(0);
+  const audioRef = useRef<HTMLAudioElement>(null);
+
+  const togglePlay = () => {
+    if (audioRef.current) {
+      if (isPlaying) {
+        audioRef.current.pause();
+      } else {
+        audioRef.current.play();
+      }
+      setIsPlaying(!isPlaying);
+    }
+  };
+
+  const handleTimeUpdate = () => {
+    if (audioRef.current) {
+      const current = audioRef.current.currentTime;
+      const total = audioRef.current.duration;
+      setCurrentTime(current);
+      if (total) setProgress((current / total) * 100);
+    }
+  };
+
+  const handleLoadedMetadata = () => {
+    if (audioRef.current) setDuration(audioRef.current.duration);
+  };
+
+  const handleEnded = () => {
+    setIsPlaying(false);
+    setProgress(0);
+    setCurrentTime(0);
+  };
+
+  const formatTime = (time: number) => {
+    if (isNaN(time)) return "0:00";
+    const mins = Math.floor(time / 60);
+    const secs = Math.floor(time % 60);
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  return (
+    <div className={`flex items-center gap-3 bg-zinc-200 dark:bg-zinc-800 text-zinc-900 dark:text-white px-3 py-2 rounded-md ${className}`}>
+      <button onClick={togglePlay} className="text-zinc-900 dark:text-white hover:text-primary transition-colors flex-shrink-0">
+        {isPlaying ? <Pause size={18} fill="currentColor" /> : <Play size={18} fill="currentColor" />}
+      </button>
+      <div className="relative flex-1 h-2 bg-zinc-300 dark:bg-zinc-600 rounded-full overflow-hidden cursor-pointer">
+        <div className="absolute top-0 left-0 h-full bg-primary rounded-full" style={{ width: `${progress}%` }} />
+      </div>
+      <div className="text-[10px] font-mono text-zinc-600 dark:text-zinc-300 w-10 text-right shrink-0">
+        {formatTime(currentTime)}
+      </div>
+      <Volume2 size={16} className="text-zinc-500 dark:text-zinc-400 shrink-0" />
+      <audio 
+        ref={audioRef} 
+        src={src} 
+        onTimeUpdate={handleTimeUpdate}
+        onLoadedMetadata={handleLoadedMetadata}
+        onEnded={handleEnded}
+        className="hidden" 
+      />
+    </div>
+  );
+};
 
 interface VoiceTabProps {
   activeProject: Project;
@@ -11,9 +79,7 @@ interface VoiceTabProps {
 }
 
 export default function VoiceTab({ activeProject, refreshProjectData }: VoiceTabProps) {
-  // Column 1 state
-  const [longScript, setLongScript] = useState("");
-  const [isParsing, setIsParsing] = useState(false);
+
 
   // Column 2 state
   const [gender, setGender] = useState("Male");
@@ -23,16 +89,55 @@ export default function VoiceTab({ activeProject, refreshProjectData }: VoiceTab
   
   const [cacheBuster, setCacheBuster] = useState(Date.now());
 
+  const [localScriptNarrative, setLocalScriptNarrative] = useState("");
+  const [modelLoaded, setModelLoaded] = useState(false);
+
+  useEffect(() => {
+    if (activeProject) {
+      setLocalScriptNarrative(activeProject.script_narrative || "");
+    }
+  }, [activeProject?.script_narrative]);
+
+  const handleScriptNarrativeBlur = async () => {
+    if (localScriptNarrative === (activeProject?.script_narrative || "")) return;
+    try {
+      await fetch(`http://localhost:8000/api/projects/${activeProject?.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ script_narrative: localScriptNarrative }),
+      });
+      if (refreshProjectData) await refreshProjectData();
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  // Poll model status
+  useEffect(() => {
+    const fetchModelStatus = async () => {
+      try {
+        const res = await fetch("http://localhost:8000/api/model/status");
+        if (res.ok) {
+          const data = await res.json();
+          setModelLoaded(data.loaded);
+        }
+      } catch (err) {}
+    };
+
+    fetchModelStatus();
+    const interval = setInterval(fetchModelStatus, 5000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const isAnySceneProcessing = activeProject?.scenes?.some(
+    (scene: SceneData) => scene.audio_status === "processing"
+  );
+
   // Polling logic
   useEffect(() => {
     let intervalId: NodeJS.Timeout;
-    
-    // Check if any scene is processing
-    const isProcessing = activeProject?.scenes?.some(
-      (scene: SceneData) => scene.audio_status === "processing"
-    );
 
-    if (isProcessing) {
+    if (isAnySceneProcessing) {
       intervalId = setInterval(() => {
         refreshProjectData();
       }, 1500);
@@ -43,28 +148,9 @@ export default function VoiceTab({ activeProject, refreshProjectData }: VoiceTab
     return () => {
       if (intervalId) clearInterval(intervalId);
     };
-  }, [activeProject?.scenes, refreshProjectData]);
+  }, [isAnySceneProcessing, refreshProjectData]);
 
-  // Handle parse
-  const handleParseScript = async () => {
-    if (!longScript.trim()) return;
-    setIsParsing(true);
-    try {
-      const response = await fetch(`http://localhost:8000/api/projects/${activeProject.id}/segment-script`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ long_script: longScript }),
-      });
-      if (response.ok) {
-        await refreshProjectData();
-        setLongScript("");
-      }
-    } catch (error) {
-      console.error("Failed to parse script:", error);
-    } finally {
-      setIsParsing(false);
-    }
-  };
+
 
   const [isResetting, setIsResetting] = useState(false);
 
@@ -146,6 +232,15 @@ export default function VoiceTab({ activeProject, refreshProjectData }: VoiceTab
     }
   };
 
+  const handleStopVoice = async () => {
+    try {
+      await fetch(`http://localhost:8000/api/projects/${activeProject.id}/stop-voice`, { method: "POST" });
+      await refreshProjectData();
+    } catch (error) {
+      console.error("Error stopping voice:", error);
+    }
+  };
+
   return (
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 h-full pb-10 animate-in fade-in slide-in-from-bottom-4 duration-500">
       
@@ -153,136 +248,133 @@ export default function VoiceTab({ activeProject, refreshProjectData }: VoiceTab
       <div className="lg:col-span-5 flex flex-col h-full gap-6">
         
         {/* SCRIPT CANVAS */}
-        <div className="flex flex-col bg-card border border-border rounded-lg shadow-sm overflow-hidden shrink-0">
-        <div className="p-4 border-b border-border bg-muted/20">
-          <h2 className="text-lg font-bold flex items-center gap-2 text-card-foreground">
-            <Settings size={18} className="text-primary" /> Script Canvas
-          </h2>
-          <p className="text-sm text-foreground/60 mt-1">Paste your Khmer narrative below.</p>
-        </div>
-        <div className="p-4 flex-1 flex flex-col gap-4">
+        <div className="bg-card rounded-xl border border-border flex flex-col h-60 overflow-hidden shrink-0">
+          <div className="bg-zinc-50/70 dark:bg-zinc-900/40 px-4 py-2 border-b border-border/60 flex items-center gap-2 text-xs font-semibold tracking-wide uppercase text-card-foreground">
+            <FileText size={14} className="text-primary" /> Narrative Script (Khmer)
+          </div>
           <textarea
-            value={longScript}
-            onChange={(e) => setLongScript(e.target.value)}
-            className="flex-1 w-full bg-background border border-border rounded-md p-4 resize-none outline-none focus:ring-2 focus:ring-primary/50 text-sm leading-relaxed"
-            placeholder="Paste your full 1.5-minute Khmer narrative script stream here..."
+            value={localScriptNarrative}
+            onChange={(e) => setLocalScriptNarrative(e.target.value)}
+            onBlur={handleScriptNarrativeBlur}
+            className="flex-1 w-full p-3 bg-transparent resize-none outline-none text-xs font-sans text-foreground/80 sleek-scroll leading-relaxed"
+            placeholder="No script narrative available."
           />
-          <button
-            onClick={handleParseScript}
-            disabled={isParsing || !longScript.trim()}
-            className="w-full py-3 bg-primary text-primary-foreground font-semibold rounded-md shadow hover:bg-primary/90 disabled:opacity-50 transition-colors flex justify-center items-center gap-2"
-          >
-            {isParsing ? <Loader2 size={18} className="animate-spin" /> : <Settings size={18} />}
-            {isParsing ? "Slicing Text..." : "Parse and Bind Audio Segments"}
-          </button>
         </div>
-      </div>
 
         {/* VOICE PERSONALITY DECK */}
-        <div className="flex-1 flex flex-col bg-card border border-border rounded-lg shadow-sm overflow-hidden min-h-0">
-        <div className="p-4 border-b border-border bg-muted/20">
-          <h2 className="text-lg font-bold flex items-center gap-2 text-card-foreground">
-            <Play size={18} className="text-primary" /> Voice Personality Deck
-          </h2>
-          <p className="text-sm text-foreground/60 mt-1">Configure acoustic attributes.</p>
-        </div>
-        <div className="p-6 flex-1 flex flex-col gap-6 overflow-y-auto">
-          
-          {/* Gender */}
-          <div>
-            <h3 className="text-sm font-semibold mb-2">Gender</h3>
-            <div className="flex flex-wrap gap-2">
-              {["Male", "Female"].map(opt => (
-                <button
-                  key={opt}
-                  onClick={() => setGender(opt)}
-                  className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${gender === opt ? "bg-primary text-primary-foreground border-primary" : "bg-background text-foreground border-border hover:border-primary/50"}`}
-                >
-                  {opt}
-                </button>
-              ))}
+        <div className="flex-1 flex flex-col bg-card border border-border rounded-xl shadow-sm overflow-hidden min-h-0">
+          <div className="bg-zinc-50/70 dark:bg-zinc-900/40 px-4 py-2 border-b border-border/60 flex items-center justify-between">
+            <div className="flex items-center gap-2 text-xs font-semibold tracking-wide uppercase text-card-foreground">
+              <Mic size={14} className="text-primary" /> Voice Personality Deck
+            </div>
+            <div className={`flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider border ${modelLoaded ? "bg-green-500/10 text-green-500 border-green-500/20" : "bg-neutral-500/10 text-neutral-500 border-neutral-500/20"}`}>
+              <div className={`w-1.5 h-1.5 rounded-full ${modelLoaded ? "bg-green-500" : "bg-neutral-500"}`} />
+              VoxCPM2: {modelLoaded ? "Loaded" : "Idle"}
             </div>
           </div>
+          <div className="p-4 flex-1 flex flex-col gap-4 overflow-y-auto sleek-scroll">
+            
+            {/* Gender */}
+            <div className="space-y-1.5">
+              <h3 className="text-xs text-foreground/70 mb-1">Gender</h3>
+              <div className="flex flex-wrap gap-2">
+                {["Male", "Female"].map(opt => (
+                  <button
+                    key={opt}
+                    onClick={() => setGender(opt)}
+                    className={`py-1.5 px-3 text-xs font-mono rounded border transition-all ${gender === opt ? "bg-primary/5 border-primary text-primary" : "bg-background border-border/50 text-foreground/70 hover:border-primary/40 hover:text-foreground"}`}
+                  >
+                    {opt}
+                  </button>
+                ))}
+              </div>
+            </div>
 
-          {/* Age */}
-          <div>
-            <h3 className="text-sm font-semibold mb-2">Age</h3>
-            <div className="flex flex-wrap gap-2">
-              {["Child", "Young Adult", "Adult", "Old-aged Adult"].map(opt => (
+            {/* Age */}
+            <div className="space-y-1.5">
+              <h3 className="text-xs text-foreground/70 mb-1">Age</h3>
+              <div className="flex flex-wrap gap-2">
+                {["Child", "Young Adult", "Adult", "Old-aged Adult"].map(opt => (
+                  <button
+                    key={opt}
+                    onClick={() => setAge(opt)}
+                    className={`py-1.5 px-3 text-xs font-mono rounded border transition-all ${age === opt ? "bg-primary/5 border-primary text-primary" : "bg-background border-border/50 text-foreground/70 hover:border-primary/40 hover:text-foreground"}`}
+                  >
+                    {opt}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Tone */}
+            <div className="space-y-1.5">
+              <h3 className="text-xs text-foreground/70 mb-1">Tone</h3>
+              <div className="flex flex-wrap gap-2">
+                {["Documentary", "News", "Neutral", "Energetic", "Calm"].map(opt => (
+                  <button
+                    key={opt}
+                    onClick={() => setTone(opt)}
+                    className={`py-1.5 px-3 text-xs font-mono rounded border transition-all ${tone === opt ? "bg-primary/5 border-primary text-primary" : "bg-background border-border/50 text-foreground/70 hover:border-primary/40 hover:text-foreground"}`}
+                  >
+                    {opt}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Speed */}
+            <div className="space-y-1.5">
+              <h3 className="text-xs text-foreground/70 mb-1">Speed</h3>
+              <div className="flex flex-wrap gap-2">
+                {["Slow", "Normal", "Fast"].map(opt => (
+                  <button
+                    key={opt}
+                    onClick={() => setSpeed(opt)}
+                    className={`py-1.5 px-3 text-xs font-mono rounded border transition-all ${speed === opt ? "bg-primary/5 border-primary text-primary" : "bg-background border-border/50 text-foreground/70 hover:border-primary/40 hover:text-foreground"}`}
+                  >
+                    {opt}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="mt-auto pt-4 border-t border-border/50 flex flex-col gap-2">
+              <div className="flex gap-2">
+                {!isAnySceneProcessing && !isGenerating ? (
+                  <button
+                    onClick={handleGenerateVoice}
+                    disabled={isResetting || !activeProject?.scenes?.length}
+                    className="flex-[2] py-2 bg-primary text-primary-foreground text-xs font-semibold rounded shadow-sm hover:bg-primary/90 disabled:opacity-50 transition-colors flex justify-center items-center gap-2"
+                  >
+                    <Play size={14} /> Generate
+                  </button>
+                ) : (
+                  <button
+                    onClick={handleStopVoice}
+                    className="flex-[2] py-2 bg-red-600 text-white text-xs font-semibold rounded shadow-sm hover:bg-red-700 disabled:opacity-50 transition-colors flex justify-center items-center gap-2"
+                  >
+                    <Loader2 size={14} className="animate-spin" /> Stop
+                  </button>
+                )}
                 <button
-                  key={opt}
-                  onClick={() => setAge(opt)}
-                  className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${age === opt ? "bg-primary text-primary-foreground border-primary" : "bg-background text-foreground border-border hover:border-primary/50"}`}
+                  onClick={handleResetVoice}
+                  disabled={isGenerating || isResetting || !activeProject?.scenes?.length}
+                  className="flex-[1] py-2 bg-transparent text-red-500 border border-red-500/50 text-xs font-semibold rounded hover:bg-red-500/10 disabled:opacity-50 transition-colors flex justify-center items-center gap-2"
                 >
-                  {opt}
+                  {isResetting ? <Loader2 size={14} className="animate-spin" /> : <RefreshCcw size={14} />}
+                  Clear
                 </button>
-              ))}
+              </div>
             </div>
           </div>
-
-          {/* Tone */}
-          <div>
-            <h3 className="text-sm font-semibold mb-2">Tone</h3>
-            <div className="flex flex-wrap gap-2">
-              {["Documentary", "News", "Neutral", "Energetic", "Calm"].map(opt => (
-                <button
-                  key={opt}
-                  onClick={() => setTone(opt)}
-                  className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${tone === opt ? "bg-primary text-primary-foreground border-primary" : "bg-background text-foreground border-border hover:border-primary/50"}`}
-                >
-                  {opt}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Speed */}
-          <div>
-            <h3 className="text-sm font-semibold mb-2">Speed</h3>
-            <div className="flex flex-wrap gap-2">
-              {["Slow", "Normal", "Fast"].map(opt => (
-                <button
-                  key={opt}
-                  onClick={() => setSpeed(opt)}
-                  className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${speed === opt ? "bg-primary text-primary-foreground border-primary" : "bg-background text-foreground border-border hover:border-primary/50"}`}
-                >
-                  {opt}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="mt-auto pt-4 border-t border-border/50">
-            <button
-              onClick={handleGenerateVoice}
-              disabled={isGenerating || isResetting || !activeProject?.scenes?.length}
-              className="w-full py-3 bg-primary text-primary-foreground font-semibold rounded-md shadow hover:bg-primary/90 disabled:opacity-50 transition-colors flex justify-center items-center gap-2"
-            >
-              {isGenerating ? <Loader2 size={18} className="animate-spin" /> : <Play size={18} />}
-              Generate All Audio
-            </button>
-            <button
-              onClick={handleResetVoice}
-              disabled={isGenerating || isResetting || !activeProject?.scenes?.length}
-              className="w-full mt-3 py-3 bg-transparent text-red-500 border border-red-500 font-semibold rounded-md hover:bg-red-500/10 disabled:opacity-50 transition-colors flex justify-center items-center gap-2"
-            >
-              {isResetting ? <Loader2 size={18} className="animate-spin" /> : <RefreshCcw size={18} />}
-              Reset Voice Profile
-            </button>
-          </div>
-
-        </div>
       </div>
     </div>
       
       {/* RIGHT PANE: TIMELINE PROGRESS & MASTER PLAYER */}
       <div className="lg:col-span-7 flex flex-col h-full bg-card border border-border rounded-lg shadow-sm overflow-hidden relative">
-        <div className="p-4 border-b border-border bg-muted/20 flex justify-between items-center z-10">
-          <div>
-            <h2 className="text-lg font-bold flex items-center gap-2 text-card-foreground">
-              <RefreshCcw size={18} className="text-primary" /> Timeline Progress
-            </h2>
-            <p className="text-sm text-foreground/60 mt-1">Scene synchronization status.</p>
+        <div className="bg-zinc-50/70 dark:bg-zinc-900/40 px-4 py-2 border-b border-border/60 flex justify-between items-center z-10">
+          <div className="flex items-center gap-2 text-xs font-semibold tracking-wide uppercase text-card-foreground">
+            <RefreshCcw size={14} className="text-primary" /> Timeline Progress
           </div>
         </div>
         
@@ -293,7 +385,7 @@ export default function VoiceTab({ activeProject, refreshProjectData }: VoiceTab
             </div>
           ) : (
             activeProject.scenes.map((scene: SceneData) => (
-              <div key={scene.id} className="bg-background border border-border rounded-md p-3 flex flex-col gap-2 relative shadow-sm">
+              <div key={scene.id} className="bg-background border border-border rounded-md p-3 flex flex-col relative shadow-sm">
                 <div className="flex justify-between items-start">
                   <span className="text-xs font-bold text-foreground/50">
                     Scene #{String(scene.scene_number).padStart(3, '0')}
@@ -324,14 +416,12 @@ export default function VoiceTab({ activeProject, refreshProjectData }: VoiceTab
                     </button>
                   </div>
                 </div>
-                <p className="text-xs text-foreground/80 line-clamp-2" title={scene.narration_khmer || undefined}>
+                <p className="text-xs text-foreground/80 line-clamp-2 leading-loose" title={scene.narration_khmer || undefined}>
                   {scene.narration_khmer || "Empty narrative chunk..."}
                 </p>
                 {scene.audio_status === "completed" && scene.audio_path && (
-                  <div className="mt-1">
-                    <audio 
-                      controls 
-                      className="w-full max-w-[220px] h-8 scale-90 origin-left"
+                  <div className="mt-2">
+                    <CustomAudioPlayer 
                       src={`http://localhost:8000/static/${activeProject.slug}/scene_${String(scene.scene_number).padStart(3, '0')}.wav?t=${cacheBuster}`}
                     />
                   </div>
@@ -350,10 +440,9 @@ export default function VoiceTab({ activeProject, refreshProjectData }: VoiceTab
             )}
           </div>
           {activeProject?.master_audio_path ? (
-            <audio 
-              controls 
-              className="w-full h-10 outline-none rounded-md bg-background"
+            <CustomAudioPlayer 
               src={`http://localhost:8000/static/${activeProject.slug}/master_voiceover.wav?t=${cacheBuster}`} 
+              className="mt-1 bg-zinc-900 shadow-inner"
             />
           ) : (
             <div className="w-full h-10 flex items-center justify-center bg-background border border-border border-dashed rounded-md text-xs text-foreground/40 font-medium">

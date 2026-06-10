@@ -80,9 +80,10 @@ async def process_task(task: GenerationTask):
             db.commit()
             
         elif task.task_type == "audio":
-            scene.audio_status = "processing"
-            db.commit()
-            
+            if scene.audio_status != "processing":
+                print("Audio task cancelled in queue. Skipping.")
+                return
+                
             text = task.payload.get("text")
             
             workspace_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "workspace"))
@@ -110,9 +111,10 @@ async def process_task(task: GenerationTask):
                 db.rollback()
                 
         elif task.task_type == "audio_single":
-            scene.audio_status = "processing"
-            db.commit()
-            
+            if scene.audio_status != "processing":
+                print("Single audio task cancelled in queue. Skipping.")
+                return
+                
             text = task.payload.get("text")
             workspace_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "workspace"))
             

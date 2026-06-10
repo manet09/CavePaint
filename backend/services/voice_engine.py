@@ -41,7 +41,7 @@ def _cancel_unload_task():
 async def _idle_unloader():
     while True:
         await asyncio.sleep(5) # check periodically
-        if _VOXCPM_MODEL_LOADED and (time.time() - _LAST_ACTIVITY_TIME) >= 45:
+        if _VOXCPM_MODEL_LOADED and (time.time() - _LAST_ACTIVITY_TIME) >= 60:
             unload_model()
             break
 

@@ -519,6 +519,22 @@ async def generate_project_voice(project_id: int, db: Session = Depends(get_db))
     db.commit()
     return {"status": "queued", "count": queued_count}
 
+@app.post("/api/projects/{project_id}/stop-voice")
+async def stop_project_voice(project_id: int, db: Session = Depends(get_db)):
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+        
+    scenes = db.query(Scene).filter(Scene.project_id == project_id).all()
+    count = 0
+    for scene in scenes:
+        if scene.audio_status == "processing":
+            scene.audio_status = "idle"
+            count += 1
+            
+    db.commit()
+    return {"status": "stopped", "cancelled_count": count}
+
 @app.post("/api/model/load")
 async def load_voice_model():
     success = voice_engine.load_model()
@@ -528,3 +544,7 @@ async def load_voice_model():
 async def unload_voice_model():
     success = voice_engine.unload_model()
     return {"status": "success" if success else "failed"}
+
+@app.get("/api/model/status")
+async def get_model_status():
+    return {"loaded": voice_engine._VOXCPM_MODEL_LOADED}
