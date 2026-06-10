@@ -467,6 +467,32 @@ async def delete_scene_image(scene_id: int, db: Session = Depends(get_db)):
     
     return {"status": "success"}
 
+@app.post("/api/scenes/{scene_id}/generate-audio")
+async def generate_scene_audio_single(scene_id: int, db: Session = Depends(get_db)):
+    scene = db.query(Scene).filter(Scene.id == scene_id).first()
+    if not scene:
+        raise HTTPException(status_code=404, detail="Scene not found")
+        
+    project = db.query(Project).filter(Project.id == scene.project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    if not scene.narration_khmer:
+        raise HTTPException(status_code=400, detail="Scene has no narration text.")
+        
+    scene.audio_status = "processing"
+    
+    task = GenerationTask(
+        task_type="audio_single",
+        project_id=project.id,
+        scene_id=scene.id,
+        payload={"text": scene.narration_khmer}
+    )
+    await task_queue.put(task)
+    
+    db.commit()
+    
+    return {"status": "queued"}
 
 # Tab 3 & 4 routes
 @app.post("/api/projects/{project_id}/generate-voice")

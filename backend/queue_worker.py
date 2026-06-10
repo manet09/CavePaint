@@ -108,6 +108,33 @@ async def process_task(task: GenerationTask):
             except Exception as compile_err:
                 print(f"Failed to compile master voiceover: {compile_err}")
                 db.rollback()
+                
+        elif task.task_type == "audio_single":
+            scene.audio_status = "processing"
+            db.commit()
+            
+            text = task.payload.get("text")
+            workspace_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "workspace"))
+            
+            loop = asyncio.get_running_loop()
+            save_path = await loop.run_in_executor(
+                None,
+                voice_engine.generate_single_scene_audio,
+                text,
+                project.slug,
+                scene.scene_number
+            )
+            
+            rel_save_path = os.path.relpath(save_path, workspace_dir).replace("\\", "/")
+            scene.audio_path = rel_save_path
+            scene.audio_status = "completed"
+            db.commit()
+            
+            try:
+                voice_engine.compile_master_voiceover(project.id, db)
+            except Exception as compile_err:
+                print(f"Failed to compile master voiceover: {compile_err}")
+                db.rollback()
             
     except Exception as e:
         print(f"Error processing task: {e}")

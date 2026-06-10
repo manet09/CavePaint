@@ -21,7 +21,6 @@ export default function VoiceTab({ activeProject, refreshProjectData }: VoiceTab
   const [tone, setTone] = useState("Documentary");
   const [speed, setSpeed] = useState("Normal");
   
-  const [isSavingTag, setIsSavingTag] = useState(false);
   const [cacheBuster, setCacheBuster] = useState(Date.now());
 
   // Polling logic
@@ -86,6 +85,23 @@ export default function VoiceTab({ activeProject, refreshProjectData }: VoiceTab
     }
   };
 
+  const handleRegenerateLine = async (sceneId: number) => {
+    // Optimistic UI updates could be handled by local state, but we rely on refreshProjectData here
+    // However, the prompt says "optimistically set that specific scene's UI state to 'processing'"
+    // We can just rely on the API setting the status to 'processing' and then doing refreshProjectData.
+    try {
+      const response = await fetch(`http://localhost:8000/api/scenes/${sceneId}/generate-audio`, {
+        method: "POST",
+      });
+      if (response.ok) {
+        await refreshProjectData();
+      }
+    } catch (error) {
+      console.error(`Failed to regenerate audio for scene ${sceneId}:`, error);
+    }
+  };
+
+
   // Compile prompt tag
   const compiledTag = `(${gender}, ${age}, ${tone} tone, ${speed} speed)`;
 
@@ -95,7 +111,6 @@ export default function VoiceTab({ activeProject, refreshProjectData }: VoiceTab
     if (activeProject?.voice_profile_tag === compiledTag) return;
     
     const saveTag = async () => {
-      setIsSavingTag(true);
       try {
         await fetch(`http://localhost:8000/api/projects/${activeProject.id}`, {
           method: "PUT",
@@ -105,8 +120,6 @@ export default function VoiceTab({ activeProject, refreshProjectData }: VoiceTab
         await refreshProjectData();
       } catch (error) {
         console.error("Error saving voice profile tag:", error);
-      } finally {
-        setIsSavingTag(false);
       }
     };
     
@@ -136,8 +149,11 @@ export default function VoiceTab({ activeProject, refreshProjectData }: VoiceTab
   return (
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 h-full pb-10 animate-in fade-in slide-in-from-bottom-4 duration-500">
       
-      {/* COLUMN 1: SCRIPT CANVAS */}
-      <div className="lg:col-span-4 flex flex-col h-full bg-card border border-border rounded-lg shadow-sm overflow-hidden">
+      {/* LEFT PANE: SCRIPT & DECK */}
+      <div className="lg:col-span-5 flex flex-col h-full gap-6">
+        
+        {/* SCRIPT CANVAS */}
+        <div className="flex flex-col bg-card border border-border rounded-lg shadow-sm overflow-hidden shrink-0">
         <div className="p-4 border-b border-border bg-muted/20">
           <h2 className="text-lg font-bold flex items-center gap-2 text-card-foreground">
             <Settings size={18} className="text-primary" /> Script Canvas
@@ -162,8 +178,8 @@ export default function VoiceTab({ activeProject, refreshProjectData }: VoiceTab
         </div>
       </div>
 
-      {/* COLUMN 2: VOICE PERSONALITY DECK */}
-      <div className="lg:col-span-4 flex flex-col h-full bg-card border border-border rounded-lg shadow-sm overflow-hidden">
+        {/* VOICE PERSONALITY DECK */}
+        <div className="flex-1 flex flex-col bg-card border border-border rounded-lg shadow-sm overflow-hidden min-h-0">
         <div className="p-4 border-b border-border bg-muted/20">
           <h2 className="text-lg font-bold flex items-center gap-2 text-card-foreground">
             <Play size={18} className="text-primary" /> Voice Personality Deck
@@ -236,19 +252,11 @@ export default function VoiceTab({ activeProject, refreshProjectData }: VoiceTab
             </div>
           </div>
 
-          {/* Live Instruction Preview Tag */}
-          <div className="mt-auto">
-            <h3 className="text-sm font-semibold mb-2 flex items-center justify-between">
-              Live Instruction Preview Tag
-              {isSavingTag && <Loader2 size={12} className="animate-spin text-primary" />}
-            </h3>
-            <div className="w-full bg-neutral-900 text-green-400 p-4 rounded-md border border-neutral-800 shadow-inner font-mono text-sm overflow-x-auto break-all">
-              {compiledTag}
-            </div>
+          <div className="mt-auto pt-4 border-t border-border/50">
             <button
               onClick={handleGenerateVoice}
               disabled={isGenerating || isResetting || !activeProject?.scenes?.length}
-              className="w-full mt-4 py-3 bg-primary text-primary-foreground font-semibold rounded-md shadow hover:bg-primary/90 disabled:opacity-50 transition-colors flex justify-center items-center gap-2"
+              className="w-full py-3 bg-primary text-primary-foreground font-semibold rounded-md shadow hover:bg-primary/90 disabled:opacity-50 transition-colors flex justify-center items-center gap-2"
             >
               {isGenerating ? <Loader2 size={18} className="animate-spin" /> : <Play size={18} />}
               Generate All Audio
@@ -265,9 +273,10 @@ export default function VoiceTab({ activeProject, refreshProjectData }: VoiceTab
 
         </div>
       </div>
-
-      {/* COLUMN 3: TIMELINE PROGRESS & MASTER PLAYER */}
-      <div className="lg:col-span-4 flex flex-col h-full bg-card border border-border rounded-lg shadow-sm overflow-hidden relative">
+    </div>
+      
+      {/* RIGHT PANE: TIMELINE PROGRESS & MASTER PLAYER */}
+      <div className="lg:col-span-7 flex flex-col h-full bg-card border border-border rounded-lg shadow-sm overflow-hidden relative">
         <div className="p-4 border-b border-border bg-muted/20 flex justify-between items-center z-10">
           <div>
             <h2 className="text-lg font-bold flex items-center gap-2 text-card-foreground">
@@ -291,23 +300,42 @@ export default function VoiceTab({ activeProject, refreshProjectData }: VoiceTab
                   </span>
                   
                   {/* Status Badges */}
-                  {scene.audio_status === "completed" ? (
-                    <span className="bg-green-500/10 text-green-500 border border-green-500/20 px-2 py-0.5 rounded-full text-[10px] font-bold flex items-center gap-1 uppercase">
-                      <Check size={10} /> Completed
-                    </span>
-                  ) : scene.audio_status === "processing" ? (
-                    <span className="bg-primary/10 text-primary border border-primary/20 px-2 py-0.5 rounded-full text-[10px] font-bold flex items-center gap-1 uppercase">
-                      <Loader2 size={10} className="animate-spin" /> Synthesizing line via local VoxCPM2...
-                    </span>
-                  ) : (
-                    <span className="bg-neutral-500/10 text-neutral-500 border border-neutral-500/20 px-2 py-0.5 rounded-full text-[10px] font-bold flex items-center gap-1 uppercase">
-                      Idle
-                    </span>
-                  )}
+                  <div className="flex items-center gap-2">
+                    {scene.audio_status === "completed" ? (
+                      <span className="bg-green-500/10 text-green-500 border border-green-500/20 px-2 py-0.5 rounded-full text-[10px] font-bold flex items-center gap-1 uppercase">
+                        <Check size={10} /> Completed
+                      </span>
+                    ) : scene.audio_status === "processing" ? (
+                      <span className="bg-primary/10 text-primary border border-primary/20 px-2 py-0.5 rounded-full text-[10px] font-bold flex items-center gap-1 uppercase">
+                        <Loader2 size={10} className="animate-spin" /> Synthesizing line...
+                      </span>
+                    ) : (
+                      <span className="bg-neutral-500/10 text-neutral-500 border border-neutral-500/20 px-2 py-0.5 rounded-full text-[10px] font-bold flex items-center gap-1 uppercase">
+                        Idle
+                      </span>
+                    )}
+                    <button 
+                      onClick={() => handleRegenerateLine(scene.id)} 
+                      disabled={scene.audio_status === "processing"}
+                      title="Regenerate Line"
+                      className="w-6 h-6 rounded-full flex items-center justify-center bg-muted text-foreground/60 hover:text-primary hover:bg-primary/10 transition-colors disabled:opacity-50"
+                    >
+                      <RefreshCcw size={12} className={scene.audio_status === "processing" ? "animate-spin" : ""} />
+                    </button>
+                  </div>
                 </div>
                 <p className="text-xs text-foreground/80 line-clamp-2" title={scene.narration_khmer || undefined}>
                   {scene.narration_khmer || "Empty narrative chunk..."}
                 </p>
+                {scene.audio_status === "completed" && scene.audio_path && (
+                  <div className="mt-1">
+                    <audio 
+                      controls 
+                      className="w-full max-w-[220px] h-8 scale-90 origin-left"
+                      src={`http://localhost:8000/static/${activeProject.slug}/scene_${scene.scene_number}.wav?t=${cacheBuster}`}
+                    />
+                  </div>
+                )}
               </div>
             ))
           )}

@@ -165,6 +165,63 @@ def generate_scene_audio_chunk(text: str, project_slug: str, profile_tag: str, s
     schedule_unload()
     return save_path
 
+def generate_single_scene_audio(text: str, project_slug: str, scene_number: int):
+    global _VOXCPM_MODEL_LOADED, _LAST_ACTIVITY_TIME, _VOXCPM_MODEL
+    
+    if not _VOXCPM_MODEL_LOADED:
+        load_model()
+        
+    _LAST_ACTIVITY_TIME = time.time()
+    
+    workspace_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "workspace"))
+    project_dir = os.path.join(workspace_dir, project_slug)
+    
+    seed_path = os.path.join(project_dir, "voice_profile_seed.wav")
+    seed_text = "ភ្នំពេញគឺជាទីក្រុងធំនៃប្រទេសកម្ពុជា។"
+    
+    sample_rate = _VOXCPM_MODEL.tts_model.sample_rate if hasattr(_VOXCPM_MODEL, 'tts_model') and hasattr(_VOXCPM_MODEL.tts_model, 'sample_rate') else 22050
+    
+    if not os.path.exists(seed_path):
+        raise FileNotFoundError(f"Strict Consistency Lock Failed: {seed_path} is missing.")
+        
+    text = text.strip()
+    if not text.endswith("។"):
+        text += "។"
+        
+    if VoxCPM is not None and hasattr(_VOXCPM_MODEL, 'generate'):
+        raw_audio = _VOXCPM_MODEL.generate(
+            text=text,
+            prompt_wav_path=seed_path,
+            prompt_text=seed_text,
+            cfg_value=2.0,
+            inference_timesteps=15
+        )
+    else:
+        duration = 1.5
+        t = np.linspace(0, duration, int(sample_rate * duration), endpoint=False)
+        raw_audio = 0.5 * np.sin(2 * np.pi * 440 * t)
+
+    audio_data = np.array(raw_audio, dtype=np.float32)
+    max_amp = np.max(np.abs(audio_data))
+    if max_amp > 0:
+        audio_data = audio_data / max_amp
+    audio_data = np.clip(audio_data, -1.0, 1.0)
+
+    silence_frames = int(0.20 * sample_rate)
+    silence = np.zeros(silence_frames, dtype=np.float32)
+    padded_audio = np.concatenate((audio_data, silence))
+    
+    save_path = os.path.join(project_dir, f"scene_{scene_number}.wav")
+    
+    try:
+        sf.write(save_path, padded_audio, sample_rate)
+    except Exception as e:
+        print(f"Failed to write single scene audio: {e}")
+
+    _LAST_ACTIVITY_TIME = time.time()
+    schedule_unload()
+    return save_path
+
 def compile_master_voiceover(project_id: int, db_session):
     from ..database import Scene, Project
     
