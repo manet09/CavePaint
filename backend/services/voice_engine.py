@@ -89,7 +89,7 @@ def generate_scene_audio_chunk(text: str, project_slug: str, profile_tag: str, s
     seed_path = os.path.join(project_dir, "voice_profile_seed.wav")
     seed_text = "ភ្នំពេញគឺជាទីក្រុងធំនៃប្រទេសកម្ពុជា។"
     
-    sample_rate = 22050
+    sample_rate = _VOXCPM_MODEL.tts_model.sample_rate if hasattr(_VOXCPM_MODEL, 'tts_model') and hasattr(_VOXCPM_MODEL.tts_model, 'sample_rate') else 22050
     
     # 1. Automated Voice Seed Profile Creation
     if not os.path.exists(seed_path):
@@ -108,8 +108,15 @@ def generate_scene_audio_chunk(text: str, project_slug: str, profile_tag: str, s
             t = np.linspace(0, duration, int(sample_rate * duration), endpoint=False)
             seed_audio = 0.5 * np.sin(2 * np.pi * 440 * t)
             
+        # Normalize seed audio
+        seed_audio_data = np.array(seed_audio, dtype=np.float32)
+        seed_max = np.max(np.abs(seed_audio_data))
+        if seed_max > 0:
+            seed_audio_data = seed_audio_data / seed_max
+        seed_audio_data = np.clip(seed_audio_data, -1.0, 1.0)
+
         try:
-            sf.write(seed_path, seed_audio, sample_rate)
+            sf.write(seed_path, seed_audio_data, sample_rate)
         except Exception as e:
             print(f"Failed to write seed audio: {e}")
 
@@ -132,12 +139,19 @@ def generate_scene_audio_chunk(text: str, project_slug: str, profile_tag: str, s
         t = np.linspace(0, duration, int(sample_rate * duration), endpoint=False)
         raw_audio = 0.5 * np.sin(2 * np.pi * 440 * t)
 
+    # Audio Normalization and Clipping
+    audio_data = np.array(raw_audio, dtype=np.float32)
+    max_amp = np.max(np.abs(audio_data))
+    if max_amp > 0:
+        audio_data = audio_data / max_amp
+    audio_data = np.clip(audio_data, -1.0, 1.0)
+
     # 0.20-second buffer of absolute silence
     silence_frames = int(0.20 * sample_rate)
-    silence = np.zeros(silence_frames, dtype=raw_audio.dtype if hasattr(raw_audio, 'dtype') else np.float32)
+    silence = np.zeros(silence_frames, dtype=np.float32)
     
     # Append the silence
-    padded_audio = np.concatenate((raw_audio, silence))
+    padded_audio = np.concatenate((audio_data, silence))
     
     # Flattened path layout
     save_path = os.path.join(project_dir, f"scene_{scene_number}.wav")

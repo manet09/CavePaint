@@ -67,6 +67,25 @@ export default function VoiceTab({ activeProject, refreshProjectData }: VoiceTab
     }
   };
 
+  const [isResetting, setIsResetting] = useState(false);
+
+  const handleResetVoice = async () => {
+    if (!activeProject?.id) return;
+    setIsResetting(true);
+    try {
+      const response = await fetch(`http://localhost:8000/api/projects/${activeProject.id}/reset-voice`, {
+        method: "POST",
+      });
+      if (response.ok) {
+        await refreshProjectData();
+      }
+    } catch (error) {
+      console.error("Failed to reset voice profile:", error);
+    } finally {
+      setIsResetting(false);
+    }
+  };
+
   // Compile prompt tag
   const compiledTag = `(${gender}, ${age}, ${tone} tone, ${speed} speed)`;
 
@@ -228,11 +247,19 @@ export default function VoiceTab({ activeProject, refreshProjectData }: VoiceTab
             </div>
             <button
               onClick={handleGenerateVoice}
-              disabled={isGenerating || !activeProject?.scenes?.length}
+              disabled={isGenerating || isResetting || !activeProject?.scenes?.length}
               className="w-full mt-4 py-3 bg-primary text-primary-foreground font-semibold rounded-md shadow hover:bg-primary/90 disabled:opacity-50 transition-colors flex justify-center items-center gap-2"
             >
               {isGenerating ? <Loader2 size={18} className="animate-spin" /> : <Play size={18} />}
               Generate All Audio
+            </button>
+            <button
+              onClick={handleResetVoice}
+              disabled={isGenerating || isResetting || !activeProject?.scenes?.length}
+              className="w-full mt-3 py-3 bg-transparent text-red-500 border border-red-500 font-semibold rounded-md hover:bg-red-500/10 disabled:opacity-50 transition-colors flex justify-center items-center gap-2"
+            >
+              {isResetting ? <Loader2 size={18} className="animate-spin" /> : <RefreshCcw size={18} />}
+              Reset Voice Profile
             </button>
           </div>
 

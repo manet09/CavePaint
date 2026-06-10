@@ -187,6 +187,13 @@ async def get_project_details(project_id: int, db: Session = Depends(get_db)):
                 scene.audio_status = "idle"
                 modified = True
                 
+                
+    if project.master_audio_path:
+        full_path = os.path.join(workspace_dir, project.master_audio_path)
+        if not os.path.exists(full_path):
+            project.master_audio_path = None
+            modified = True
+
     if modified:
         db.commit()
         db.refresh(project)
@@ -194,6 +201,38 @@ async def get_project_details(project_id: int, db: Session = Depends(get_db)):
     # Eagerly loaded implicitly by SQLAlchemy relationship
     project.scenes.sort(key=lambda x: x.scene_number)
     return project
+
+@app.post("/api/projects/{project_id}/reset-voice")
+async def reset_voice(project_id: int, db: Session = Depends(get_db)):
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+        
+    proj_workspace_dir = os.path.join(workspace_dir, project.slug)
+    
+    seed_path = os.path.join(proj_workspace_dir, "voice_profile_seed.wav")
+    if os.path.exists(seed_path):
+        try:
+            os.remove(seed_path)
+        except OSError:
+            pass
+            
+    project.master_audio_path = None
+    project.voice_profile_tag = None
+    
+    for scene in project.scenes:
+        if scene.audio_path:
+            full_path = os.path.join(workspace_dir, scene.audio_path)
+            if os.path.exists(full_path):
+                try:
+                    os.remove(full_path)
+                except OSError:
+                    pass
+        scene.audio_path = None
+        scene.audio_status = "idle"
+        
+    db.commit()
+    return {"status": "success", "message": "Voice profile and audio scenes reset"}
 
 @app.put("/api/projects/{project_id}", response_model=ProjectOut)
 async def update_project(project_id: int, payload: ProjectUpdate, db: Session = Depends(get_db)):
