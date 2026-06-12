@@ -22,42 +22,70 @@ The application is structured into a decoupled frontend/backend system, relying 
 - Uses an SQLite file stored at `workspace/studio.db`.
 - **`Project` Table**: Stores high-level metadata (title, slug, script narrative, illustration style, global voice style, master audio path).
 - **`Scene` Table**: Belongs to a project. Stores individual scene data (`scene_number`, `narration_khmer`, `image_prompt_english`, `audio_path`, `image_path`, and individual task statuses like `idle`, `processing`, `completed`, `failed`).
+- **`Character` Table**: Stores global character profiles for voice cloning (`name`, `gender`, `personality_tag`, `reference_text`, `audio_path`).
 
 ### 2. Backend API (`backend/main.py`)
-- Provides RESTful routes for CRUD operations on Projects and Scenes.
+- Provides RESTful routes for CRUD operations on Projects, Scenes, and Characters.
 - Acts as the dispatcher, writing to the database and dropping generation task payloads into the asynchronous task queue.
 - Exposes `workspace/` assets dynamically via a `/static/` router mount.
 
 ### 3. Background Task Lifecycle (`backend/queue_worker.py`)
 - An infinite background loop (`start_queue_worker`) processes AI generation requests strictly **sequentially**. This single-lane execution pipeline is crucial for preventing out-of-memory (OOM) crashes when managing heavy local GPU models (Image and Audio).
-- Handles different task types: `image`, `audio` (bulk project generation), and `audio_single` (targeted granular line regeneration).
+- Handles different task types: `image`, `audio` (bulk project generation), and `audio_single` (targeted granular line regeneration / cloning execution).
 - Safely handles failures, updates SQLite states (`processing` -> `completed` / `failed`), and handles database commits and rollbacks.
 
 ---
 
-## Core Features & AI Engines
+## Core Features & Detailed Engine Integration
 
 ### 1. Project Management & Orchestration (Overview Tab)
 - Defines the core "Raw Research" and "Script Narrative".
-- Configures global styles for illustration and voice acting.
+- Configures global styles for illustration.
 - **Gemini Engine (`backend/services/gemini.py`)**: Submits the project context to Gemini `1.5-flash` to slice the master script into discrete scenes, outputting a strict JSON payload mapping Khmer narrative chunks directly to English visual prompts.
 
 ### 2. Visual Synthesis (Images Tab & `draw_things.py`)
-- Renders the parsed scenes as a vertical timeline.
-- Users can visually review the english `image_prompt_english` mapped to each scene.
-- **Draw Things Engine**: Connects to the local macOS Draw Things API (`http://127.0.0.1:7860/sdapi/v1/txt2img`).
-- Provides auto-fallback to Pillow-generated placeholder slate images if the local AI drawing server goes offline.
+The Images Tab is designed as a three-column workspace for iterative, scene-by-scene visual asset generation using a local Python engine (e.g., Draw Things pipeline).
+
+**Architecture Layout**
+- **Column 1: Left List Panel**
+  - **Illustration Style Box:** A global configuration input for defining the overarching art style of the project.
+  - **Prompts Navigation Deck:** A vertically scrolling list of parsed scenes with green checkmarks indicating successfully generated assets.
+- **Column 2: Center Workspace Editor**
+  - **Scene Script Segment:** Read-only reference of the translated Khmer script segment for the active scene.
+  - **Engine Prompt Configuration:** A textarea for the positive image prompt, featuring auto-save-on-blur.
+  - **Acoustic / Negative Constraints:** A textarea for negative prompts (e.g., "watermark, text, bad anatomy").
+  - **User Iteration Bar:** An inline input attached to the Gemini API (`/refine`). Users can type natural language instructions to programmatically rewrite the prompt.
+- **Column 3: Right Operations Board**
+  - **Python Engine Parameters:** Controls for generation properties, including Aspect Ratio grids (1:1, 4:3, 16:9, etc.) and an Inference Steps slider.
+  - **Render Output Frame:** The primary display canvas, equipped with a spinning loader during generation and an interactive Lightbox Zoom button upon completion.
+  - **Footer Buttons:** Core control row containing Generate, Stop Rendering, and Delete (Trash) operations.
+
+**Backend Communication**
+- **`PUT /api/projects/{id}`**: Saves the global `illustration_style` on blur.
+- **`POST /api/scenes/{id}/refine`**: Dispatches existing prompts and user instruction to Gemini for intelligent rewrites.
+- **`POST /api/scenes/{id}/generate-image`**: Queues the image task passing `aspect_ratio`, `guidance_scale`, and `inference_steps` down to the local Draw Things REST API (`http://127.0.0.1:7860/sdapi/v1/txt2img`).
 
 ### 3. Voice Synthesis (Voice Tab & `voice_engine.py`)
-- High-density 2-pane UI architecture.
-- Left Pane: Script canvas and Voice Personality Deck (Gender, Age, Tone, Speed).
-- Right Pane: Timeline tracking of individual scene audio states with inline native HTML5 `<audio>` players.
-- **VoxCPM2 Engine**:
-  - Employs a **Hot/Cold Memory Lifecycle Manager**. Models are explicitly loaded upon request and a background thread (`unload_timer`) unloads the heavy `.pt` tensors from VRAM after a period of inactivity to free up the GPU.
-  - **Voice Design Pass**: Generates a unified permanent `voice_profile_seed.wav` utilizing the configured personality deck against a reference text. 
-  - **Strict Consistency Lock**: Individual scene chunks are generated by enforcing the use of the `voice_profile_seed.wav` as the acoustic prompt constraint. This ensures 100% vocal continuity across 100+ separate scenes.
-  - Implements automatic NumPy amplitude normalization and zero-padding (silence cushions) to prevent digital clipping/echo artifacts.
-- **Master Sticther**: Automatically concatenates chunked `.wav` files sequentially into a single `master_voiceover.wav` track upon queue completion.
+The Voice Tab is built as a complex dual-pane orchestrator managing Global Character models and synchronizing them across timeline audio generation using VoxCPM2.
+
+**Architecture Layout**
+- **Left Pane: Dual-Tab Factory Architecture**
+  - **Tab 1: Character Library (Active Cast View):** Grid displaying all globally saved character profiles mapped from `workspace/shared_characters/`. Features a quick-preview `<audio>` button. Activating a card locks in `selectedCharacterId` and visually highlights it.
+  - **Tab 2: Voice Factory (Creation View):** Governed by a top-level mode switcher.
+    - *AI Voice Design Mode:* Disables uploads. Exposes parameter chips for Gender, Age, Tone, and Speed. Includes a "Generate Audition Sample" workflow that renders a temporary file and locks the Save button until verified.
+    - *Custom Clone Mode:* Hides text parameters. Exposes Character Name, Reference Text, and a drag-and-drop `.wav` upload target.
+- **Right Pane: Timeline Progress**
+  - **Global Status Monitor:** Persistent tracker (`VOXCPM2: IDLE`) in the panel header.
+  - **Timeline Cards & Speaker Badges:** Displays scenes sequentially using strict data mapping to render crisp badges (e.g., `🎙️ Warm Narrator` or a muted "UNASSIGNED LINE" if unassigned).
+  - **Batch Operations:** Footer contains "Generate All Lines" (which passes the active character context), "Stop", and "Clear Audio".
+
+**Backend Communication & Pipeline Mechanics**
+- **`POST /api/characters/preview`**: Invokes the engine without DB persistence, synthesizing a temporary file (`workspace/shared_characters/temp_preview.wav`).
+- **`POST /api/characters`**: Commits a character to SQLite. If in AI Design mode, the backend programmatically promotes `temp_preview.wav` to a permanent slugified path.
+- **Strict Cloning Injection (`/generate-voice` & `/generate-audio`)**:
+  - Generation endpoints dynamically intercept the `character_id`. When present, they enforce `task_type="audio_single"`, forcing the ML Engine into strict Voice Cloning mode.
+  - **VoxCPM2 Engine Mechanics (`voice_engine.py`)**: Employs a **Hot/Cold Memory Lifecycle Manager** to gracefully load/unload the model from VRAM. When running in strict cloning mode, it asserts the physical existence of the reference `.wav` and completely bypasses fallback text-tag logic to guarantee 100% vocal consistency across the scene timeline.
+- **Database Synchronization (`queue_worker.py`)**: As audio chunks finish rendering, the worker explicitly updates the `Scene` rows with `character_id`, `character_name`, and `audio_status = "completed"`.
 
 ### 4. Output Render (Output Tab)
 - A final review UI presenting the synthesized local assets.

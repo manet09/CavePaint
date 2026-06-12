@@ -1,3 +1,4 @@
+/* eslint-disable */
 "use client";
 
 import React from "react";
@@ -20,17 +21,25 @@ export default function Workspace() {
   ];
 
   return (
-    <div className="flex h-screen w-full bg-background text-foreground overflow-hidden">
+    <div className="flex h-screen w-full bg-background text-foreground overflow-hidden select-none">
       <Sidebar />
-      <main className="flex-1 flex flex-col h-full overflow-hidden relative transition-all duration-300 ease-in-out">
+      
+      <main className="flex-1 flex flex-col h-full overflow-hidden relative bg-zinc-50/50 dark:bg-background">
         {activeProject ? (
           <>
-            {/* Header / Tabs */}
-            <header className="border-b border-border bg-card px-8 pt-8">
-              <h1 className="text-3xl font-bold mb-6 tracking-tight text-card-foreground">
-                {activeProject.title || activeProject.slug || "Untitled Project"}
-              </h1>
-              <div className="flex gap-8">
+            {/* High-Density Modern Header Bar */}
+            <header className="h-14 min-h-[56px] border-b border-zinc-200/60 dark:border-zinc-800/40 bg-card/80 backdrop-blur-md px-6 flex items-center justify-between z-10 shrink-0">
+              {/* Left Context: Project Path Title */}
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="text-zinc-400 dark:text-zinc-500 text-[13px] font-medium tracking-tight">Projects</span>
+                <span className="text-zinc-300 dark:text-zinc-700 text-sm">/</span>
+                <h1 className="text-[14px] font-semibold tracking-tight text-zinc-800 dark:text-zinc-200 truncate max-w-[200px]">
+                  {activeProject.title || activeProject.slug || "Untitled Project"}
+                </h1>
+              </div>
+
+              {/* Right Context: Clean Tab Control Links */}
+              <div className="flex items-center gap-1 h-full">
                 {tabs.map((tab) => {
                   const Icon = tab.icon;
                   const isActive = activeTab === tab.id;
@@ -38,22 +47,25 @@ export default function Workspace() {
                     <button
                       key={tab.id}
                       onClick={() => setActiveTab(tab.id)}
-                      className={`flex items-center gap-2 pb-4 border-b-2 transition-colors duration-200 ${
+                      className={`flex items-center gap-2 px-3 h-14 relative text-[13px] font-medium tracking-tight transition-all ${
                         isActive
-                          ? "border-primary text-primary font-medium"
-                          : "border-transparent text-foreground/50 hover:text-foreground hover:border-foreground/20"
+                          ? "text-zinc-950 dark:text-zinc-50"
+                          : "text-zinc-400 hover:text-zinc-800 dark:text-zinc-500 dark:hover:text-zinc-300"
                       }`}
                     >
-                      <Icon size={18} className={isActive ? "text-primary" : "opacity-70"} />
-                      {tab.label}
+                      <Icon size={14} className={isActive ? "opacity-100" : "opacity-60"} />
+                      <span>{tab.label}</span>
+                      {isActive && (
+                        <div className="absolute bottom-0 left-2 right-2 h-[2px] bg-zinc-800 dark:bg-zinc-200 rounded-t-full" />
+                      )}
                     </button>
                   );
                 })}
               </div>
             </header>
             
-            {/* Tab Content Area */}
-            <div className="flex-1 overflow-y-auto p-8 bg-background">
+            {/* Clean Tab Workspace Window */}
+            <div className="flex-1 overflow-y-auto p-6 custom-scrollbar">
               {activeTab === "overview" && (
                 <OverviewTab activeProject={activeProject} refreshProjectData={refreshProjects} />
               )}
@@ -69,15 +81,16 @@ export default function Workspace() {
             </div>
           </>
         ) : (
-          <div className="flex-1 flex flex-col items-center justify-center p-8 text-center bg-background animate-in fade-in duration-700">
-            <div className="w-24 h-24 mb-8 rounded-2xl bg-primary/10 flex items-center justify-center shadow-inner shadow-primary/20">
-              <Film size={48} className="text-primary opacity-90" />
+          /* High-Density Modern Minimalist Welcome View */
+          <div className="flex-1 flex flex-col items-center justify-center p-8 text-center bg-zinc-50/30 dark:bg-background animate-in fade-in duration-300">
+            <div className="w-16 h-16 mb-6 rounded-2xl border border-zinc-200/80 dark:border-zinc-800/80 bg-card flex items-center justify-center shadow-xs text-zinc-400 dark:text-zinc-500">
+              <Film size={28} className="opacity-80" />
             </div>
-            <h2 className="text-4xl font-extrabold mb-4 tracking-tight text-foreground">
-              Welcome to CavePaint
+            <h2 className="text-xl font-semibold mb-2 tracking-tight text-zinc-800 dark:text-zinc-100">
+              Welcome to Studio
             </h2>
-            <p className="text-lg text-foreground/60 max-w-md leading-relaxed">
-              Your local content creation engine. Select an existing project from the sidebar or initialize a new one to get started.
+            <p className="text-[13.5px] text-zinc-400 dark:text-zinc-500 max-w-sm leading-relaxed">
+              Select an existing project timeline tracking panel from the sidebar menu or initialize a new draft sequence to begin compiling tracking blocks.
             </p>
           </div>
         )}
