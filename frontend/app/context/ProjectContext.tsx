@@ -53,8 +53,10 @@ interface ProjectContextType {
   setActiveProject: (project: Project | null) => void; // Backward compatibility alias
   createNewProject: (title: string) => Promise<void>;
   updateActiveProject: (fields: Partial<Project>) => Promise<void>;
+  updateProject: (id: number, fields: Partial<Project>) => Promise<void>;
   updateSingleScene: (sceneId: number, fields: Partial<SceneData>) => Promise<void>;
   deleteExistingProject: (id: number) => Promise<void>;
+  duplicateProject: (id: number) => Promise<void>;
 }
 
 const ProjectContext = createContext<ProjectContextType | undefined>(undefined);
@@ -179,9 +181,36 @@ export const ProjectProvider = ({ children }: { children: ReactNode }) => {
       });
       if (!response.ok) {
         console.error("Failed to sync project update to backend");
+      } else {
+        await refreshProjects();
       }
     } catch (err) {
       console.error("Error updating project:", err);
+    }
+  };
+
+  const updateProject = async (id: number, fields: Partial<Project>) => {
+    setIsLoading(true);
+    try {
+      const response = await fetch(`${API_BASE}/api/projects/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(fields),
+      });
+      if (response.ok) {
+        await refreshProjects();
+        if (activeProject?.id === id) {
+          const data = await response.json();
+          setActiveProjectState(data);
+        }
+      } else {
+        setError("Failed to update project");
+      }
+    } catch (err) {
+      console.error("Error updating project:", err);
+      setError("Error updating project");
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -223,6 +252,7 @@ export const ProjectProvider = ({ children }: { children: ReactNode }) => {
       if (response.ok) {
         if (activeProject?.id === id) {
           setActiveProjectState(null);
+          if (typeof window !== "undefined") localStorage.removeItem("activeProjectId");
         }
         await refreshProjects();
       } else {
@@ -231,6 +261,29 @@ export const ProjectProvider = ({ children }: { children: ReactNode }) => {
     } catch (err) {
       console.error(err);
       setError("Error deleting project");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const duplicateProject = async (id: number) => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const response = await fetch(`${API_BASE}/api/projects/${id}/duplicate`, {
+        method: "POST",
+      });
+      if (response.ok) {
+        const newProject = await response.json();
+        await refreshProjects();
+        setActiveProjectState(newProject);
+        if (typeof window !== "undefined") localStorage.setItem("activeProjectId", String(newProject.id));
+      } else {
+        setError("Failed to duplicate project");
+      }
+    } catch (err) {
+      console.error(err);
+      setError("Error duplicating project");
     } finally {
       setIsLoading(false);
     }
@@ -277,8 +330,10 @@ export const ProjectProvider = ({ children }: { children: ReactNode }) => {
         setActiveProject,
         createNewProject,
         updateActiveProject,
+        updateProject,
         updateSingleScene,
         deleteExistingProject,
+        duplicateProject,
       }}
     >
       {children}

@@ -6,12 +6,14 @@ import { FolderOpen, Sun, Moon, Plus, PanelLeftClose, PanelLeftOpen, Settings, M
 import { useProjectContext } from "../context/ProjectContext";
 
 export default function Sidebar() {
-  const { projectsList, activeProject, setActiveProject, theme, setTheme, refreshProjects, createNewProject } = useProjectContext();
+  const { projectsList, activeProject, setActiveProject, theme, setTheme, refreshProjects, createNewProject, updateProject, deleteExistingProject, duplicateProject } = useProjectContext();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [newProjectTopic, setNewProjectTopic] = useState("");
   const [isCreating, setIsCreating] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [openMenuId, setOpenMenuId] = useState<number | null>(null);
+  const [renamingProjectId, setRenamingProjectId] = useState<number | null>(null);
+  const [renamingTitle, setRenamingTitle] = useState("");
 
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -136,11 +138,41 @@ export default function Sidebar() {
                     <FolderOpen size={16} />
                   </div>
                   
-                  <span className={`truncate text-[13.5px] flex-1 transition-all duration-300 whitespace-nowrap pr-6 ${
-                    isCollapsed ? "opacity-0 translate-x-[-10px] pointer-events-none" : "opacity-100 translate-x-0"
-                  }`}>
-                    {project.title || project.slug || "Untitled"}
-                  </span>
+                  {renamingProjectId === project.id ? (
+                    <input
+                      autoFocus
+                      className={`text-[13.5px] flex-1 bg-transparent border-b border-zinc-400 dark:border-zinc-600 outline-none pr-6 ${
+                        isCollapsed ? "opacity-0 translate-x-[-10px] pointer-events-none" : "opacity-100 translate-x-0"
+                      }`}
+                      value={renamingTitle}
+                      onChange={(e) => setRenamingTitle(e.target.value)}
+                      onBlur={async () => {
+                        if (renamingTitle.trim() && renamingTitle !== (project.title || project.slug)) {
+                          await updateProject(project.id, { title: renamingTitle.trim() });
+                        }
+                        setRenamingProjectId(null);
+                      }}
+                      onKeyDown={async (e) => {
+                        if (e.key === "Enter") {
+                          e.stopPropagation();
+                          if (renamingTitle.trim() && renamingTitle !== (project.title || project.slug)) {
+                            await updateProject(project.id, { title: renamingTitle.trim() });
+                          }
+                          setRenamingProjectId(null);
+                        } else if (e.key === "Escape") {
+                          e.stopPropagation();
+                          setRenamingProjectId(null);
+                        }
+                      }}
+                      onClick={(e) => e.stopPropagation()}
+                    />
+                  ) : (
+                    <span className={`truncate text-[13.5px] flex-1 transition-all duration-300 whitespace-nowrap pr-6 ${
+                      isCollapsed ? "opacity-0 translate-x-[-10px] pointer-events-none" : "opacity-100 translate-x-0"
+                    }`}>
+                      {project.title || project.slug || "Untitled"}
+                    </span>
+                  )}
 
                   {!isCollapsed && (
                     <div 
@@ -163,19 +195,34 @@ export default function Sidebar() {
                   >
                     <div 
                       className="hover:bg-zinc-50 dark:hover:bg-zinc-900 rounded-lg px-2.5 py-1.5 cursor-pointer text-zinc-700 dark:text-zinc-300"
-                      onClick={() => setOpenMenuId(null)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setRenamingProjectId(project.id);
+                        setRenamingTitle(project.title || project.slug || "");
+                        setOpenMenuId(null);
+                      }}
                     >
                       Rename
                     </div>
                     <div 
                       className="hover:bg-zinc-50 dark:hover:bg-zinc-900 rounded-lg px-2.5 py-1.5 cursor-pointer text-zinc-700 dark:text-zinc-300"
-                      onClick={() => setOpenMenuId(null)}
+                      onClick={async (e) => {
+                        e.stopPropagation();
+                        setOpenMenuId(null);
+                        await duplicateProject(project.id);
+                      }}
                     >
                       Duplicate
                     </div>
                     <div 
                       className="text-red-600 hover:bg-red-50/60 dark:hover:bg-red-950/20 rounded-lg px-2.5 py-1.5 cursor-pointer font-medium"
-                      onClick={() => setOpenMenuId(null)}
+                      onClick={async (e) => {
+                        e.stopPropagation();
+                        setOpenMenuId(null);
+                        if (window.confirm("Are you sure you want to delete this project? This cannot be undone.")) {
+                          await deleteExistingProject(project.id);
+                        }
+                      }}
                     >
                       Delete
                     </div>

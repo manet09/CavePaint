@@ -176,6 +176,72 @@ async def create_project(payload: ProjectCreate, db: Session = Depends(get_db)):
     
     return project
 
+@app.post("/api/projects/{project_id}/duplicate", response_model=ProjectOut)
+async def duplicate_project(project_id: int, db: Session = Depends(get_db)):
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    new_title = f"{project.title} (Copy)"
+    base_slug = re.sub(r'[^a-z0-9]+', '-', new_title.lower()).strip('-')
+    slug = base_slug
+    counter = 1
+    while db.query(Project).filter(Project.slug == slug).first():
+        slug = f"{base_slug}-{counter}"
+        counter += 1
+
+    new_project = Project(
+        title=new_title,
+        slug=slug,
+        raw_research=project.raw_research,
+        script_narrative=project.script_narrative,
+        video_concept=project.video_concept,
+        illustration_style=project.illustration_style,
+        global_voice_style=project.global_voice_style,
+        structured_json_data=project.structured_json_data,
+        status="draft"
+    )
+    db.add(new_project)
+    db.commit()
+    db.refresh(new_project)
+
+    has_scenes = False
+    if new_project.structured_json_data:
+        try:
+            scenes_data = json.loads(new_project.structured_json_data)
+            if isinstance(scenes_data, list) and len(scenes_data) > 0:
+                for scene_obj in scenes_data:
+                    scene = Scene(
+                        project_id=new_project.id,
+                        scene_number=scene_obj.get("scene_number", 1),
+                        narration_khmer=scene_obj.get("narration_khmer"),
+                        image_prompt_english=scene_obj.get("image_prompt_english"),
+                        negative_prompt=scene_obj.get("negative_prompt"),
+                        image_status="idle",
+                        audio_status="idle"
+                    )
+                    db.add(scene)
+                has_scenes = True
+        except json.JSONDecodeError:
+            pass
+
+    if not has_scenes:
+        scene = Scene(
+            project_id=new_project.id,
+            scene_number=1,
+            image_status="idle",
+            audio_status="idle"
+        )
+        db.add(scene)
+
+    db.commit()
+    db.refresh(new_project)
+
+    proj_workspace_dir = os.path.join(workspace_dir, slug)
+    os.makedirs(proj_workspace_dir, exist_ok=True)
+
+    return new_project
+
 @app.get("/api/projects", response_model=List[ProjectOutList])
 async def get_projects(db: Session = Depends(get_db)):
     projects = db.query(Project).all()

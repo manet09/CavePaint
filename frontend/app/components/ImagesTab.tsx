@@ -192,7 +192,7 @@ export default function ImagesTab(props: ImagesTabProps) {
         {/* Column 1: Left Navigation Deck */}
         <div className="lg:col-span-3 h-full flex flex-col gap-4 overflow-hidden">
           {/* Top Style Box */}
-          <div className="bg-card rounded-xl border border-border flex flex-col h-36 overflow-hidden shrink-0 shadow-2xs">
+          <div className="bg-card rounded-xl border border-border flex flex-col h-60 overflow-hidden shrink-0 shadow-2xs">
             <div className="h-10 shrink-0 bg-panel-header border-b border-border px-4 flex items-center gap-2 text-[11px] font-semibold tracking-wider uppercase text-panel-text">
               <Palette size={13} className="text-panel-icon" /> Illustration Style
             </div>
@@ -261,7 +261,7 @@ export default function ImagesTab(props: ImagesTabProps) {
                     <label className="text-[11px] font-semibold tracking-wider uppercase text-panel-text mb-1.5 block">
                       Scene Script Segment
                     </label>
-                    <div className="text-[13.5px] text-zinc-800 dark:text-zinc-200 leading-relaxed font-serif truncate-3-lines">
+                    <div className="text-[13.5px] text-zinc-800 dark:text-zinc-200 leading-relaxed truncate-3-lines">
                       {activeScene.narration_khmer || "No script segment attached to this scene."}
                     </div>
                   </div>
