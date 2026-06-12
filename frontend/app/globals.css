@@ -24,26 +24,26 @@
 }
 
 :root {
-  --color-primary: #2563eb;
-  --color-primary-hover: #1d4ed8;
+  --color-primary: #1067ee;          /* Striking, vibrant tech cobalt */
+  --color-primary-hover: #0b52c1;    /* Deep cobalt active shift */
 
-  --background: #fafafa; /* zinc-50 */
-  --foreground: #09090b; /* zinc-950 */
+  --background: #fcfcfd;             /* Satin pristine off-white */
+  --foreground: #0c0c0f;             /* Clean obsidian dark text */
 
   --card: #ffffff;
-  --card-foreground: #09090b;
+  --card-foreground: #0c0c0f;
 
-  --border: #e4e4e7; /* zinc-200 */
+  --border: #e2e8f0;                 /* Crisp slate border separation line */
 }
 
 :root[data-theme="dark"] {
-  --background: #09090b; /* zinc-950 */
-  --foreground: #fafafa; /* zinc-50 */
+  --background: #09090d;             /* Pure deep midnight obsidian black */
+  --foreground: #f4f4f7;             /* Crisp cream-tinted dark mode text */
 
-  --card: #18181b; /* zinc-900 */
-  --card-foreground: #fafafa;
+  --card: #111116;                   /* Elevated ink card surfaces */
+  --card-foreground: #f4f4f7;
 
-  --border: #27272a; /* zinc-800 */
+  --border: #1f2029;                 /* Subtle, rich deep-tinted layout divider */
 }
 
 body {

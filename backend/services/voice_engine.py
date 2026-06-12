@@ -11,23 +11,24 @@ try:
 except ImportError:
     VoxCPM = None
 
-_VOXCPM_MODEL_LOADED = False
+_MODEL_STATE = "unloaded"
 _VOXCPM_MODEL = None
 _UNLOAD_TASK = None
 _LAST_ACTIVITY_TIME = time.time()
 
 def load_model() -> bool:
-    global _VOXCPM_MODEL_LOADED, _VOXCPM_MODEL, _LAST_ACTIVITY_TIME
+    global _MODEL_STATE, _VOXCPM_MODEL, _LAST_ACTIVITY_TIME
     _LAST_ACTIVITY_TIME = time.time()
     
-    if not _VOXCPM_MODEL_LOADED:
+    if _MODEL_STATE == "unloaded":
+        _MODEL_STATE = "loading"
         print("Loading VoxCPM Model into Unified Memory...")
         if VoxCPM is not None:
             _VOXCPM_MODEL = VoxCPM.from_pretrained("ravuthz/VoxCPM2-khmer", load_denoiser=False)
         else:
             print("voxcpm module not found, mocking load.")
             _VOXCPM_MODEL = "MockModelData"
-        _VOXCPM_MODEL_LOADED = True
+        _MODEL_STATE = "loaded"
     
     _cancel_unload_task()
     return True
@@ -41,7 +42,7 @@ def _cancel_unload_task():
 async def _idle_unloader():
     while True:
         await asyncio.sleep(5) # check periodically
-        if _VOXCPM_MODEL_LOADED and (time.time() - _LAST_ACTIVITY_TIME) >= 60:
+        if _MODEL_STATE == "loaded" and (time.time() - _LAST_ACTIVITY_TIME) >= 60:
             unload_model()
             break
 
@@ -56,10 +57,14 @@ def schedule_unload():
         pass
 
 def unload_model() -> bool:
-    global _VOXCPM_MODEL_LOADED, _VOXCPM_MODEL
+    global _MODEL_STATE, _VOXCPM_MODEL
+    
+    if _MODEL_STATE == "unloaded":
+        return True
+        
+    _MODEL_STATE = "unloading"
     print("Unloading VoxCPM Model to recover Unified Memory...")
     _VOXCPM_MODEL = None
-    _VOXCPM_MODEL_LOADED = False
     
     # Explicit garbage collection
     gc.collect()
@@ -72,12 +77,13 @@ def unload_model() -> bool:
         torch.cuda.empty_cache()
         print("CUDA cache cleared.")
         
+    _MODEL_STATE = "unloaded"
     return True
 
 def generate_scene_audio_chunk(text: str, project_slug: str, profile_tag: str, scene_number: int):
-    global _VOXCPM_MODEL_LOADED, _LAST_ACTIVITY_TIME, _VOXCPM_MODEL
+    global _MODEL_STATE, _LAST_ACTIVITY_TIME, _VOXCPM_MODEL
     
-    if not _VOXCPM_MODEL_LOADED:
+    if _MODEL_STATE != "loaded":
         load_model()
         
     _LAST_ACTIVITY_TIME = time.time()
@@ -167,9 +173,9 @@ def generate_scene_audio_chunk(text: str, project_slug: str, profile_tag: str, s
     return save_path
 
 def generate_single_scene_audio(text: str, project_slug: str, scene_number: int, reference_audio_path: str = None, reference_text: str = None):
-    global _VOXCPM_MODEL_LOADED, _LAST_ACTIVITY_TIME, _VOXCPM_MODEL
+    global _MODEL_STATE, _LAST_ACTIVITY_TIME, _VOXCPM_MODEL
     
-    if not _VOXCPM_MODEL_LOADED:
+    if _MODEL_STATE != "loaded":
         load_model()
         
     _LAST_ACTIVITY_TIME = time.time()
@@ -277,9 +283,9 @@ def compile_master_voiceover(project_id: int, db_session):
         print("No valid audio segments found to concatenate.")
 
 def generate_character_preview(personality_tag: str, reference_text: str) -> str:
-    global _VOXCPM_MODEL_LOADED, _LAST_ACTIVITY_TIME, _VOXCPM_MODEL
+    global _MODEL_STATE, _LAST_ACTIVITY_TIME, _VOXCPM_MODEL
     
-    if not _VOXCPM_MODEL_LOADED:
+    if _MODEL_STATE != "loaded":
         load_model()
         
     _LAST_ACTIVITY_TIME = time.time()

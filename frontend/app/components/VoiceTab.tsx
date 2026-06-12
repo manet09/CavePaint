@@ -133,7 +133,7 @@ export default function VoiceTab({ activeProject, refreshProjectData }: VoiceTab
   
   const [cacheBuster, setCacheBuster] = useState(Date.now());
   const [localScriptNarrative, setLocalScriptNarrative] = useState("");
-  const [modelLoaded, setModelLoaded] = useState(false);
+  const [modelState, setModelState] = useState("unloaded");
 
   // Hidden Audio for previewing characters
   const previewAudioRef = useRef<HTMLAudioElement>(null);
@@ -208,7 +208,7 @@ export default function VoiceTab({ activeProject, refreshProjectData }: VoiceTab
         const res = await fetch("http://localhost:8000/api/model/status");
         if (res.ok) {
           const data = await res.json();
-          setModelLoaded(data.loaded);
+          setModelState(data.state);
         }
       } catch {}
     };
@@ -658,7 +658,7 @@ export default function VoiceTab({ activeProject, refreshProjectData }: VoiceTab
                     <button
                       onClick={handleSaveCharacter}
                       disabled={isSavingChar || !newCharName || !newCharRefText || (factoryMode === "clone" && !newCharFile) || (factoryMode === "design" && !hasGeneratedPreview)}
-                      className="flex-1 py-2.5 bg-primary text-primary-foreground text-[10px] font-bold uppercase tracking-wider rounded shadow-sm hover:bg-primary/90 disabled:opacity-50 transition-colors flex justify-center items-center gap-2"
+                      className="flex-1 py-2.5 bg-primary text-white hover:bg-primary-hover transition-colors font-medium uppercase tracking-wider rounded shadow-sm disabled:opacity-40 flex justify-center items-center gap-2 text-[10px]"
                     >
                       {isSavingChar ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />} 
                       Save to Global Library
@@ -708,10 +708,33 @@ export default function VoiceTab({ activeProject, refreshProjectData }: VoiceTab
           <div className="flex items-center gap-2 text-xs font-semibold tracking-wide uppercase text-card-foreground">
             <RefreshCcw size={14} className="text-primary" /> Timeline Progress
           </div>
-          <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-wider text-foreground/50 bg-background px-2 py-1 rounded border border-border">
-            <div className={`w-1.5 h-1.5 rounded-full ${modelLoaded ? "bg-green-500" : "bg-neutral-500"}`} />
-            VoxCPM2: {modelLoaded ? "Ready" : "Idle"}
-          </div>
+          <div className="flex items-center gap-3">
+          <button
+            onClick={async () => {
+              if (modelState === "loaded") {
+                setModelState("unloading");
+                await fetch("http://localhost:8000/api/model/unload", { method: "POST" });
+              }
+            }}
+            disabled={modelState !== "loaded"}
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[10px] font-bold uppercase tracking-wider transition-all ${
+              modelState === "loaded"
+                ? "bg-green-500/10 border-green-500/30 text-green-600 hover:bg-green-500/20 cursor-pointer"
+                : modelState === "loading"
+                ? "bg-amber-500/10 border-amber-500/30 text-amber-600 cursor-default"
+                : modelState === "unloading"
+                ? "bg-red-500/10 border-red-500/30 text-red-600 cursor-default"
+                : "bg-neutral-500/10 border-neutral-500/30 text-neutral-500 cursor-default"
+            }`}
+          >
+            {(modelState === "loading" || modelState === "unloading") ? (
+              <Loader2 size={10} className="animate-spin" />
+            ) : (
+              <div className={`w-1.5 h-1.5 rounded-full ${modelState === "loaded" ? "bg-green-500" : "bg-neutral-500"}`} />
+            )}
+            VoxCPM2: {modelState}
+          </button>
+        </div>
         </div>
         
         <div className="flex-1 overflow-y-auto p-4 space-y-3 pb-32">

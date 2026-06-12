@@ -664,14 +664,14 @@ async def stop_project_voice(project_id: int, db: Session = Depends(get_db)):
 
 @app.post("/api/model/load")
 async def load_voice_model():
-    success = voice_engine.load_model()
+    success = await asyncio.to_thread(voice_engine.load_model)
     return {"status": "success" if success else "failed"}
 
 @app.post("/api/model/unload")
 async def unload_voice_model():
-    success = voice_engine.unload_model()
+    success = await asyncio.to_thread(voice_engine.unload_model)
     return {"status": "success" if success else "failed"}
 
 @app.get("/api/model/status")
 async def get_model_status():
-    return {"loaded": voice_engine._VOXCPM_MODEL_LOADED}
+    return {"state": voice_engine._MODEL_STATE}

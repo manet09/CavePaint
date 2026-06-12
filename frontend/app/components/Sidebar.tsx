@@ -16,6 +16,19 @@ export default function Sidebar() {
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    const stored = localStorage.getItem("sidebarCollapsed");
+    if (stored !== null) {
+      setIsCollapsed(stored === "true");
+    }
+  }, []);
+
+  const toggleCollapse = () => {
+    const newState = !isCollapsed;
+    setIsCollapsed(newState);
+    localStorage.setItem("sidebarCollapsed", String(newState));
+  };
+
+  useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
         setOpenMenuId(null);
@@ -59,7 +72,7 @@ export default function Sidebar() {
           Studio
         </span>
         <button
-          onClick={() => setIsCollapsed(!isCollapsed)}
+          onClick={toggleCollapse}
           className="w-10 h-10 flex items-center justify-center text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800/60 transition-colors rounded-xl shrink-0"
           title={isCollapsed ? "Open sidebar" : "Close sidebar"}
         >
@@ -238,7 +251,7 @@ export default function Sidebar() {
                 <button
                   type="submit"
                   disabled={isCreating || !newProjectTopic.trim()}
-                  className="px-4 py-2 bg-zinc-900 text-zinc-50 dark:bg-zinc-100 dark:text-zinc-950 hover:opacity-90 rounded-xl transition-all text-sm font-medium disabled:opacity-40"
+                  className="px-4 py-2 bg-primary text-white hover:bg-primary-hover transition-colors font-medium rounded-xl text-sm disabled:opacity-40"
                 >
                   {isCreating ? "Creating..." : "Create"}
                 </button>

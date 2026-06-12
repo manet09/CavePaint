@@ -27,7 +27,6 @@ export default function OverviewTab(props: OverviewTabProps) {
   // Helper to strip internal DB/queue tracking fields from scenes
   const getCleanJson = (project: any) => {
     if (project.structured_json_data) {
-      // If there's already a saved string/object, try to parse/clean it if it's an array
       try {
         const parsed = typeof project.structured_json_data === "string" 
           ? JSON.parse(project.structured_json_data) 
@@ -52,7 +51,6 @@ export default function OverviewTab(props: OverviewTabProps) {
         return project.structured_json_data;
       }
     } else if (project.scenes && Array.isArray(project.scenes)) {
-      // Fallback to cleaning the database scenes array
       return JSON.stringify(
         project.scenes.map((scene: any) => ({
           scene_number: scene.scene_number,
@@ -91,13 +89,12 @@ export default function OverviewTab(props: OverviewTabProps) {
   const handleBlur = async (e: React.FocusEvent<HTMLTextAreaElement>) => {
     const { name, value } = e.target;
     
-    // If JSON field, validate first
     if (name === "structured_json_data" && value.trim() !== "") {
       try {
         JSON.parse(value);
       } catch (err) {
         setSavingState((prev) => ({ ...prev, [name]: "error" }));
-        return; // Halt save if invalid JSON
+        return;
       }
     }
 
@@ -116,29 +113,28 @@ export default function OverviewTab(props: OverviewTabProps) {
 
   const renderStatus = (name: string) => {
     const status = savingState[name];
-    if (status === "saving") return <span className="text-[10px] text-primary flex items-center gap-1"><Loader2 size={10} className="animate-spin" /> Saving...</span>;
-    if (status === "saved") return <span className="text-[10px] text-green-500 flex items-center gap-1"><Check size={10} /> Saved</span>;
+    if (status === "saving") return <span className="text-[10px] text-zinc-500 dark:text-zinc-400 flex items-center gap-1.5"><Loader2 size={11} className="animate-spin" /> Saving</span>;
+    if (status === "saved") return <span className="text-[10px] text-emerald-500 flex items-center gap-1.5"><Check size={11} /> Saved</span>;
     if (status === "error") return <span className="text-[10px] text-red-500 font-medium">Invalid JSON</span>;
     return null;
   };
 
-  // Clean CSS assignments using the global styles class
-  const baseInputStyle = "flex-1 w-full bg-transparent text-foreground text-xs font-sans outline-none resize-none leading-relaxed placeholder:text-muted-foreground/40 sleek-scroll";
-  const jsonInputStyle = "flex-1 w-full p-4 border-t border-border/60 outline-none rounded-b-xl font-mono text-xs bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 focus:border-primary focus:ring-1 focus:ring-primary resize-none transition-colors sleek-scroll";
+  const baseInputStyle = "w-full h-full p-4 bg-transparent text-foreground text-[13px] font-normal outline-none resize-none leading-relaxed placeholder:text-zinc-400/30 custom-scrollbar";
+  const jsonInputStyle = "w-full h-full p-4 bg-zinc-50/20 dark:bg-zinc-950/20 text-foreground font-mono text-[12px] outline-none resize-none leading-relaxed placeholder:text-zinc-400/30 custom-scrollbar";
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 items-stretch w-full h-[calc(100vh-160px)] pb-12 animate-in fade-in slide-in-from-bottom-4 duration-500">
+    <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 w-full h-[calc(100vh-56px-48px)] pb-4 animate-in fade-in slide-in-from-bottom-2 duration-300 items-stretch overflow-hidden select-none">
       
-      {/* COLUMN 1 (Left Flank - Research) */}
-      <div className="lg:col-span-1 h-full">
-        <div className="bg-card rounded-xl border border-border flex flex-col h-full shadow-sm overflow-hidden">
-          <div className="bg-zinc-50/70 dark:bg-zinc-900/40 border-b border-border/60 px-5 py-3 flex justify-between items-center">
-            <label className="flex items-center gap-2 text-xs font-semibold text-card-foreground/80 tracking-wide uppercase">
-              <Search size={14} className="text-primary" /> Research & Raw Material
+      {/* COLUMN 1: Research & Assets Flank */}
+      <div className="lg:col-span-1 h-full flex flex-col">
+        <div className="bg-card rounded-xl border border-border flex flex-col h-full shadow-2xs overflow-hidden">
+          <div className="h-10 shrink-0 bg-zinc-50/30 dark:bg-zinc-900/10 border-b border-border px-4 flex justify-between items-center">
+            <label className="flex items-center gap-2 text-[11px] font-semibold text-zinc-400 dark:text-zinc-500 tracking-wider uppercase">
+              <Search size={13} className="opacity-80" /> Research & Raw Material
             </label>
             {renderStatus("raw_research")}
           </div>
-          <div className="flex-1 p-5 flex flex-col h-full">
+          <div className="flex-1 min-h-0 bg-transparent">
             <textarea
               name="raw_research"
               value={formData.raw_research}
@@ -151,23 +147,23 @@ export default function OverviewTab(props: OverviewTabProps) {
         </div>
       </div>
 
-      {/* COLUMN 2 & 3 (Middle Core - Configuration Quad) */}
-      <div className="lg:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-6 h-full items-stretch">
+      {/* COLUMN 2 & 3: Production Parameter Quad */}
+      <div className="lg:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-4 h-full items-stretch">
         
-        {/* Top Left: Video Concept */}
-        <div className="bg-card rounded-xl border border-border flex flex-col h-full shadow-sm overflow-hidden">
-          <div className="flex items-center justify-between w-full bg-zinc-50/70 dark:bg-zinc-900/40 border-b border-border/60 px-5 py-3">
-            <label className="flex items-center gap-2 text-xs font-semibold text-card-foreground/80 tracking-wide uppercase">
-              <Compass size={14} className="text-primary" /> Video Concept
+        {/* Top Left: Concept Canvas */}
+        <div className="bg-card rounded-xl border border-border flex flex-col h-full shadow-2xs overflow-hidden">
+          <div className="h-10 shrink-0 bg-zinc-50/30 dark:bg-zinc-900/10 border-b border-border px-4 flex justify-between items-center">
+            <label className="flex items-center gap-2 text-[11px] font-semibold text-zinc-400 dark:text-zinc-500 tracking-wider uppercase">
+              <Compass size={13} className="opacity-80" /> Video Concept
             </label>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-3">
               {renderStatus("video_concept")}
-              <button className="p-1 text-zinc-400 hover:text-primary hover:bg-zinc-100 dark:hover:bg-zinc-900 rounded transition-colors cursor-pointer">
-                <Wand2 size={14} />
+              <button className="p-1 rounded-md text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800/60 transition-colors cursor-pointer">
+                <Wand2 size={13} />
               </button>
             </div>
           </div>
-          <div className="flex-1 p-5 flex flex-col h-full">
+          <div className="flex-1 min-h-0 bg-transparent">
             <textarea
               name="video_concept"
               value={formData.video_concept}
@@ -179,20 +175,20 @@ export default function OverviewTab(props: OverviewTabProps) {
           </div>
         </div>
 
-        {/* Top Right: Script */}
-        <div className="bg-card rounded-xl border border-border flex flex-col h-full shadow-sm overflow-hidden">
-          <div className="flex items-center justify-between w-full bg-zinc-50/70 dark:bg-zinc-900/40 border-b border-border/60 px-5 py-3">
-            <label className="flex items-center gap-2 text-xs font-semibold text-card-foreground/80 tracking-wide uppercase">
-              <FileText size={14} className="text-primary" /> Narrative Script (Khmer)
+        {/* Top Right: Script Narrative */}
+        <div className="bg-card rounded-xl border border-border flex flex-col h-full shadow-2xs overflow-hidden">
+          <div className="h-10 shrink-0 bg-zinc-50/30 dark:bg-zinc-900/10 border-b border-border px-4 flex justify-between items-center">
+            <label className="flex items-center gap-2 text-[11px] font-semibold text-zinc-400 dark:text-zinc-500 tracking-wider uppercase">
+              <FileText size={13} className="opacity-80" /> Narrative Script (Khmer)
             </label>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-3">
               {renderStatus("script_narrative")}
-              <button className="p-1 text-zinc-400 hover:text-primary hover:bg-zinc-100 dark:hover:bg-zinc-900 rounded transition-colors cursor-pointer">
-                <Wand2 size={14} />
+              <button className="p-1 rounded-md text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800/60 transition-colors cursor-pointer">
+                <Wand2 size={13} />
               </button>
             </div>
           </div>
-          <div className="flex-1 p-5 flex flex-col h-full">
+          <div className="flex-1 min-h-0 bg-transparent">
             <textarea
               name="script_narrative"
               value={formData.script_narrative}
@@ -204,20 +200,20 @@ export default function OverviewTab(props: OverviewTabProps) {
           </div>
         </div>
 
-        {/* Bottom Left: Image Style */}
-        <div className="bg-card rounded-xl border border-border flex flex-col h-full shadow-sm overflow-hidden">
-          <div className="flex items-center justify-between w-full bg-zinc-50/70 dark:bg-zinc-900/40 border-b border-border/60 px-5 py-3">
-            <label className="flex items-center gap-2 text-xs font-semibold text-card-foreground/80 tracking-wide uppercase">
-              <Palette size={14} className="text-primary" /> Illustration Style
+        {/* Bottom Left: Style Direction */}
+        <div className="bg-card rounded-xl border border-border flex flex-col h-full shadow-2xs overflow-hidden">
+          <div className="h-10 shrink-0 bg-zinc-50/30 dark:bg-zinc-900/10 border-b border-border px-4 flex justify-between items-center">
+            <label className="flex items-center gap-2 text-[11px] font-semibold text-zinc-400 dark:text-zinc-500 tracking-wider uppercase">
+              <Palette size={13} className="opacity-80" /> Illustration Style
             </label>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-3">
               {renderStatus("illustration_style")}
-              <button className="p-1 text-zinc-400 hover:text-primary hover:bg-zinc-100 dark:hover:bg-zinc-900 rounded transition-colors cursor-pointer">
-                <Wand2 size={14} />
+              <button className="p-1 rounded-md text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800/60 transition-colors cursor-pointer">
+                <Wand2 size={13} />
               </button>
             </div>
           </div>
-          <div className="flex-1 p-5 flex flex-col h-full">
+          <div className="flex-1 min-h-0 bg-transparent">
             <textarea
               name="illustration_style"
               value={formData.illustration_style}
@@ -229,20 +225,20 @@ export default function OverviewTab(props: OverviewTabProps) {
           </div>
         </div>
 
-        {/* Bottom Right: Voice Style */}
-        <div className="bg-card rounded-xl border border-border flex flex-col h-full shadow-sm overflow-hidden">
-          <div className="flex items-center justify-between w-full bg-zinc-50/70 dark:bg-zinc-900/40 border-b border-border/60 px-5 py-3">
-            <label className="flex items-center gap-2 text-xs font-semibold text-card-foreground/80 tracking-wide uppercase">
-              <Mic size={14} className="text-primary" /> Vocal Parameters
+        {/* Bottom Right: Vocal Tuning Matrix */}
+        <div className="bg-card rounded-xl border border-border flex flex-col h-full shadow-2xs overflow-hidden">
+          <div className="h-10 shrink-0 bg-zinc-50/30 dark:bg-zinc-900/10 border-b border-border px-4 flex justify-between items-center">
+            <label className="flex items-center gap-2 text-[11px] font-semibold text-zinc-400 dark:text-zinc-500 tracking-wider uppercase">
+              <Mic size={13} className="opacity-80" /> Vocal Parameters
             </label>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-3">
               {renderStatus("global_voice_style")}
-              <button className="p-1 text-zinc-400 hover:text-primary hover:bg-zinc-100 dark:hover:bg-zinc-900 rounded transition-colors cursor-pointer">
-                <Wand2 size={14} />
+              <button className="p-1 rounded-md text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800/60 transition-colors cursor-pointer">
+                <Wand2 size={13} />
               </button>
             </div>
           </div>
-          <div className="flex-1 p-5 flex flex-col h-full">
+          <div className="flex-1 min-h-0 bg-transparent">
             <textarea
               name="global_voice_style"
               value={formData.global_voice_style}
@@ -256,29 +252,31 @@ export default function OverviewTab(props: OverviewTabProps) {
 
       </div>
 
-      {/* COLUMN 4 (Right Flank - JSON Output Panel) */}
-      <div className="lg:col-span-1 h-full">
-        <div className="bg-card rounded-xl border border-border flex flex-col h-full shadow-sm overflow-hidden">
-          <div className="flex items-center justify-between w-full bg-zinc-50/70 dark:bg-zinc-900/40 px-5 py-3">
-            <label className="flex items-center gap-2 text-xs font-semibold text-card-foreground/80 tracking-wide uppercase">
-              <Code size={14} className="text-primary" /> Structured Script & Scene (JSON)
+      {/* COLUMN 4: Structured Data Timeline Codeboard */}
+      <div className="lg:col-span-1 h-full flex flex-col">
+        <div className="bg-card rounded-xl border border-border flex flex-col h-full shadow-2xs overflow-hidden">
+          <div className="h-10 shrink-0 bg-zinc-50/30 dark:bg-zinc-900/10 border-b border-border px-4 flex justify-between items-center">
+            <label className="flex items-center gap-2 text-[11px] font-semibold text-zinc-400 dark:text-zinc-500 tracking-wider uppercase">
+              <Code size={13} className="opacity-80" /> Structured Scene (JSON)
             </label>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-3">
               {renderStatus("structured_json_data")}
-              <button className="p-1 text-zinc-400 hover:text-primary hover:bg-zinc-100 dark:hover:bg-zinc-900 rounded transition-colors cursor-pointer">
-                <Wand2 size={14} />
+              <button className="p-1 rounded-md text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800/60 transition-colors cursor-pointer">
+                <Wand2 size={13} />
               </button>
             </div>
           </div>
-          <textarea
-            name="structured_json_data"
-            value={formData.structured_json_data}
-            onChange={handleChange}
-            onBlur={handleBlur}
-            className={jsonInputStyle}
-            placeholder="[ { ... } ]"
-            spellCheck={false}
-          />
+          <div className="flex-1 min-h-0">
+            <textarea
+              name="structured_json_data"
+              value={formData.structured_json_data}
+              onChange={handleChange}
+              onBlur={handleBlur}
+              className={jsonInputStyle}
+              placeholder="[ { ... } ]"
+              spellCheck={false}
+            />
+          </div>
         </div>
       </div>
 
