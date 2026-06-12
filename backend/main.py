@@ -364,6 +364,8 @@ async def segment_project_script(project_id: int, payload: ScriptSegmentPayload,
         if i < len(scenes):
             if scenes[i].narration_khmer != chunk:
                 scenes[i].narration_khmer = chunk
+                if scenes[i].audio_status == "completed":
+                    scenes[i].audio_status = "outdated"
         else:
             new_scene = Scene(
                 project_id=project.id,
@@ -373,6 +375,24 @@ async def segment_project_script(project_id: int, payload: ScriptSegmentPayload,
                 audio_status="idle"
             )
             db.add(new_scene)
+            
+    if len(chunks) < len(scenes):
+        for scene_to_delete in scenes[len(chunks):]:
+            if scene_to_delete.audio_path:
+                full_path = os.path.join(workspace_dir, scene_to_delete.audio_path)
+                if os.path.exists(full_path):
+                    try:
+                        os.remove(full_path)
+                    except OSError:
+                        pass
+            if scene_to_delete.image_path:
+                full_path = os.path.join(workspace_dir, scene_to_delete.image_path)
+                if os.path.exists(full_path):
+                    try:
+                        os.remove(full_path)
+                    except OSError:
+                        pass
+            db.delete(scene_to_delete)
             
     db.commit()
     return {"status": "success", "chunks_mapped": len(chunks)}

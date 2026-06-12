@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef } from "react";
 /* eslint-disable react-hooks/set-state-in-effect, react-hooks/purity */
 import { Project, SceneData } from "../context/ProjectContext";
-import { Loader2, Check, Play, Pause, Settings, RefreshCcw, FileText, Mic, Volume2 } from "lucide-react";
+import { Loader2, Check, Play, Pause, Settings, RefreshCcw, FileText, Mic, Volume2, AlertTriangle } from "lucide-react";
 
 const CustomAudioPlayer = ({ src, className = "" }: { src: string, className?: string }) => {
   const [isPlaying, setIsPlaying] = useState(false);
@@ -109,6 +109,34 @@ export default function VoiceTab({ activeProject, refreshProjectData }: VoiceTab
       if (refreshProjectData) await refreshProjectData();
     } catch (err) {
       console.error(err);
+    }
+  };
+
+  const [isSyncing, setIsSyncing] = useState(false);
+
+  const handleSyncScript = async () => {
+    if (!activeProject?.id) return;
+    setIsSyncing(true);
+    try {
+      // Save first
+      await fetch(`http://localhost:8000/api/projects/${activeProject.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ script_narrative: localScriptNarrative }),
+      });
+      // Segment
+      const response = await fetch(`http://localhost:8000/api/projects/${activeProject.id}/segment-script`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ long_script: localScriptNarrative }),
+      });
+      if (response.ok) {
+        await refreshProjectData();
+      }
+    } catch (error) {
+      console.error("Error syncing script:", error);
+    } finally {
+      setIsSyncing(false);
     }
   };
 
@@ -249,8 +277,18 @@ export default function VoiceTab({ activeProject, refreshProjectData }: VoiceTab
         
         {/* SCRIPT CANVAS */}
         <div className="bg-card rounded-xl border border-border flex flex-col h-60 overflow-hidden shrink-0">
-          <div className="bg-zinc-50/70 dark:bg-zinc-900/40 px-4 py-2 border-b border-border/60 flex items-center gap-2 text-xs font-semibold tracking-wide uppercase text-card-foreground">
-            <FileText size={14} className="text-primary" /> Narrative Script (Khmer)
+          <div className="bg-zinc-50/70 dark:bg-zinc-900/40 px-4 py-2 border-b border-border/60 flex items-center justify-between">
+            <div className="flex items-center gap-2 text-xs font-semibold tracking-wide uppercase text-card-foreground">
+              <FileText size={14} className="text-primary" /> Narrative Script (Khmer)
+            </div>
+            <button
+              onClick={handleSyncScript}
+              disabled={isSyncing}
+              className="flex items-center gap-1.5 px-3 py-1 bg-primary text-primary-foreground text-[10px] font-bold uppercase tracking-wider rounded-md shadow-sm hover:bg-primary/90 transition-colors disabled:opacity-50"
+            >
+              {isSyncing ? <Loader2 size={12} className="animate-spin" /> : <RefreshCcw size={12} />}
+              Sync
+            </button>
           </div>
           <textarea
             value={localScriptNarrative}
@@ -385,27 +423,31 @@ export default function VoiceTab({ activeProject, refreshProjectData }: VoiceTab
             </div>
           ) : (
             activeProject.scenes.map((scene: SceneData) => (
-              <div key={scene.id} className="bg-background border border-border rounded-md p-3 flex flex-col relative shadow-sm">
-                <div className="flex justify-between items-start">
-                  <span className="text-xs font-bold text-foreground/50">
-                    Scene #{String(scene.scene_number).padStart(3, '0')}
-                  </span>
-                  
-                  {/* Status Badges */}
-                  <div className="flex items-center gap-2">
-                    {scene.audio_status === "completed" ? (
-                      <span className="bg-green-500/10 text-green-500 border border-green-500/20 px-2 py-0.5 rounded-full text-[10px] font-bold flex items-center gap-1 uppercase">
-                        <Check size={10} /> Completed
-                      </span>
-                    ) : scene.audio_status === "processing" ? (
-                      <span className="bg-primary/10 text-primary border border-primary/20 px-2 py-0.5 rounded-full text-[10px] font-bold flex items-center gap-1 uppercase">
-                        <Loader2 size={10} className="animate-spin" /> Synthesizing line...
-                      </span>
-                    ) : (
-                      <span className="bg-neutral-500/10 text-neutral-500 border border-neutral-500/20 px-2 py-0.5 rounded-full text-[10px] font-bold flex items-center gap-1 uppercase">
-                        Idle
-                      </span>
-                    )}
+                <div key={scene.id} className={`border rounded-md p-3 flex flex-col relative shadow-sm ${scene.audio_status === 'outdated' ? 'border-yellow-500/50 bg-yellow-500/5' : 'bg-background border-border'}`}>
+                  <div className="flex justify-between items-start">
+                    <span className="text-xs font-bold text-foreground/50">
+                      Scene #{String(scene.scene_number).padStart(3, '0')}
+                    </span>
+                    
+                    {/* Status Badges */}
+                    <div className="flex items-center gap-2">
+                      {scene.audio_status === "completed" ? (
+                        <span className="bg-green-500/10 text-green-500 border border-green-500/20 px-2 py-0.5 rounded-full text-[10px] font-bold flex items-center gap-1 uppercase">
+                          <Check size={10} /> Completed
+                        </span>
+                      ) : scene.audio_status === "outdated" ? (
+                        <span className="bg-yellow-500/10 text-yellow-500 border border-yellow-500/20 px-2 py-0.5 rounded-full text-[10px] font-bold flex items-center gap-1 uppercase">
+                          <AlertTriangle size={10} /> Outdated (Regenerate)
+                        </span>
+                      ) : scene.audio_status === "processing" ? (
+                        <span className="bg-primary/10 text-primary border border-primary/20 px-2 py-0.5 rounded-full text-[10px] font-bold flex items-center gap-1 uppercase">
+                          <Loader2 size={10} className="animate-spin" /> Synthesizing line...
+                        </span>
+                      ) : (
+                        <span className="bg-neutral-500/10 text-neutral-500 border border-neutral-500/20 px-2 py-0.5 rounded-full text-[10px] font-bold flex items-center gap-1 uppercase">
+                          Idle
+                        </span>
+                      )}
                     <button 
                       onClick={() => handleRegenerateLine(scene.id)} 
                       disabled={scene.audio_status === "processing"}
@@ -419,13 +461,20 @@ export default function VoiceTab({ activeProject, refreshProjectData }: VoiceTab
                 <p className="text-xs text-foreground/80 line-clamp-2 leading-loose" title={scene.narration_khmer || undefined}>
                   {scene.narration_khmer || "Empty narrative chunk..."}
                 </p>
-                {scene.audio_status === "completed" && scene.audio_path && (
-                  <div className="mt-2">
-                    <CustomAudioPlayer 
-                      src={`http://localhost:8000/static/${activeProject.slug}/scene_${String(scene.scene_number).padStart(3, '0')}.wav?t=${cacheBuster}`}
-                    />
-                  </div>
-                )}
+                  {scene.audio_status === "completed" && scene.audio_path && (
+                    <div className="mt-2">
+                      <CustomAudioPlayer 
+                        src={`http://localhost:8000/static/${activeProject.slug}/scene_${String(scene.scene_number).padStart(3, '0')}.wav?t=${cacheBuster}`}
+                      />
+                    </div>
+                  )}
+                  {scene.audio_status === "outdated" && scene.audio_path && (
+                    <div className="mt-2 opacity-60">
+                      <CustomAudioPlayer 
+                        src={`http://localhost:8000/static/${activeProject.slug}/scene_${String(scene.scene_number).padStart(3, '0')}.wav?t=${cacheBuster}`}
+                      />
+                    </div>
+                  )}
               </div>
             ))
           )}
