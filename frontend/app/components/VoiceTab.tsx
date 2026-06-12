@@ -438,9 +438,9 @@ export default function VoiceTab({ activeProject, refreshProjectData }: VoiceTab
         
         {/* SCRIPT CANVAS */}
         <div className="bg-card rounded-xl border border-border flex flex-col h-60 overflow-hidden shrink-0 shadow-sm">
-          <div className="bg-zinc-50/70 dark:bg-zinc-900/40 px-4 py-2 border-b border-border/60 flex items-center justify-between">
-            <div className="flex items-center gap-2 text-xs font-semibold tracking-wide uppercase text-card-foreground">
-              <FileText size={14} className="text-primary" /> Narrative Script (Khmer)
+          <div className="bg-panel-header px-4 py-2 border-b border-border flex items-center justify-between">
+            <div className="flex items-center gap-2 text-xs font-semibold tracking-wide uppercase text-panel-text">
+              <FileText size={14} className="text-panel-icon" /> Narrative Script (Khmer)
             </div>
             <button
               onClick={handleSyncScript}
@@ -463,7 +463,7 @@ export default function VoiceTab({ activeProject, refreshProjectData }: VoiceTab
         {/* TABS CONTAINER */}
         <div className="flex-1 flex flex-col bg-card border border-border rounded-xl shadow-sm overflow-hidden min-h-0">
           {/* Tab Header */}
-          <div className="flex border-b border-border/60 bg-zinc-50/70 dark:bg-zinc-900/40">
+          <div className="flex border-b border-border bg-panel-header">
             <button
               onClick={() => setActiveTab("library")}
               className={`flex-1 py-3 text-xs font-semibold tracking-wide uppercase transition-colors ${activeTab === "library" ? "text-primary border-b-2 border-primary bg-background" : "text-foreground/60 hover:text-foreground"}`}
@@ -704,9 +704,9 @@ export default function VoiceTab({ activeProject, refreshProjectData }: VoiceTab
       
       {/* RIGHT PANE: TIMELINE PROGRESS & MASTER PLAYER */}
       <div className="lg:col-span-7 flex flex-col h-full bg-card border border-border rounded-lg shadow-sm overflow-hidden relative">
-        <div className="bg-zinc-50/70 dark:bg-zinc-900/40 px-4 py-2 border-b border-border/60 flex justify-between items-center z-10">
-          <div className="flex items-center gap-2 text-xs font-semibold tracking-wide uppercase text-card-foreground">
-            <RefreshCcw size={14} className="text-primary" /> Timeline Progress
+        <div className="bg-panel-header px-4 py-2 border-b border-border flex justify-between items-center z-10">
+          <div className="flex items-center gap-2 text-xs font-semibold tracking-wide uppercase text-panel-text">
+            <RefreshCcw size={14} className="text-panel-icon" /> Timeline Progress
           </div>
           <div className="flex items-center gap-3">
           <button

@@ -73,7 +73,7 @@ export default function Sidebar() {
         </span>
         <button
           onClick={toggleCollapse}
-          className="w-10 h-10 flex items-center justify-center text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800/60 transition-colors rounded-xl shrink-0"
+          className="w-10 h-10 flex items-center justify-center text-zinc-500 hover:text-panel-icon dark:text-zinc-400 hover:bg-panel-header transition-colors rounded-xl shrink-0"
           title={isCollapsed ? "Open sidebar" : "Close sidebar"}
         >
           {isCollapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
@@ -84,11 +84,11 @@ export default function Sidebar() {
       <div className="px-3 mt-4 shrink-0 w-full">
         <button
           onClick={() => setIsModalOpen(true)}
-          className="w-full h-10 flex items-center rounded-xl text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800/60 transition-all group overflow-hidden px-0 shrink-0"
+          className="w-full h-10 flex items-center rounded-xl text-zinc-700 dark:text-zinc-300 hover:bg-panel-header hover:text-panel-icon transition-all group overflow-hidden px-0 shrink-0"
           title="New Project"
         >
           <div className="w-10 h-10 flex items-center justify-center shrink-0">
-            <div className="w-6 h-6 rounded-full border border-zinc-300 dark:border-zinc-700 flex items-center justify-center text-zinc-500 dark:text-zinc-400 group-hover:border-zinc-400 dark:group-hover:border-zinc-500 transition-colors">
+            <div className="w-6 h-6 rounded-full border border-zinc-300 dark:border-zinc-700 flex items-center justify-center text-zinc-500 dark:text-zinc-400 group-hover:border-panel-icon group-hover:text-panel-icon transition-colors">
               <Plus size={14} />
             </div>
           </div>
@@ -103,7 +103,7 @@ export default function Sidebar() {
       {/* 3. Symmetrical Project Timeline Navigation */}
       <div className="flex-1 overflow-y-auto px-3 py-2 space-y-0.5 custom-scrollbar overflow-x-hidden w-full flex flex-col">
         {/* Jitter-Free Header Field */}
-        <h3 className={`text-[11px] font-medium text-zinc-400 dark:text-zinc-500 uppercase tracking-wider px-3 mb-2 mt-4 transition-opacity duration-200 select-none whitespace-nowrap ${
+        <h3 className={`text-[11px] font-semibold text-panel-text uppercase tracking-wider px-3 mb-2 mt-4 transition-opacity duration-200 select-none whitespace-nowrap ${
           isCollapsed ? "opacity-0 pointer-events-none" : "opacity-100 delay-150"
         }`}>
           Past Projects
@@ -124,14 +124,14 @@ export default function Sidebar() {
                   onClick={() => setActiveProject(project)}
                   className={`w-full h-10 flex items-center rounded-xl transition-all text-left relative overflow-hidden px-0 shrink-0 ${
                     isActive
-                      ? "bg-zinc-100 dark:bg-zinc-900 text-zinc-950 dark:text-zinc-50 font-medium shadow-2xs"
-                      : "text-zinc-600 dark:text-zinc-400 hover:bg-zinc-50/80 dark:hover:bg-zinc-900/30 hover:text-zinc-900 dark:hover:text-zinc-200"
+                      ? "bg-panel-header text-panel-icon font-semibold shadow-2xs"
+                      : "text-zinc-600 dark:text-zinc-400 hover:bg-panel-header/50 hover:text-panel-text"
                   }`}
                   title={isCollapsed ? (project.title || project.slug || "Untitled") : undefined}
                 >
                   {/* Perfect Symmetrical Base Grid Anchor */}
                   <div className={`w-10 h-10 flex items-center justify-center shrink-0 transition-colors ${
-                    isActive ? "text-zinc-900 dark:text-zinc-100" : "opacity-60 group-hover:opacity-100"
+                    isActive ? "text-panel-icon" : "opacity-60 group-hover:opacity-100"
                   }`}>
                     <FolderOpen size={16} />
                   </div>
@@ -190,7 +190,7 @@ export default function Sidebar() {
       {/* 4. Symmetrical Footer Actions */}
       <div className="p-3 border-t border-zinc-200/50 dark:border-zinc-800/50 flex flex-col gap-0.5 shrink-0 w-full">
         <button
-          className="w-full h-10 flex items-center rounded-xl text-[13.5px] text-zinc-600 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-900/40 hover:text-zinc-900 dark:hover:text-zinc-100 transition-colors px-0 shrink-0"
+          className="w-full h-10 flex items-center rounded-xl text-[13.5px] text-zinc-600 dark:text-zinc-400 hover:bg-panel-header hover:text-panel-text transition-colors px-0 shrink-0"
           title="Settings"
         >
           <div className="w-10 h-10 flex items-center justify-center shrink-0">
@@ -205,7 +205,7 @@ export default function Sidebar() {
         
         <button
           onClick={toggleTheme}
-          className="w-full h-10 flex items-center rounded-xl text-[13.5px] text-zinc-600 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-900/40 hover:text-zinc-900 dark:hover:text-zinc-100 transition-colors px-0 shrink-0"
+          className="w-full h-10 flex items-center rounded-xl text-[13.5px] text-zinc-600 dark:text-zinc-400 hover:bg-panel-header hover:text-panel-text transition-colors px-0 shrink-0"
           title="Toggle Theme"
         >
           <div className="w-10 h-10 flex items-center justify-center shrink-0">

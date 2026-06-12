@@ -3,7 +3,7 @@
 
 import React, { useState, useEffect } from "react";
 import { useProjectContext } from "../context/ProjectContext";
-import { Search, Compass, Palette, FileText, Mic, Code, Wand2, Loader2, Check } from "lucide-react";
+import { Search, Compass, Palette, FileText, Mic, Code, Sparkles, Loader2, Check } from "lucide-react";
 
 interface OverviewTabProps {
   activeProject?: any;
@@ -128,9 +128,9 @@ export default function OverviewTab(props: OverviewTabProps) {
       {/* COLUMN 1: Research & Assets Flank */}
       <div className="lg:col-span-1 h-full flex flex-col">
         <div className="bg-card rounded-xl border border-border flex flex-col h-full shadow-2xs overflow-hidden">
-          <div className="h-10 shrink-0 bg-zinc-50/30 dark:bg-zinc-900/10 border-b border-border px-4 flex justify-between items-center">
-            <label className="flex items-center gap-2 text-[11px] font-semibold text-zinc-400 dark:text-zinc-500 tracking-wider uppercase">
-              <Search size={13} className="opacity-80" /> Research & Raw Material
+          <div className="h-10 shrink-0 bg-panel-header border-b border-border px-4 flex justify-between items-center">
+            <label className="flex items-center gap-2 text-[11px] font-semibold text-panel-text tracking-wider uppercase">
+              <Search size={13} className="text-panel-icon" /> Research & Raw Material
             </label>
             {renderStatus("raw_research")}
           </div>
@@ -152,14 +152,14 @@ export default function OverviewTab(props: OverviewTabProps) {
         
         {/* Top Left: Concept Canvas */}
         <div className="bg-card rounded-xl border border-border flex flex-col h-full shadow-2xs overflow-hidden">
-          <div className="h-10 shrink-0 bg-zinc-50/30 dark:bg-zinc-900/10 border-b border-border px-4 flex justify-between items-center">
-            <label className="flex items-center gap-2 text-[11px] font-semibold text-zinc-400 dark:text-zinc-500 tracking-wider uppercase">
-              <Compass size={13} className="opacity-80" /> Video Concept
+          <div className="h-10 shrink-0 bg-panel-header border-b border-border px-4 flex justify-between items-center">
+            <label className="flex items-center gap-2 text-[11px] font-semibold text-panel-text tracking-wider uppercase">
+              <Compass size={13} className="text-panel-icon" /> Video Concept
             </label>
             <div className="flex items-center gap-3">
               {renderStatus("video_concept")}
-              <button className="p-1 rounded-md text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800/60 transition-colors cursor-pointer">
-                <Wand2 size={13} />
+              <button className="p-1.5 rounded-md text-panel-icon hover:text-primary-hover hover:bg-panel-icon/10 transition-all active:scale-95 cursor-pointer" title="AI Generate">
+                <Sparkles size={13} />
               </button>
             </div>
           </div>
@@ -177,14 +177,14 @@ export default function OverviewTab(props: OverviewTabProps) {
 
         {/* Top Right: Script Narrative */}
         <div className="bg-card rounded-xl border border-border flex flex-col h-full shadow-2xs overflow-hidden">
-          <div className="h-10 shrink-0 bg-zinc-50/30 dark:bg-zinc-900/10 border-b border-border px-4 flex justify-between items-center">
-            <label className="flex items-center gap-2 text-[11px] font-semibold text-zinc-400 dark:text-zinc-500 tracking-wider uppercase">
-              <FileText size={13} className="opacity-80" /> Narrative Script (Khmer)
+          <div className="h-10 shrink-0 bg-panel-header border-b border-border px-4 flex justify-between items-center">
+            <label className="flex items-center gap-2 text-[11px] font-semibold text-panel-text tracking-wider uppercase">
+              <FileText size={13} className="text-panel-icon" /> Narrative Script (Khmer)
             </label>
             <div className="flex items-center gap-3">
               {renderStatus("script_narrative")}
-              <button className="p-1 rounded-md text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800/60 transition-colors cursor-pointer">
-                <Wand2 size={13} />
+              <button className="p-1.5 rounded-md text-panel-icon hover:text-primary-hover hover:bg-panel-icon/10 transition-all active:scale-95 cursor-pointer" title="AI Generate">
+                <Sparkles size={13} />
               </button>
             </div>
           </div>
@@ -202,14 +202,14 @@ export default function OverviewTab(props: OverviewTabProps) {
 
         {/* Bottom Left: Style Direction */}
         <div className="bg-card rounded-xl border border-border flex flex-col h-full shadow-2xs overflow-hidden">
-          <div className="h-10 shrink-0 bg-zinc-50/30 dark:bg-zinc-900/10 border-b border-border px-4 flex justify-between items-center">
-            <label className="flex items-center gap-2 text-[11px] font-semibold text-zinc-400 dark:text-zinc-500 tracking-wider uppercase">
-              <Palette size={13} className="opacity-80" /> Illustration Style
+          <div className="h-10 shrink-0 bg-panel-header border-b border-border px-4 flex justify-between items-center">
+            <label className="flex items-center gap-2 text-[11px] font-semibold text-panel-text tracking-wider uppercase">
+              <Palette size={13} className="text-panel-icon" /> Illustration Style
             </label>
             <div className="flex items-center gap-3">
               {renderStatus("illustration_style")}
-              <button className="p-1 rounded-md text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800/60 transition-colors cursor-pointer">
-                <Wand2 size={13} />
+              <button className="p-1.5 rounded-md text-panel-icon hover:text-primary-hover hover:bg-panel-icon/10 transition-all active:scale-95 cursor-pointer" title="AI Generate">
+                <Sparkles size={13} />
               </button>
             </div>
           </div>
@@ -227,14 +227,14 @@ export default function OverviewTab(props: OverviewTabProps) {
 
         {/* Bottom Right: Vocal Tuning Matrix */}
         <div className="bg-card rounded-xl border border-border flex flex-col h-full shadow-2xs overflow-hidden">
-          <div className="h-10 shrink-0 bg-zinc-50/30 dark:bg-zinc-900/10 border-b border-border px-4 flex justify-between items-center">
-            <label className="flex items-center gap-2 text-[11px] font-semibold text-zinc-400 dark:text-zinc-500 tracking-wider uppercase">
-              <Mic size={13} className="opacity-80" /> Vocal Parameters
+          <div className="h-10 shrink-0 bg-panel-header border-b border-border px-4 flex justify-between items-center">
+            <label className="flex items-center gap-2 text-[11px] font-semibold text-panel-text tracking-wider uppercase">
+              <Mic size={13} className="text-panel-icon" /> Vocal Parameters
             </label>
             <div className="flex items-center gap-3">
               {renderStatus("global_voice_style")}
-              <button className="p-1 rounded-md text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800/60 transition-colors cursor-pointer">
-                <Wand2 size={13} />
+              <button className="p-1.5 rounded-md text-panel-icon hover:text-primary-hover hover:bg-panel-icon/10 transition-all active:scale-95 cursor-pointer" title="AI Generate">
+                <Sparkles size={13} />
               </button>
             </div>
           </div>
@@ -255,14 +255,14 @@ export default function OverviewTab(props: OverviewTabProps) {
       {/* COLUMN 4: Structured Data Timeline Codeboard */}
       <div className="lg:col-span-1 h-full flex flex-col">
         <div className="bg-card rounded-xl border border-border flex flex-col h-full shadow-2xs overflow-hidden">
-          <div className="h-10 shrink-0 bg-zinc-50/30 dark:bg-zinc-900/10 border-b border-border px-4 flex justify-between items-center">
-            <label className="flex items-center gap-2 text-[11px] font-semibold text-zinc-400 dark:text-zinc-500 tracking-wider uppercase">
-              <Code size={13} className="opacity-80" /> Structured Scene (JSON)
+          <div className="h-10 shrink-0 bg-panel-header border-b border-border px-4 flex justify-between items-center">
+            <label className="flex items-center gap-2 text-[11px] font-semibold text-panel-text tracking-wider uppercase">
+              <Code size={13} className="text-panel-icon" /> Structured Scene (JSON)
             </label>
             <div className="flex items-center gap-3">
               {renderStatus("structured_json_data")}
-              <button className="p-1 rounded-md text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800/60 transition-colors cursor-pointer">
-                <Wand2 size={13} />
+              <button className="p-1.5 rounded-md text-panel-icon hover:text-primary-hover hover:bg-panel-icon/10 transition-all active:scale-95 cursor-pointer" title="AI Generate">
+                <Sparkles size={13} />
               </button>
             </div>
           </div>

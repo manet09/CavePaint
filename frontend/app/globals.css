@@ -21,6 +21,10 @@
 
   --radius-lg: 0.75rem;
   --radius-md: 0.5rem;
+
+  --color-panel-header: var(--panel-header);
+  --color-panel-icon: var(--panel-icon);
+  --color-panel-text: var(--panel-text);
 }
 
 :root {
@@ -34,6 +38,10 @@
   --card-foreground: #0c0c0f;
 
   --border: #e2e8f0;                 /* Crisp slate border separation line */
+
+  --panel-header: #f6f6f6;           /* Clean sleek modern gray */
+  --panel-icon: #1067ee;             /* Vibrant cobalt */
+  --panel-text: #52525b;             /* Sleek neutral gray text */
 }
 
 :root[data-theme="dark"] {
@@ -44,6 +52,10 @@
   --card-foreground: #f4f4f7;
 
   --border: #1f2029;                 /* Subtle, rich deep-tinted layout divider */
+
+  --panel-header: #18181c;           /* Sleek deep gray */
+  --panel-icon: #3b82f6;             /* Bright vibrant blue */
+  --panel-text: #a1a1aa;             /* Clean neutral gray text */
 }
 
 body {

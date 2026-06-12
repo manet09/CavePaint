@@ -193,8 +193,8 @@ export default function ImagesTab(props: ImagesTabProps) {
         <div className="lg:col-span-3 h-full flex flex-col gap-4 overflow-hidden">
           {/* Top Style Box */}
           <div className="bg-card rounded-xl border border-border flex flex-col h-36 overflow-hidden shrink-0 shadow-2xs">
-            <div className="h-10 shrink-0 bg-zinc-50/50 dark:bg-zinc-900/20 border-b border-border px-4 flex items-center gap-2 text-[11px] font-semibold tracking-wider uppercase text-zinc-400 dark:text-zinc-500">
-              <Palette size={13} className="opacity-80" /> Illustration Style
+            <div className="h-10 shrink-0 bg-panel-header border-b border-border px-4 flex items-center gap-2 text-[11px] font-semibold tracking-wider uppercase text-panel-text">
+              <Palette size={13} className="text-panel-icon" /> Illustration Style
             </div>
             <textarea
               value={localIllustrationStyle}
@@ -207,7 +207,7 @@ export default function ImagesTab(props: ImagesTabProps) {
 
           {/* Scenes Card Deck */}
           <div className="flex-1 min-h-0 bg-card rounded-xl border border-border flex flex-col overflow-hidden shadow-2xs">
-            <div className="h-10 shrink-0 bg-zinc-50/50 dark:bg-zinc-900/20 border-b border-border px-4 flex items-center text-[11px] font-semibold tracking-wider uppercase text-zinc-400 dark:text-zinc-500">
+            <div className="h-10 shrink-0 bg-panel-header border-b border-border px-4 flex items-center text-[11px] font-semibold tracking-wider uppercase text-panel-text">
               Parsed Scenes & Prompts
             </div>
             <div className="flex-1 overflow-y-auto p-2.5 space-y-1.5 custom-scrollbar">
@@ -256,9 +256,9 @@ export default function ImagesTab(props: ImagesTabProps) {
               <div className="bg-card rounded-xl border border-border flex flex-col h-full overflow-hidden shadow-2xs relative">
                 
                 {/* Script Fragment Row */}
-                <div className="border-b border-border p-4 bg-zinc-50/20 dark:bg-zinc-950/20 flex justify-between items-start gap-4">
+                <div className="border-b border-border p-4 bg-panel-header flex justify-between items-start gap-4">
                   <div className="min-w-0 flex-1">
-                    <label className="text-[11px] font-semibold tracking-wider uppercase text-zinc-400 dark:text-zinc-500 mb-1.5 block">
+                    <label className="text-[11px] font-semibold tracking-wider uppercase text-panel-text mb-1.5 block">
                       Scene Script Segment
                     </label>
                     <div className="text-[13.5px] text-zinc-800 dark:text-zinc-200 leading-relaxed font-serif truncate-3-lines">
@@ -273,7 +273,7 @@ export default function ImagesTab(props: ImagesTabProps) {
 
                 {/* Positive System Prompt Box */}
                 <div className="flex-1 min-h-0 flex flex-col border-b border-border">
-                  <label className="text-[11px] font-semibold tracking-wider uppercase text-zinc-400 dark:text-zinc-500 px-4 pt-4 block">
+                  <label className="text-[11px] font-semibold tracking-wider uppercase text-panel-text px-4 pt-4 block">
                     Engine Prompt Configuration
                   </label>
                   <textarea
@@ -287,7 +287,7 @@ export default function ImagesTab(props: ImagesTabProps) {
 
                 {/* Negative Tuning Configuration Box */}
                 <div className="h-40 shrink-0 flex flex-col border-b border-border bg-zinc-50/[0.05]">
-                  <label className="text-[11px] font-semibold tracking-wider uppercase text-zinc-400 dark:text-zinc-500 px-4 pt-4 block">
+                  <label className="text-[11px] font-semibold tracking-wider uppercase text-panel-text px-4 pt-4 block">
                     Negative Constraints
                   </label>
                   <textarea
@@ -300,7 +300,7 @@ export default function ImagesTab(props: ImagesTabProps) {
                 </div>
 
                 {/* Live Instruction Bar */}
-                <div className="p-3 shrink-0 bg-zinc-50/30 dark:bg-zinc-900/10">
+                <div className="p-3 shrink-0 bg-panel-header border-t border-border">
                   <div className="relative flex items-center">
                     <textarea
                       ref={refinementRef}
@@ -336,8 +336,8 @@ export default function ImagesTab(props: ImagesTabProps) {
               {/* Configuration Matrix Module */}
               <div className="bg-card rounded-xl border border-border p-4 shrink-0 shadow-2xs">
                 <div className="flex items-center gap-2 mb-4 h-5">
-                  <SlidersHorizontal size={13} className="text-zinc-400 opacity-80" />
-                  <h3 className="text-[11px] font-semibold tracking-wider uppercase text-zinc-400 dark:text-zinc-500">
+                  <SlidersHorizontal size={13} className="text-panel-icon" />
+                  <h3 className="text-[11px] font-semibold tracking-wider uppercase text-panel-text">
                     Engine Generation Parameters
                   </h3>
                 </div>
@@ -396,7 +396,7 @@ export default function ImagesTab(props: ImagesTabProps) {
 
               {/* Live Canvas Viewfinder Card */}
               <div className="flex-1 bg-card rounded-xl border border-border flex flex-col overflow-hidden relative shadow-2xs">
-                <div className="h-10 bg-zinc-50/50 dark:bg-zinc-900/20 border-b border-border px-4 flex items-center text-[11px] font-semibold tracking-wider uppercase text-zinc-400 dark:text-zinc-500 absolute top-0 w-full z-10">
+                <div className="h-10 bg-panel-header border-b border-border px-4 flex items-center text-[11px] font-semibold tracking-wider uppercase text-panel-text absolute top-0 w-full z-10">
                   Render Output Frame
                 </div>
                 
