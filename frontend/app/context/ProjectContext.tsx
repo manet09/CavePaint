@@ -17,6 +17,8 @@ export interface SceneData {
   image_status: string;
   audio_path: string | null;
   audio_status: string;
+  character_id?: number;
+  character_name?: string;
 }
 
 export interface Project {

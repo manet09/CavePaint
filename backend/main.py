@@ -6,13 +6,13 @@ import requests
 from contextlib import asynccontextmanager
 from typing import List, Optional
 from pydantic import BaseModel, ConfigDict
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 import shutil
 
-from .database import get_db, Project, Scene
+from .database import get_db, Project, Scene, Character, SHARED_CHARACTERS_DIR
 from .queue_worker import start_queue_worker, task_queue, GenerationTask
 from .services import gemini, voice_engine
 
@@ -38,8 +38,25 @@ class SceneUpdate(BaseModel):
 class SceneOut(SceneBase):
     id: int
     project_id: int
+    character_id: Optional[int] = None
+    character_name: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+class CharacterOut(BaseModel):
+    id: int
+    name: str
+    gender: str
+    personality_tag: str
+    audio_path: str
+    reference_text: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+class PreviewPayload(BaseModel):
+    gender: str
+    personality_tag: str
+    reference_text: str
 
 class ProjectBase(BaseModel):
     title: str
@@ -488,7 +505,7 @@ async def delete_scene_image(scene_id: int, db: Session = Depends(get_db)):
     return {"status": "success"}
 
 @app.post("/api/scenes/{scene_id}/generate-audio")
-async def generate_scene_audio_single(scene_id: int, db: Session = Depends(get_db)):
+async def generate_scene_audio_single(scene_id: int, character_id: Optional[int] = None, db: Session = Depends(get_db)):
     scene = db.query(Scene).filter(Scene.id == scene_id).first()
     if not scene:
         raise HTTPException(status_code=404, detail="Scene not found")
@@ -502,11 +519,15 @@ async def generate_scene_audio_single(scene_id: int, db: Session = Depends(get_d
         
     scene.audio_status = "processing"
     
+    task_payload = {"text": scene.narration_khmer}
+    if character_id is not None:
+        task_payload["character_id"] = character_id
+        
     task = GenerationTask(
         task_type="audio_single",
         project_id=project.id,
         scene_id=scene.id,
-        payload={"text": scene.narration_khmer}
+        payload=task_payload
     )
     await task_queue.put(task)
     
@@ -514,9 +535,91 @@ async def generate_scene_audio_single(scene_id: int, db: Session = Depends(get_d
     
     return {"status": "queued"}
 
+# Global Character Routing
+
+@app.get("/api/characters", response_model=List[CharacterOut])
+async def get_characters(db: Session = Depends(get_db)):
+    characters = db.query(Character).order_by(Character.name).all()
+    return characters
+
+@app.post("/api/characters/preview")
+async def create_character_preview(payload: PreviewPayload):
+    from .services.voice_engine import generate_character_preview
+    path = generate_character_preview(payload.personality_tag, payload.reference_text)
+    return {"status": "success", "audio_path": path}
+
+@app.delete("/api/characters/preview")
+async def delete_character_preview():
+    temp_preview_path = os.path.join(SHARED_CHARACTERS_DIR, "temp_preview.wav")
+    if os.path.exists(temp_preview_path):
+        os.remove(temp_preview_path)
+    return {"status": "success", "message": "Preview deleted"}
+
+@app.post("/api/characters", response_model=CharacterOut)
+async def create_character(
+    name: str = Form(...),
+    gender: str = Form(...),
+    personality_tag: str = Form(...),
+    reference_text: str = Form(...),
+    audio_file: Optional[UploadFile] = File(None),
+    db: Session = Depends(get_db)
+):
+    slug_name = re.sub(r'[^a-z0-9]+', '_', name.lower()).strip('_')
+    
+    if audio_file:
+        file_extension = os.path.splitext(audio_file.filename)[1] or '.wav'
+        filename = f"{slug_name}{file_extension}"
+        save_path = os.path.join(SHARED_CHARACTERS_DIR, filename)
+        
+        with open(save_path, "wb") as buffer:
+            shutil.copyfileobj(audio_file.file, buffer)
+            
+        rel_audio_path = os.path.join("shared_characters", filename).replace("\\", "/")
+    else:
+        temp_preview_path = os.path.join(SHARED_CHARACTERS_DIR, "temp_preview.wav")
+        if not os.path.exists(temp_preview_path):
+            raise HTTPException(status_code=400, detail="No audio file uploaded and no preview found")
+            
+        filename = f"{slug_name}.wav"
+        save_path = os.path.join(SHARED_CHARACTERS_DIR, filename)
+        
+        shutil.move(temp_preview_path, save_path)
+        rel_audio_path = os.path.join("shared_characters", filename).replace("\\", "/")
+    
+    character = Character(
+        name=name,
+        gender=gender,
+        personality_tag=personality_tag,
+        reference_text=reference_text,
+        audio_path=rel_audio_path
+    )
+    db.add(character)
+    db.commit()
+    db.refresh(character)
+    
+    return character
+
+@app.delete("/api/characters/{character_id}")
+async def delete_character(character_id: int, db: Session = Depends(get_db)):
+    character = db.query(Character).filter(Character.id == character_id).first()
+    if not character:
+        raise HTTPException(status_code=404, detail="Character not found")
+        
+    if character.audio_path:
+        full_path = os.path.join(workspace_dir, character.audio_path)
+        if os.path.exists(full_path):
+            try:
+                os.remove(full_path)
+            except OSError as e:
+                print(f"Error removing character file {full_path}: {e}")
+                
+    db.delete(character)
+    db.commit()
+    return {"status": "success", "message": "Character deleted"}
+
 # Tab 3 & 4 routes
 @app.post("/api/projects/{project_id}/generate-voice")
-async def generate_project_voice(project_id: int, db: Session = Depends(get_db)):
+async def generate_project_voice(project_id: int, character_id: Optional[int] = None, db: Session = Depends(get_db)):
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -526,11 +629,15 @@ async def generate_project_voice(project_id: int, db: Session = Depends(get_db))
     queued_count = 0
     for scene in scenes:
         if scene.narration_khmer:
+            payload = {"text": scene.narration_khmer}
+            if character_id:
+                payload["character_id"] = character_id
+                
             task = GenerationTask(
-                task_type="audio",
+                task_type="audio_single" if character_id else "audio",
                 project_id=project.id,
                 scene_id=scene.id,
-                payload={"text": scene.narration_khmer}
+                payload=payload
             )
             await task_queue.put(task)
             scene.audio_status = "processing"

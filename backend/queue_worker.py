@@ -2,7 +2,7 @@ import os
 import asyncio
 from dataclasses import dataclass
 from typing import Optional
-from .database import SessionLocal, Scene, Project
+from .database import SessionLocal, Scene, Project, Character
 from .services import draw_things, voice_engine
 
 @dataclass
@@ -116,7 +116,20 @@ async def process_task(task: GenerationTask):
                 return
                 
             text = task.payload.get("text")
+            character_id = task.payload.get("character_id")
+            
+            reference_audio_path = None
+            reference_text = None
+            character_name = None
+            
             workspace_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "workspace"))
+            
+            if character_id:
+                character = db.query(Character).filter(Character.id == character_id).first()
+                if character:
+                    reference_audio_path = os.path.join(workspace_dir, character.audio_path)
+                    reference_text = character.reference_text
+                    character_name = character.name
             
             loop = asyncio.get_running_loop()
             save_path = await loop.run_in_executor(
@@ -124,11 +137,18 @@ async def process_task(task: GenerationTask):
                 voice_engine.generate_single_scene_audio,
                 text,
                 project.slug,
-                scene.scene_number
+                scene.scene_number,
+                reference_audio_path,
+                reference_text
             )
             
             rel_save_path = os.path.relpath(save_path, workspace_dir).replace("\\", "/")
             scene.audio_path = rel_save_path
+            
+            if character_id:
+                scene.character_id = character_id
+                scene.character_name = character_name
+                
             scene.audio_status = "completed"
             db.commit()
             

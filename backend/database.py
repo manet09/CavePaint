@@ -12,6 +12,19 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 Base = declarative_base()
 
+SHARED_CHARACTERS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "workspace", "shared_characters"))
+os.makedirs(SHARED_CHARACTERS_DIR, exist_ok=True)
+
+class Character(Base):
+    __tablename__ = "characters"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False)
+    gender = Column(String)
+    personality_tag = Column(String)
+    audio_path = Column(String)
+    reference_text = Column(String)
+
 class Project(Base):
     __tablename__ = "projects"
 
@@ -45,8 +58,11 @@ class Scene(Base):
     image_path = Column(String, nullable=True)
     audio_status = Column(String, default="idle")  # "idle", "processing", "completed", "failed"
     image_status = Column(String, default="idle")
+    character_id = Column(Integer, ForeignKey("characters.id"), nullable=True)
+    character_name = Column(String, nullable=True)
 
     project = relationship("Project", back_populates="scenes")
+    character = relationship("Character")
 
 # Create tables automatically on import
 Base.metadata.create_all(bind=engine)
@@ -63,6 +79,18 @@ except Exception:
 try:
     with engine.begin() as conn:
         conn.execute(text("ALTER TABLE projects ADD COLUMN voice_profile_tag VARCHAR;"))
+except Exception:
+    pass
+
+try:
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE scenes ADD COLUMN character_id INTEGER REFERENCES characters(id);"))
+except Exception:
+    pass
+
+try:
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE scenes ADD COLUMN character_name VARCHAR;"))
 except Exception:
     pass
 

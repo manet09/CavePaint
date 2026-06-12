@@ -166,7 +166,7 @@ def generate_scene_audio_chunk(text: str, project_slug: str, profile_tag: str, s
     schedule_unload()
     return save_path
 
-def generate_single_scene_audio(text: str, project_slug: str, scene_number: int):
+def generate_single_scene_audio(text: str, project_slug: str, scene_number: int, reference_audio_path: str = None, reference_text: str = None):
     global _VOXCPM_MODEL_LOADED, _LAST_ACTIVITY_TIME, _VOXCPM_MODEL
     
     if not _VOXCPM_MODEL_LOADED:
@@ -177,14 +177,19 @@ def generate_single_scene_audio(text: str, project_slug: str, scene_number: int)
     workspace_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "workspace"))
     project_dir = os.path.join(workspace_dir, project_slug)
     
-    seed_path = os.path.join(project_dir, "voice_profile_seed.wav")
-    seed_text = "ភ្នំពេញគឺជាទីក្រុងធំនៃប្រទេសកម្ពុជា។"
+    if reference_audio_path and reference_text:
+        if not os.path.exists(reference_audio_path):
+            raise FileNotFoundError(f"Global character audio missing at: {reference_audio_path}")
+        seed_path = reference_audio_path
+        seed_text = reference_text
+    else:
+        seed_path = os.path.join(project_dir, "voice_profile_seed.wav")
+        seed_text = "ភ្នំពេញគឺជាទីក្រុងធំនៃប្រទេសកម្ពុជា។"
+        if not os.path.exists(seed_path):
+            raise FileNotFoundError(f"Strict Consistency Lock Failed: {seed_path} is missing.")
     
     sample_rate = _VOXCPM_MODEL.tts_model.sample_rate if hasattr(_VOXCPM_MODEL, 'tts_model') and hasattr(_VOXCPM_MODEL.tts_model, 'sample_rate') else 22050
     
-    if not os.path.exists(seed_path):
-        raise FileNotFoundError(f"Strict Consistency Lock Failed: {seed_path} is missing.")
-        
     text = text.strip()
     if not text.endswith("។"):
         text += "។"
@@ -270,3 +275,49 @@ def compile_master_voiceover(project_id: int, db_session):
             db_session.rollback()
     else:
         print("No valid audio segments found to concatenate.")
+
+def generate_character_preview(personality_tag: str, reference_text: str) -> str:
+    global _VOXCPM_MODEL_LOADED, _LAST_ACTIVITY_TIME, _VOXCPM_MODEL
+    
+    if not _VOXCPM_MODEL_LOADED:
+        load_model()
+        
+    _LAST_ACTIVITY_TIME = time.time()
+    
+    workspace_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "workspace"))
+    shared_characters_dir = os.path.join(workspace_dir, "shared_characters")
+    os.makedirs(shared_characters_dir, exist_ok=True)
+    
+    save_path = os.path.join(shared_characters_dir, "temp_preview.wav")
+    
+    design_prompt = f"{personality_tag}{reference_text}"
+    sample_rate = _VOXCPM_MODEL.tts_model.sample_rate if hasattr(_VOXCPM_MODEL, 'tts_model') and hasattr(_VOXCPM_MODEL.tts_model, 'sample_rate') else 22050
+    
+    print(f"Generating Character Preview... Prompt: {design_prompt}")
+    
+    if VoxCPM is not None and hasattr(_VOXCPM_MODEL, 'generate'):
+        raw_audio = _VOXCPM_MODEL.generate(
+            text=design_prompt,
+            cfg_value=2.0,
+            inference_timesteps=15
+        )
+    else:
+        duration = 1.0
+        t = np.linspace(0, duration, int(sample_rate * duration), endpoint=False)
+        raw_audio = 0.5 * np.sin(2 * np.pi * 440 * t)
+        
+    audio_data = np.array(raw_audio, dtype=np.float32)
+    max_amp = np.max(np.abs(audio_data))
+    if max_amp > 0:
+        audio_data = audio_data / max_amp
+    audio_data = np.clip(audio_data, -1.0, 1.0)
+    
+    try:
+        sf.write(save_path, audio_data, sample_rate)
+    except Exception as e:
+        print(f"Failed to write preview audio: {e}")
+        
+    _LAST_ACTIVITY_TIME = time.time()
+    schedule_unload()
+    
+    return "shared_characters/temp_preview.wav"
