@@ -3,8 +3,15 @@ import re
 import json
 import asyncio
 import requests
+import dotenv
 from contextlib import asynccontextmanager
 from typing import List, Optional
+
+BASE_DIR = os.path.abspath(os.path.dirname(__file__))
+ROOT_DIR = os.path.abspath(os.path.join(BASE_DIR, ".."))
+dotenv.load_dotenv(dotenv_path=os.path.join(ROOT_DIR, ".env"))
+dotenv.load_dotenv(dotenv_path=os.path.join(ROOT_DIR, ".env.local"), override=True)
+
 from pydantic import BaseModel, ConfigDict
 from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
@@ -12,7 +19,7 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 import shutil
 
-from .database import get_db, Project, Scene, Character, SHARED_CHARACTERS_DIR
+from .database import get_db, Project, Scene, Character, Setting, SHARED_CHARACTERS_DIR
 from .queue_worker import start_queue_worker, task_queue, GenerationTask
 from .services import gemini, voice_engine
 
@@ -101,6 +108,13 @@ class ProjectOut(ProjectBase):
 class SceneRefine(BaseModel):
     user_instruction: str
 
+class GenerateFieldPayload(BaseModel):
+    field_name: str
+
+class SettingUpdate(BaseModel):
+    active_provider: str
+    active_slot: int
+
 class ImageGeneratePayload(BaseModel):
     aspect_ratio: str
     guidance_scale: float
@@ -140,6 +154,25 @@ app.add_middleware(
 async def health_check():
     return {"status": "ok", "message": "CavePaint backend is healthy"}
 
+
+@app.get("/api/settings")
+async def get_settings(db: Session = Depends(get_db)):
+    setting = db.query(Setting).first()
+    if not setting:
+        return {"active_provider": "gemini", "active_slot": 1}
+    return {"active_provider": setting.active_provider, "active_slot": setting.active_slot}
+
+@app.put("/api/settings")
+async def update_settings(payload: SettingUpdate, db: Session = Depends(get_db)):
+    setting = db.query(Setting).first()
+    if not setting:
+        setting = Setting(active_provider=payload.active_provider, active_slot=payload.active_slot)
+        db.add(setting)
+    else:
+        setting.active_provider = payload.active_provider
+        setting.active_slot = payload.active_slot
+    db.commit()
+    return {"status": "success"}
 
 # Projects CRUD
 @app.post("/api/projects", response_model=ProjectOut)
@@ -385,6 +418,40 @@ async def update_scene(scene_id: int, payload: SceneUpdate, db: Session = Depend
     return scene
 
 # Existing operations for generating and parsing
+
+@app.post("/api/projects/{project_id}/generate-field")
+async def generate_project_field(project_id: int, payload: GenerateFieldPayload, db: Session = Depends(get_db)):
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    if payload.field_name not in ["script_narrative", "illustration_style", "structured_json_data"]:
+        raise HTTPException(status_code=400, detail="Invalid field_name")
+
+    from .services.llm_orchestrator import generate_field_content
+
+    context = f"Research:\n{project.raw_research or ''}\n\nVideo Concept:\n{project.video_concept or ''}"
+
+    try:
+        generated_text = generate_field_content(db, payload.field_name, context)
+        
+        if payload.field_name == "structured_json_data":
+            try:
+                # Basic validation that it's json array
+                parsed = json.loads(generated_text)
+                if not isinstance(parsed, list):
+                    generated_text = json.dumps([parsed], indent=2)
+                else:
+                    generated_text = json.dumps(parsed, indent=2)
+            except json.JSONDecodeError:
+                pass # Just save the string and let the frontend show error or retry
+                
+        setattr(project, payload.field_name, generated_text)
+        db.commit()
+        db.refresh(project)
+        return {"status": "success", "field_name": payload.field_name, "generated_text": generated_text}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/projects/{project_id}/parse")
 async def parse_project_scenes(project_id: int, db: Session = Depends(get_db)):

@@ -15,6 +15,35 @@ export default function Sidebar() {
   const [renamingProjectId, setRenamingProjectId] = useState<number | null>(null);
   const [renamingTitle, setRenamingTitle] = useState("");
 
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [provider, setProvider] = useState<"gemini" | "groq">("gemini");
+  const [slot, setSlot] = useState<1 | 2>(1);
+
+  useEffect(() => {
+    fetch("http://localhost:8000/api/settings")
+      .then(res => res.json())
+      .then(data => {
+        setProvider(data.active_provider || "gemini");
+        setSlot(data.active_slot || 1);
+      })
+      .catch(console.error);
+  }, []);
+
+  const handleSaveSettings = async () => {
+    try {
+      const res = await fetch("http://localhost:8000/api/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ active_provider: provider, active_slot: slot })
+      });
+      if (res.ok) {
+        setIsSettingsOpen(false);
+      }
+    } catch (error) {
+      console.error(error);
+    }
+  };
+
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -237,8 +266,9 @@ export default function Sidebar() {
       {/* 4. Symmetrical Footer Actions */}
       <div className="p-3 border-t border-zinc-200/50 dark:border-zinc-800/50 flex flex-col gap-0.5 shrink-0 w-full">
         <button
+          onClick={() => setIsSettingsOpen(true)}
           className="w-full h-10 flex items-center rounded-xl text-[13.5px] text-zinc-600 dark:text-zinc-400 hover:bg-panel-header hover:text-panel-text transition-colors px-0 shrink-0"
-          title="Settings"
+          title="Engine Settings"
         >
           <div className="w-10 h-10 flex items-center justify-center shrink-0">
             <Settings size={16} className="opacity-70" />
@@ -246,7 +276,7 @@ export default function Sidebar() {
           <span className={`transition-all duration-300 whitespace-nowrap ${
             isCollapsed ? "opacity-0 translate-x-[-10px] pointer-events-none" : "opacity-100 translate-x-0"
           }`}>
-            Settings
+            Engine Settings
           </span>
         </button>
         
@@ -304,6 +334,56 @@ export default function Sidebar() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Settings Modal */}
+      {isSettingsOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="bg-card border border-border p-6 rounded-xl w-96 text-card-foreground animate-in fade-in zoom-in-95 duration-150 shadow-2xl">
+            <h2 className="text-lg font-semibold mb-4 tracking-tight">Engine Settings</h2>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-medium mb-2 text-zinc-500 uppercase tracking-wider">Provider Choice</label>
+                <select 
+                  value={provider}
+                  onChange={(e) => setProvider(e.target.value as "gemini" | "groq")}
+                  className="w-full px-3 py-2 bg-background border border-zinc-200 dark:border-zinc-800 rounded-xl focus:outline-none focus:ring-1 focus:ring-primary text-sm text-foreground"
+                >
+                  <option value="gemini">Google Gemini</option>
+                  <option value="groq">Groq Engine</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium mb-2 text-zinc-500 uppercase tracking-wider">API Key Slot</label>
+                <select 
+                  value={slot}
+                  onChange={(e) => setSlot(Number(e.target.value) as 1 | 2)}
+                  className="w-full px-3 py-2 bg-background border border-zinc-200 dark:border-zinc-800 rounded-xl focus:outline-none focus:ring-1 focus:ring-primary text-sm text-foreground"
+                >
+                  <option value={1}>Key Slot 1</option>
+                  <option value={2}>Key Slot 2</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 mt-6">
+              <button
+                onClick={() => setIsSettingsOpen(false)}
+                className="px-4 py-2 text-sm font-medium hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-xl transition-colors text-zinc-600 dark:text-zinc-400"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSaveSettings}
+                className="px-4 py-2 bg-primary text-white hover:bg-primary-hover transition-colors font-medium rounded-xl text-sm"
+              >
+                Save Configuration
+              </button>
+            </div>
           </div>
         </div>
       )}

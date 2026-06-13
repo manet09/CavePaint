@@ -6,7 +6,7 @@ import google.generativeai as genai
 genai.configure(api_key=os.environ.get("GEMINI_API_KEY", "DUMMY_KEY"))
 
 def generate_initial_scenes(research: str, script: str, video_concept: str, image_style: str):
-    model = genai.GenerativeModel('gemini-1.5-flash')
+    model = genai.GenerativeModel('gemini-2.5-flash')
     
     system_instruction = """
     You are an expert video producer.
@@ -31,7 +31,7 @@ def generate_initial_scenes(research: str, script: str, video_concept: str, imag
     return json.loads(response.text)
 
 def refine_image_prompt(existing_prompt: str, user_instruction: str, style: str) -> str:
-    model = genai.GenerativeModel('gemini-1.5-flash')
+    model = genai.GenerativeModel('gemini-2.5-flash')
     prompt = (f"Refine the following image generation prompt based on the user instruction and style constraints.\n"
               f"Current Prompt: {existing_prompt}\n"
               f"Style: {style}\n"

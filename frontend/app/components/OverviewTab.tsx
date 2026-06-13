@@ -3,7 +3,7 @@
 
 import React, { useState, useEffect } from "react";
 import { useProjectContext } from "../context/ProjectContext";
-import { Search, Compass, Palette, FileText, Mic, Code, Sparkles, Loader2, Check } from "lucide-react";
+import { Search, Compass, Palette, FileText, Mic, Code, Sparkles, Loader2, Check, Wand2 } from "lucide-react";
 
 interface OverviewTabProps {
   activeProject?: any;
@@ -23,6 +23,31 @@ export default function OverviewTab(props: OverviewTabProps) {
   });
 
   const [savingState, setSavingState] = useState<Record<string, "idle" | "saving" | "saved" | "error">>({});
+  const [generatingState, setGeneratingState] = useState<Record<string, boolean>>({});
+
+  const handleGenerate = async (fieldName: string) => {
+    if (!activeProject?.id || generatingState[fieldName]) return;
+    setGeneratingState(prev => ({ ...prev, [fieldName]: true }));
+    try {
+      const response = await fetch(`http://localhost:8000/api/projects/${activeProject.id}/generate-field`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ field_name: fieldName }),
+      });
+      if (response.ok) {
+        const data = await response.json();
+        const text = data.generated_text;
+        setFormData(prev => ({ ...prev, [fieldName]: text }));
+        await updateActiveProject({ [fieldName]: text });
+      } else {
+        console.error("Failed to generate", await response.text());
+      }
+    } catch (err) {
+      console.error("Generate error", err);
+    } finally {
+      setGeneratingState(prev => ({ ...prev, [fieldName]: false }));
+    }
+  };
 
   // Helper to strip internal DB/queue tracking fields from scenes
   const getCleanJson = (project: any) => {
@@ -183,8 +208,13 @@ export default function OverviewTab(props: OverviewTabProps) {
             </label>
             <div className="flex items-center gap-3">
               {renderStatus("script_narrative")}
-              <button className="p-1.5 rounded-md text-panel-icon hover:text-primary-hover hover:bg-panel-icon/10 transition-all active:scale-95 cursor-pointer" title="AI Generate">
-                <Sparkles size={13} />
+              <button 
+                onClick={() => handleGenerate("script_narrative")} 
+                disabled={generatingState["script_narrative"]}
+                className="p-1.5 rounded-md text-panel-icon hover:text-primary-hover hover:bg-panel-icon/10 transition-all active:scale-95 cursor-pointer disabled:opacity-50 disabled:pointer-events-none" 
+                title="AI Generate"
+              >
+                {generatingState["script_narrative"] ? <Loader2 size={13} className="animate-spin text-primary" /> : <Wand2 size={13} />}
               </button>
             </div>
           </div>
@@ -208,8 +238,13 @@ export default function OverviewTab(props: OverviewTabProps) {
             </label>
             <div className="flex items-center gap-3">
               {renderStatus("illustration_style")}
-              <button className="p-1.5 rounded-md text-panel-icon hover:text-primary-hover hover:bg-panel-icon/10 transition-all active:scale-95 cursor-pointer" title="AI Generate">
-                <Sparkles size={13} />
+              <button 
+                onClick={() => handleGenerate("illustration_style")} 
+                disabled={generatingState["illustration_style"]}
+                className="p-1.5 rounded-md text-panel-icon hover:text-primary-hover hover:bg-panel-icon/10 transition-all active:scale-95 cursor-pointer disabled:opacity-50 disabled:pointer-events-none" 
+                title="AI Generate"
+              >
+                {generatingState["illustration_style"] ? <Loader2 size={13} className="animate-spin text-primary" /> : <Wand2 size={13} />}
               </button>
             </div>
           </div>
@@ -261,8 +296,13 @@ export default function OverviewTab(props: OverviewTabProps) {
             </label>
             <div className="flex items-center gap-3">
               {renderStatus("structured_json_data")}
-              <button className="p-1.5 rounded-md text-panel-icon hover:text-primary-hover hover:bg-panel-icon/10 transition-all active:scale-95 cursor-pointer" title="AI Generate">
-                <Sparkles size={13} />
+              <button 
+                onClick={() => handleGenerate("structured_json_data")} 
+                disabled={generatingState["structured_json_data"]}
+                className="p-1.5 rounded-md text-panel-icon hover:text-primary-hover hover:bg-panel-icon/10 transition-all active:scale-95 cursor-pointer disabled:opacity-50 disabled:pointer-events-none" 
+                title="AI Generate"
+              >
+                {generatingState["structured_json_data"] ? <Loader2 size={13} className="animate-spin text-primary" /> : <Wand2 size={13} />}
               </button>
             </div>
           </div>

@@ -25,6 +25,13 @@ class Character(Base):
     audio_path = Column(String)
     reference_text = Column(String)
 
+class Setting(Base):
+    __tablename__ = "settings"
+
+    id = Column(Integer, primary_key=True, index=True)
+    active_provider = Column(String, default="gemini")
+    active_slot = Column(Integer, default=1)
+
 class Project(Base):
     __tablename__ = "projects"
 
@@ -81,6 +88,14 @@ try:
         conn.execute(text("ALTER TABLE projects ADD COLUMN voice_profile_tag VARCHAR;"))
 except Exception:
     pass
+
+try:
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE settings ADD COLUMN active_provider VARCHAR;"))
+        conn.execute(text("ALTER TABLE settings ADD COLUMN active_slot INTEGER;"))
+except Exception:
+    pass
+
 
 try:
     with engine.begin() as conn:
