@@ -3,7 +3,7 @@
 
 import React, { useState, useEffect } from "react";
 import { useProjectContext } from "../context/ProjectContext";
-import { Search, Compass, Palette, FileText, Mic, Code, Sparkles, Loader2, Check, Wand2 } from "lucide-react";
+import { Search, Compass, Palette, FileText, Mic, Code, Sparkles, Loader2, Check, Wand2, X } from "lucide-react";
 
 interface OverviewTabProps {
   activeProject?: any;
@@ -24,6 +24,7 @@ export default function OverviewTab(props: OverviewTabProps) {
 
   const [savingState, setSavingState] = useState<Record<string, "idle" | "saving" | "saved" | "error">>({});
   const [generatingState, setGeneratingState] = useState<Record<string, boolean>>({});
+  const [abortControllers, setAbortControllers] = useState<Record<string, AbortController>>({});
   const [activeProvider, setActiveProvider] = useState<string>("gemini");
 
   useEffect(() => {
@@ -36,11 +37,14 @@ export default function OverviewTab(props: OverviewTabProps) {
   const handleGenerate = async (fieldName: string) => {
     if (!activeProject?.id || generatingState[fieldName]) return;
     setGeneratingState(prev => ({ ...prev, [fieldName]: true }));
+    const controller = new AbortController();
+    setAbortControllers(prev => ({ ...prev, [fieldName]: controller }));
     try {
       const response = await fetch(`http://localhost:8000/api/projects/${activeProject.id}/generate-field`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ field_name: fieldName }),
+        signal: controller.signal,
       });
       if (response.ok) {
         const data = await response.json();
@@ -50,10 +54,25 @@ export default function OverviewTab(props: OverviewTabProps) {
       } else {
         console.error("Failed to generate", await response.text());
       }
-    } catch (err) {
-      console.error("Generate error", err);
+    } catch (err: any) {
+      if (err.name === 'AbortError') {
+        console.log(`Generation for ${fieldName} aborted`);
+      } else {
+        console.error("Generate error", err);
+      }
     } finally {
       setGeneratingState(prev => ({ ...prev, [fieldName]: false }));
+      setAbortControllers(prev => {
+        const next = { ...prev };
+        delete next[fieldName];
+        return next;
+      });
+    }
+  };
+
+  const handleStopGenerate = (fieldName: string) => {
+    if (abortControllers[fieldName]) {
+      abortControllers[fieldName].abort();
     }
   };
 
@@ -192,14 +211,23 @@ export default function OverviewTab(props: OverviewTabProps) {
             <div className="flex items-center gap-3">
               {generatingState["video_concept"] && <span className="text-[10px] text-primary animate-pulse flex items-center gap-1">Using {activeProvider}...</span>}
               {renderStatus("video_concept")}
-              <button 
-                onClick={() => handleGenerate("video_concept")} 
-                disabled={generatingState["video_concept"]}
-                className="p-1.5 rounded-md text-panel-icon hover:text-primary-hover hover:bg-panel-icon/10 transition-all active:scale-95 cursor-pointer disabled:opacity-50 disabled:pointer-events-none" 
-                title={`AI Generate (using ${activeProvider})`}
-              >
-                {generatingState["video_concept"] ? <Loader2 size={13} className="animate-spin text-primary" /> : <Sparkles size={13} />}
-              </button>
+              {generatingState["video_concept"] ? (
+                <button 
+                  onClick={() => handleStopGenerate("video_concept")}
+                  className="p-1.5 rounded-md text-red-500 hover:text-red-600 bg-red-500/10 hover:bg-red-500/20 transition-all active:scale-95 cursor-pointer"
+                  title="Stop Request"
+                >
+                  <X size={13} />
+                </button>
+              ) : (
+                <button 
+                  onClick={() => handleGenerate("video_concept")} 
+                  className="p-1.5 rounded-md text-panel-icon hover:text-primary-hover hover:bg-panel-icon/10 transition-all active:scale-95 cursor-pointer" 
+                  title={`AI Generate (using ${activeProvider})`}
+                >
+                  <Sparkles size={13} />
+                </button>
+              )}
             </div>
           </div>
           <div className="flex-1 min-h-0 bg-transparent">
@@ -223,14 +251,23 @@ export default function OverviewTab(props: OverviewTabProps) {
             <div className="flex items-center gap-3">
               {generatingState["script_narrative"] && <span className="text-[10px] text-primary animate-pulse flex items-center gap-1">Using {activeProvider}...</span>}
               {renderStatus("script_narrative")}
-              <button 
-                onClick={() => handleGenerate("script_narrative")} 
-                disabled={generatingState["script_narrative"]}
-                className="p-1.5 rounded-md text-panel-icon hover:text-primary-hover hover:bg-panel-icon/10 transition-all active:scale-95 cursor-pointer disabled:opacity-50 disabled:pointer-events-none" 
-                title={`AI Generate (using ${activeProvider})`}
-              >
-                {generatingState["script_narrative"] ? <Loader2 size={13} className="animate-spin text-primary" /> : <Sparkles size={13} />}
-              </button>
+              {generatingState["script_narrative"] ? (
+                <button 
+                  onClick={() => handleStopGenerate("script_narrative")}
+                  className="p-1.5 rounded-md text-red-500 hover:text-red-600 bg-red-500/10 hover:bg-red-500/20 transition-all active:scale-95 cursor-pointer"
+                  title="Stop Request"
+                >
+                  <X size={13} />
+                </button>
+              ) : (
+                <button 
+                  onClick={() => handleGenerate("script_narrative")} 
+                  className="p-1.5 rounded-md text-panel-icon hover:text-primary-hover hover:bg-panel-icon/10 transition-all active:scale-95 cursor-pointer" 
+                  title={`AI Generate (using ${activeProvider})`}
+                >
+                  <Sparkles size={13} />
+                </button>
+              )}
             </div>
           </div>
           <div className="flex-1 min-h-0 bg-transparent">
@@ -254,14 +291,23 @@ export default function OverviewTab(props: OverviewTabProps) {
             <div className="flex items-center gap-3">
               {generatingState["illustration_style"] && <span className="text-[10px] text-primary animate-pulse flex items-center gap-1">Using {activeProvider}...</span>}
               {renderStatus("illustration_style")}
-              <button 
-                onClick={() => handleGenerate("illustration_style")} 
-                disabled={generatingState["illustration_style"]}
-                className="p-1.5 rounded-md text-panel-icon hover:text-primary-hover hover:bg-panel-icon/10 transition-all active:scale-95 cursor-pointer disabled:opacity-50 disabled:pointer-events-none" 
-                title={`AI Generate (using ${activeProvider})`}
-              >
-                {generatingState["illustration_style"] ? <Loader2 size={13} className="animate-spin text-primary" /> : <Sparkles size={13} />}
-              </button>
+              {generatingState["illustration_style"] ? (
+                <button 
+                  onClick={() => handleStopGenerate("illustration_style")}
+                  className="p-1.5 rounded-md text-red-500 hover:text-red-600 bg-red-500/10 hover:bg-red-500/20 transition-all active:scale-95 cursor-pointer"
+                  title="Stop Request"
+                >
+                  <X size={13} />
+                </button>
+              ) : (
+                <button 
+                  onClick={() => handleGenerate("illustration_style")} 
+                  className="p-1.5 rounded-md text-panel-icon hover:text-primary-hover hover:bg-panel-icon/10 transition-all active:scale-95 cursor-pointer" 
+                  title={`AI Generate (using ${activeProvider})`}
+                >
+                  <Sparkles size={13} />
+                </button>
+              )}
             </div>
           </div>
           <div className="flex-1 min-h-0 bg-transparent">
@@ -285,14 +331,23 @@ export default function OverviewTab(props: OverviewTabProps) {
             <div className="flex items-center gap-3">
               {generatingState["global_voice_style"] && <span className="text-[10px] text-primary animate-pulse flex items-center gap-1">Using {activeProvider}...</span>}
               {renderStatus("global_voice_style")}
-              <button 
-                onClick={() => handleGenerate("global_voice_style")} 
-                disabled={generatingState["global_voice_style"]}
-                className="p-1.5 rounded-md text-panel-icon hover:text-primary-hover hover:bg-panel-icon/10 transition-all active:scale-95 cursor-pointer disabled:opacity-50 disabled:pointer-events-none" 
-                title={`AI Generate (using ${activeProvider})`}
-              >
-                {generatingState["global_voice_style"] ? <Loader2 size={13} className="animate-spin text-primary" /> : <Sparkles size={13} />}
-              </button>
+              {generatingState["global_voice_style"] ? (
+                <button 
+                  onClick={() => handleStopGenerate("global_voice_style")}
+                  className="p-1.5 rounded-md text-red-500 hover:text-red-600 bg-red-500/10 hover:bg-red-500/20 transition-all active:scale-95 cursor-pointer"
+                  title="Stop Request"
+                >
+                  <X size={13} />
+                </button>
+              ) : (
+                <button 
+                  onClick={() => handleGenerate("global_voice_style")} 
+                  className="p-1.5 rounded-md text-panel-icon hover:text-primary-hover hover:bg-panel-icon/10 transition-all active:scale-95 cursor-pointer" 
+                  title={`AI Generate (using ${activeProvider})`}
+                >
+                  <Sparkles size={13} />
+                </button>
+              )}
             </div>
           </div>
           <div className="flex-1 min-h-0 bg-transparent">
@@ -319,14 +374,23 @@ export default function OverviewTab(props: OverviewTabProps) {
             <div className="flex items-center gap-3">
               {generatingState["structured_json_data"] && <span className="text-[10px] text-primary animate-pulse flex items-center gap-1">Using {activeProvider}...</span>}
               {renderStatus("structured_json_data")}
-              <button 
-                onClick={() => handleGenerate("structured_json_data")} 
-                disabled={generatingState["structured_json_data"]}
-                className="p-1.5 rounded-md text-panel-icon hover:text-primary-hover hover:bg-panel-icon/10 transition-all active:scale-95 cursor-pointer disabled:opacity-50 disabled:pointer-events-none" 
-                title={`AI Generate (using ${activeProvider})`}
-              >
-                {generatingState["structured_json_data"] ? <Loader2 size={13} className="animate-spin text-primary" /> : <Sparkles size={13} />}
-              </button>
+              {generatingState["structured_json_data"] ? (
+                <button 
+                  onClick={() => handleStopGenerate("structured_json_data")}
+                  className="p-1.5 rounded-md text-red-500 hover:text-red-600 bg-red-500/10 hover:bg-red-500/20 transition-all active:scale-95 cursor-pointer"
+                  title="Stop Request"
+                >
+                  <X size={13} />
+                </button>
+              ) : (
+                <button 
+                  onClick={() => handleGenerate("structured_json_data")} 
+                  className="p-1.5 rounded-md text-panel-icon hover:text-primary-hover hover:bg-panel-icon/10 transition-all active:scale-95 cursor-pointer" 
+                  title={`AI Generate (using ${activeProvider})`}
+                >
+                  <Sparkles size={13} />
+                </button>
+              )}
             </div>
           </div>
           <div className="flex-1 min-h-0">

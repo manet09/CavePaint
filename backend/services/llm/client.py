@@ -13,13 +13,13 @@ def strip_markdown(text: str) -> str:
     if text.startswith("```"):
         lines = text.split("\n")
         # Remove the first line containing ```
-        if len(lines) > 1 and lines[0].startswith("```"):``
+        if len(lines) > 1 and lines[0].startswith("```"):
             lines = lines[1:]
         # Remove the last line if it is ```
         if lines and lines[-1].strip().startswith("```"):
             lines = lines[:-1]
         text = "\n".join(lines).strip()
-    return text``
+    return text
 
 def generate_text(db: Session, system_prompt: str, user_content: str, json_mode: bool = False) -> str:
     setting = db.query(Setting).first()
@@ -42,9 +42,9 @@ def generate_text(db: Session, system_prompt: str, user_content: str, json_mode:
             
         genai.configure(api_key=api_key)
         
-        # Use gemini-1.5-pro as standard good model for production
+        # Use gemini-2.5-flash as standard good model for production
         model = genai.GenerativeModel(
-            "gemini-1.5-pro",
+            "gemini-2.5-flash",
             system_instruction=system_prompt
         )
         

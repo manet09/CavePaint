@@ -33,6 +33,16 @@ export default function ImagesTab(props: ImagesTabProps) {
   const [localNegative, setLocalNegative] = useState("");
   const [savingState, setSavingState] = useState<"idle" | "saving" | "saved">("idle");
   const [isZoomed, setIsZoomed] = useState(false);
+  const [isRefining, setIsRefining] = useState(false);
+  const [refineAbortController, setRefineAbortController] = useState<AbortController | null>(null);
+  const [activeProvider, setActiveProvider] = useState<string>("gemini");
+
+  useEffect(() => {
+    fetch("http://localhost:8000/api/settings")
+      .then(res => res.json())
+      .then(data => setActiveProvider(data.active_provider || "gemini"))
+      .catch(console.error);
+  }, []);
 
   const scenes = activeProject?.scenes || [];
   const activeScene = scenes[activeSceneIndex] || null;
@@ -107,22 +117,46 @@ export default function ImagesTab(props: ImagesTabProps) {
     }
   };
 
-  const handleRefineSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!activeScene || !refinementInput.trim()) return;
+  const handleRefineSubmit = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!activeScene || !refinementInput.trim() || isRefining) return;
+
+    setIsRefining(true);
+    const controller = new AbortController();
+    setRefineAbortController(controller);
 
     try {
       const response = await fetch(`http://localhost:8000/api/scenes/${activeScene.id}/refine`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ user_instruction: refinementInput }),
+        signal: controller.signal,
       });
       if (response.ok) {
+        const data = await response.json();
+        if (data.status === 'success') {
+          // Dynamically update form state textareas instantly
+          setLocalPositive(data.image_prompt_english);
+          setLocalNegative(data.negative_prompt_english);
+        }
         setRefinementInput("");
         if (props.refreshProjectData) await props.refreshProjectData();
       }
-    } catch (error) {
-      console.error("Error refining prompt:", error);
+    } catch (error: any) {
+      if (error.name === 'AbortError') {
+        console.log('Refinement aborted');
+      } else {
+        console.error("Error refining prompt:", error);
+      }
+    } finally {
+      setIsRefining(false);
+      setRefineAbortController(null);
+    }
+  };
+
+  const handleStopRefine = () => {
+    if (refineAbortController) {
+      refineAbortController.abort();
     }
   };
 
@@ -286,7 +320,7 @@ export default function ImagesTab(props: ImagesTabProps) {
                 </div>
 
                 {/* Negative Tuning Configuration Box */}
-                <div className="h-40 shrink-0 flex flex-col border-b border-border bg-zinc-50/[0.05]">
+                <div className="h-50 shrink-0 flex flex-col border-b border-border bg-zinc-50/[0.05]">
                   <label className="text-[11px] font-semibold tracking-wider uppercase text-panel-text px-4 pt-4 block">
                     Negative Constraints
                   </label>
@@ -300,32 +334,50 @@ export default function ImagesTab(props: ImagesTabProps) {
                 </div>
 
                 {/* Live Instruction Bar */}
-                <div className="p-3 shrink-0 bg-panel-header border-t border-border">
+                <div className="p-3 shrink-0 bg-panel-header border-t border-border relative">
+                  {isRefining && (
+                    <div className="absolute -top-7 right-3 flex items-center gap-1.5 bg-primary/10 text-primary border border-primary/20 px-2 py-0.5 rounded-full text-[10px] font-medium shadow-sm animate-in fade-in">
+                      <Loader2 size={10} className="animate-spin" />
+                      Refining with {activeProvider}...
+                    </div>
+                  )}
                   <div className="relative flex items-center">
                     <textarea
                       ref={refinementRef}
                       rows={1}
                       value={refinementInput}
                       onChange={(e) => setRefinementInput(e.target.value)}
+                      disabled={isRefining}
                       onKeyDown={(e) => {
                         if (e.key === 'Enter' && !e.shiftKey) {
                           e.preventDefault();
                           if (refinementInput.trim()) {
-                            handleRefineSubmit(e as any);
+                            handleRefineSubmit();
                           }
                         }
                       }}
                       placeholder="Refine prompt instructions..."
-                      className="w-full pl-4 pr-12 py-2.5 bg-background border border-border rounded-xl text-[13.5px] text-foreground focus:outline-hidden focus:ring-1 focus:ring-primary transition-all resize-none custom-scrollbar placeholder:text-zinc-400/40"
+                      className="w-full pl-4 pr-12 py-2.5 bg-background border border-border rounded-xl text-[13.5px] text-foreground focus:outline-hidden focus:ring-1 focus:ring-primary transition-all resize-none custom-scrollbar placeholder:text-zinc-400/40 disabled:opacity-50"
                     />
-                    <button 
-                      type="button"
-                      onClick={(e) => handleRefineSubmit(e as any)}
-                      disabled={!refinementInput.trim()}
-                      className="absolute right-2 p-1.5 text-zinc-500 hover:text-primary dark:text-zinc-400 dark:hover:text-primary-hover disabled:opacity-30 rounded-lg transition-colors cursor-pointer"
-                    >
-                      <CornerDownLeft size={15} />
-                    </button>
+                    {isRefining ? (
+                      <button 
+                        type="button"
+                        onClick={handleStopRefine}
+                        className="absolute right-2 p-1.5 text-red-500 hover:text-red-600 bg-red-500/10 hover:bg-red-500/20 rounded-lg transition-colors cursor-pointer"
+                        title="Stop Request"
+                      >
+                        <X size={15} />
+                      </button>
+                    ) : (
+                      <button 
+                        type="button"
+                        onClick={(e) => handleRefineSubmit(e as any)}
+                        disabled={!refinementInput.trim()}
+                        className="absolute right-2 p-1.5 text-zinc-500 hover:text-primary dark:text-zinc-400 dark:hover:text-primary-hover disabled:opacity-30 rounded-lg transition-colors cursor-pointer"
+                      >
+                        <CornerDownLeft size={15} />
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>

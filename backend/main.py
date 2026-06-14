@@ -552,29 +552,53 @@ async def segment_project_script(project_id: int, payload: ScriptSegmentPayload,
 
 
 @app.post("/api/scenes/{scene_id}/refine")
-async def refine_scene_image_prompt(scene_id: int, payload: SceneRefine, db: Session = Depends(get_db)):
+def refine_image_prompt_endpoint(scene_id: int, payload: SceneRefine, db: Session = Depends(get_db)):
+    # 1. Fetch target scene configuration from database
     scene = db.query(Scene).filter(Scene.id == scene_id).first()
     if not scene:
-        raise HTTPException(status_code=404, detail="Scene not found")
+        raise HTTPException(status_code=404, detail="Target scene structure not found.")
         
+    # 2. Extract corresponding parent project context configurations
     project = db.query(Project).filter(Project.id == scene.project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Parent project context not found.")
+        
+    # Gather database states with safe string fallbacks
+    current_positive = scene.image_prompt_english or ""
+    current_negative = scene.negative_prompt or ""
+    global_style = project.illustration_style or "Simple 2D flat vector art style, minimalist stickman character, bold clean outlines"
+    video_concept = project.video_concept or ""
+    
+    # 3. Call the JSON refinement orchestrator
+    from .services.llm.orchestrators.refinement import refine_scene_prompt
+    updated_prompts = refine_scene_prompt(
+        db=db,
+        existing_prompt=current_positive,
+        existing_negative_prompt=current_negative,
+        user_instruction=payload.user_instruction,
+        global_style=global_style,
+        video_concept=video_concept
+    )
+    
+    # 4. Save and commit updated strings back to SQLite cache
+    scene.user_refinement_prompt = payload.user_instruction
+    scene.image_prompt_english = updated_prompts.get("image_prompt_english", current_positive)
+    scene.negative_prompt = updated_prompts.get("negative_prompt_english", current_negative)
     
     try:
-        from .services.llm.orchestrators.refinement import refine_scene_prompt
-        refined_prompt = refine_scene_prompt(
-            db=db,
-            existing_prompt=scene.image_prompt_english or "",
-            user_instruction=payload.user_instruction,
-            global_style=project.illustration_style or "",
-            video_concept=project.video_concept or ""
-        )
-        scene.user_refinement_prompt = payload.user_instruction
-        scene.image_prompt_english = refined_prompt
         db.commit()
         db.refresh(scene)
-        return {"status": "success", "refined_prompt": refined_prompt}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Database state commitment failure: {str(e)}")
+        
+    # 5. Return structured payload to frontend components
+    return {
+        "status": "success",
+        "scene_id": scene.id,
+        "image_prompt_english": scene.image_prompt_english,
+        "negative_prompt_english": scene.negative_prompt
+    }
 
 
 @app.post("/api/scenes/{scene_id}/generate-image")
