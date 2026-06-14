@@ -69,5 +69,9 @@ def get_system_prompt_for_field(field_name: str) -> str:
         return f"You are a master illustrator director. Generate a detailed illustration style prompt based on the provided context. {base_style}"
     elif field_name == "structured_json_data":
         return f"You are a video production structurer. Output a valid JSON array of objects representing scenes. Each object must have 'scene_number' (int), 'narration_khmer' (string), 'image_prompt_english' (string), and 'negative_prompt' (string). {base_style} RETURN ONLY VALID JSON."
+    elif field_name == "video_concept":
+        return f"You are a creative video director. Generate a cinematic video concept direction based on the provided context. {base_style}"
+    elif field_name == "global_voice_style":
+        return f"You are a voiceover casting director. Generate acoustic instructions and voice styling parameters based on the provided context. {base_style}"
     else:
         return f"Generate content for {field_name} based on the context. {base_style}"

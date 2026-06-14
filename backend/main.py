@@ -21,7 +21,7 @@ import shutil
 
 from .database import get_db, Project, Scene, Character, Setting, SHARED_CHARACTERS_DIR
 from .queue_worker import start_queue_worker, task_queue, GenerationTask
-from .services import gemini, voice_engine
+from .services import voice_engine
 
 # Pydantic Schemas
 
@@ -425,7 +425,7 @@ async def generate_project_field(project_id: int, payload: GenerateFieldPayload,
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
-    if payload.field_name not in ["script_narrative", "illustration_style", "structured_json_data"]:
+    if payload.field_name not in ["script_narrative", "illustration_style", "structured_json_data", "video_concept", "global_voice_style"]:
         raise HTTPException(status_code=400, detail="Invalid field_name")
 
     from .services.llm_orchestrator import generate_field_content
@@ -460,11 +460,14 @@ async def parse_project_scenes(project_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Project not found")
         
     try:
-        scenes_data = gemini.generate_initial_scenes(
-            research=project.raw_research or "",
-            script=project.script_narrative or "",
+        from .services.llm.orchestrators.structure import build_structured_scenes
+        scenes_data = build_structured_scenes(
+            db=db,
+            raw_research=project.raw_research or "",
             video_concept=project.video_concept or "",
-            image_style=project.illustration_style or ""
+            script_narrative=project.script_narrative or "",
+            illustration_style=project.illustration_style or "",
+            vocal_style=project.global_voice_style or ""
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -557,10 +560,13 @@ async def refine_scene_image_prompt(scene_id: int, payload: SceneRefine, db: Ses
     project = db.query(Project).filter(Project.id == scene.project_id).first()
     
     try:
-        refined_prompt = gemini.refine_image_prompt(
+        from .services.llm.orchestrators.refinement import refine_scene_prompt
+        refined_prompt = refine_scene_prompt(
+            db=db,
             existing_prompt=scene.image_prompt_english or "",
             user_instruction=payload.user_instruction,
-            style=project.illustration_style or ""
+            global_style=project.illustration_style or "",
+            video_concept=project.video_concept or ""
         )
         scene.user_refinement_prompt = payload.user_instruction
         scene.image_prompt_english = refined_prompt

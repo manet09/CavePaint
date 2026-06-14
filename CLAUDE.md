@@ -8,7 +8,9 @@ CavePaint is a local video and content creation studio designed to automate the 
 - **Database**: SQLite with SQLAlchemy ORM.
 - **Task Queue**: Native Python `asyncio.Queue` via background workers.
 - **AI Integrations**: 
-  - Google Gemini (`gemini-1.5-flash`) for text/scene orchestration.
+  - **LLM Orchestrator** (Hot-swappable via UI settings):
+    - Google Gemini (`gemini-2.5-flash`) for text/scene generation and orchestration.
+    - Groq (`llama3-70b-8192`) as a high-speed alternative engine.
   - Draw Things (Local Stable Diffusion REST API) for image synthesis.
   - VoxCPM2 (Local TTS) for Khmer voice synthesis.
 
@@ -20,9 +22,10 @@ The application is structured into a decoupled frontend/backend system, relying 
 
 ### 1. Database & State (`backend/database.py`)
 - Uses an SQLite file stored at `workspace/studio.db`.
-- **`Project` Table**: Stores high-level metadata (title, slug, script narrative, illustration style, global voice style, master audio path).
+- **`Project` Table**: Stores high-level metadata (title, slug, script narrative, illustration style, global voice style, master audio path, structured JSON data).
 - **`Scene` Table**: Belongs to a project. Stores individual scene data (`scene_number`, `narration_khmer`, `image_prompt_english`, `audio_path`, `image_path`, and individual task statuses like `idle`, `processing`, `completed`, `failed`).
 - **`Character` Table**: Stores global character profiles for voice cloning (`name`, `gender`, `personality_tag`, `reference_text`, `audio_path`).
+- **`Setting` Table**: Stores persistent orchestrator configurations (e.g., `active_provider` and `active_slot`).
 
 ### 2. Backend API (`backend/main.py`)
 - Provides RESTful routes for CRUD operations on Projects, Scenes, and Characters.
@@ -38,10 +41,17 @@ The application is structured into a decoupled frontend/backend system, relying 
 
 ## Core Features & Detailed Engine Integration
 
-### 1. Project Management & Orchestration (Overview Tab)
-- Defines the core "Raw Research" and "Script Narrative".
-- Configures global styles for illustration.
-- **Gemini Engine (`backend/services/gemini.py`)**: Submits the project context to Gemini `1.5-flash` to slice the master script into discrete scenes, outputting a strict JSON payload mapping Khmer narrative chunks directly to English visual prompts.
+### 1. Project Management & AI Orchestration (Overview Tab)
+- Defines the core "Raw Research" and "Video Concept".
+- Configures global parameters like "Illustration Style" and "Script Narrative".
+- **Dynamic Settings Injection**: The sidebar features an "Engine Settings" modal overlay, pulling global state from `GET /api/settings`. The UI allows users to hot-swap between Gemini and Groq, and select which API key slot to use (Slot 1 or Slot 2). 
+- **LLM Orchestrator (`backend/services/llm_orchestrator.py`)**: 
+  - The backend securely routes API generation events through the orchestrator. It queries the `Setting` SQLite table for the `active_provider` and `active_slot`.
+  - It dynamically resolves environment variables (`GEMINI_KEY_1`, `GROQ_KEY_2`, etc.) via `.env` or `.env.local` loaded automatically at boot by `dotenv`. If a variable is missing, it explicitly raises a descriptive `HTTPException` advising the missing key path.
+  - Generates structural outputs conforming to rigid aesthetic constraints (e.g., 2D flat vector stickman art, bold clean outlines, and uniform plain solid backgrounds).
+- **Orchestrator API Endpoints**:
+  - `GET /api/settings` & `PUT /api/settings`: Fetch and save hot-swappable engine preferences (`active_provider`, `active_slot`).
+  - `POST /api/projects/{id}/generate-field`: Takes a `field_name` (like `script_narrative` or `structured_json_data`), bundles the current project context (`raw_research` and `video_concept`), passes it to the orchestrator, and immediately commits the generated text/JSON back into the project database.
 
 ### 2. Visual Synthesis (Images Tab & `draw_things.py`)
 The Images Tab is designed as a three-column workspace for iterative, scene-by-scene visual asset generation using a local Python engine (e.g., Draw Things pipeline).
