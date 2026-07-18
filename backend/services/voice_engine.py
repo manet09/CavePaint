@@ -80,7 +80,7 @@ def unload_model() -> bool:
     _MODEL_STATE = "unloaded"
     return True
 
-def generate_scene_audio_chunk(text: str, project_slug: str, profile_tag: str, scene_number: int):
+def generate_scene_audio_chunk(text: str, project_slug: str, profile_tag: str, scene_number: int, audio_format: str = "wav"):
     global _MODEL_STATE, _LAST_ACTIVITY_TIME, _VOXCPM_MODEL
     
     if _MODEL_STATE != "loaded":
@@ -161,7 +161,8 @@ def generate_scene_audio_chunk(text: str, project_slug: str, profile_tag: str, s
     
     # Flattened path layout
     padded_scene_number = f"{int(scene_number):03d}"
-    save_path = os.path.join(project_dir, f"scene_{padded_scene_number}.wav")
+    extension = "mp3" if audio_format.lower() == "mp3" else "wav"
+    save_path = os.path.join(project_dir, f"scene_{padded_scene_number}.{extension}")
     
     try:
         sf.write(save_path, padded_audio, sample_rate)
@@ -172,7 +173,7 @@ def generate_scene_audio_chunk(text: str, project_slug: str, profile_tag: str, s
     schedule_unload()
     return save_path
 
-def generate_single_scene_audio(text: str, project_slug: str, scene_number: int, reference_audio_path: str = None, reference_text: str = None):
+def generate_single_scene_audio(text: str, project_slug: str, scene_number: int, reference_audio_path: str = None, reference_text: str = None, audio_format: str = "wav"):
     global _MODEL_STATE, _LAST_ACTIVITY_TIME, _VOXCPM_MODEL
     
     if _MODEL_STATE != "loaded":
@@ -224,7 +225,8 @@ def generate_single_scene_audio(text: str, project_slug: str, scene_number: int,
     padded_audio = np.concatenate((audio_data, silence))
     
     padded_scene_number = f"{int(scene_number):03d}"
-    save_path = os.path.join(project_dir, f"scene_{padded_scene_number}.wav")
+    extension = "mp3" if audio_format.lower() == "mp3" else "wav"
+    save_path = os.path.join(project_dir, f"scene_{padded_scene_number}.{extension}")
     
     try:
         sf.write(save_path, padded_audio, sample_rate)
@@ -253,7 +255,8 @@ def compile_master_voiceover(project_id: int, db_session):
     for scene in scenes:
         if scene.audio_path:
             padded_scene_number = f"{int(scene.scene_number):03d}"
-            expected_audio_path = os.path.join(project.slug, f"scene_{padded_scene_number}.wav")
+            extension = "mp3" if (project.audio_format and project.audio_format.lower() == "mp3") else "wav"
+            expected_audio_path = os.path.join(project.slug, f"scene_{padded_scene_number}.{extension}")
             full_path = os.path.join(workspace_dir, expected_audio_path)
             if os.path.exists(full_path):
                 try:
@@ -268,7 +271,8 @@ def compile_master_voiceover(project_id: int, db_session):
         
         project_dir = os.path.join(workspace_dir, project.slug)
         os.makedirs(project_dir, exist_ok=True)
-        master_path = os.path.join(project_dir, "master_voiceover.wav")
+        extension = "mp3" if (project.audio_format and project.audio_format.lower() == "mp3") else "wav"
+        master_path = os.path.join(project_dir, f"master_voiceover.{extension}")
         
         try:
             sf.write(master_path, master_audio, base_sample_rate)

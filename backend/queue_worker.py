@@ -95,7 +95,8 @@ async def process_task(task: GenerationTask):
                 text,
                 project.slug,
                 project.voice_profile_tag or "default",
-                scene.scene_number
+                scene.scene_number,
+                project.audio_format or "wav"
             )
             
             rel_save_path = os.path.relpath(save_path, workspace_dir).replace("\\", "/")
@@ -139,7 +140,8 @@ async def process_task(task: GenerationTask):
                 project.slug,
                 scene.scene_number,
                 reference_audio_path,
-                reference_text
+                reference_text,
+                project.audio_format or "wav"
             )
             
             rel_save_path = os.path.relpath(save_path, workspace_dir).replace("\\", "/")

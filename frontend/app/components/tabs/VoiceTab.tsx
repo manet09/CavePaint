@@ -133,6 +133,7 @@ export default function VoiceTab({ activeProject, refreshProjectData }: VoiceTab
   
   const [cacheBuster, setCacheBuster] = useState(Date.now());
   const [localScriptNarrative, setLocalScriptNarrative] = useState("");
+  const [localAudioFormat, setLocalAudioFormat] = useState("wav");
   const [modelState, setModelState] = useState("unloaded");
 
   // Hidden Audio for previewing characters
@@ -158,8 +159,9 @@ export default function VoiceTab({ activeProject, refreshProjectData }: VoiceTab
   useEffect(() => {
     if (activeProject) {
       setLocalScriptNarrative(activeProject.script_narrative || "");
+      setLocalAudioFormat(activeProject.audio_format || "wav");
     }
-  }, [activeProject, activeProject?.script_narrative]);
+  }, [activeProject, activeProject?.script_narrative, activeProject?.audio_format]);
 
   const handleScriptNarrativeBlur = async () => {
     if (localScriptNarrative === (activeProject?.script_narrative || "")) return;
@@ -168,6 +170,21 @@ export default function VoiceTab({ activeProject, refreshProjectData }: VoiceTab
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ script_narrative: localScriptNarrative }),
+      });
+      if (refreshProjectData) await refreshProjectData();
+    } catch {
+      // fallback
+    }
+  };
+
+  const handleFormatChange = async (newFormat: string) => {
+    setLocalAudioFormat(newFormat);
+    if (!activeProject?.id) return;
+    try {
+      await fetch(`http://localhost:8000/api/projects/${activeProject.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ audio_format: newFormat }),
       });
       if (refreshProjectData) await refreshProjectData();
     } catch {
@@ -724,7 +741,32 @@ export default function VoiceTab({ activeProject, refreshProjectData }: VoiceTab
           </div>
           
           {/* Global Actions Bar at the bottom of the left pane */}
-          <div className="p-4 border-t border-border/50 bg-background flex flex-col gap-2 mt-auto">
+          <div className="p-4 border-t border-border/50 bg-background flex flex-col gap-3 mt-auto">
+            <div className="flex items-center justify-between px-1">
+              <span className="text-xs text-foreground/60 font-semibold uppercase tracking-wider">Output Format</span>
+              <div className="flex bg-zinc-100 dark:bg-zinc-800 p-0.5 rounded-md">
+                <button
+                  onClick={() => handleFormatChange("wav")}
+                  className={`px-3 py-1 text-[10px] font-bold rounded-sm transition-all ${
+                    localAudioFormat === "wav" 
+                      ? "bg-white dark:bg-zinc-600 text-foreground shadow-sm" 
+                      : "text-foreground/50 hover:text-foreground"
+                  }`}
+                >
+                  WAV
+                </button>
+                <button
+                  onClick={() => handleFormatChange("mp3")}
+                  className={`px-3 py-1 text-[10px] font-bold rounded-sm transition-all ${
+                    localAudioFormat === "mp3" 
+                      ? "bg-white dark:bg-zinc-600 text-foreground shadow-sm" 
+                      : "text-foreground/50 hover:text-foreground"
+                  }`}
+                >
+                  MP3
+                </button>
+              </div>
+            </div>
             <div className="flex gap-2">
               {!isAnySceneProcessing && !isGenerating ? (
                 <button

@@ -50,6 +50,7 @@ class Project(Base):
     status = Column(String, default="draft")  # "draft", "generating", "completed"
     master_audio_path = Column(String, nullable=True)
     voice_profile_tag = Column(String, nullable=True)
+    audio_format = Column(String, default="wav")
 
     scenes = relationship("Scene", back_populates="project", cascade="all, delete-orphan")
 
@@ -89,6 +90,12 @@ except Exception:
 try:
     with engine.begin() as conn:
         conn.execute(text("ALTER TABLE projects ADD COLUMN voice_profile_tag VARCHAR;"))
+except Exception:
+    pass
+
+try:
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE projects ADD COLUMN audio_format VARCHAR DEFAULT 'wav';"))
 except Exception:
     pass
 

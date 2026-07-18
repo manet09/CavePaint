@@ -76,6 +76,7 @@ class ProjectBase(BaseModel):
     status: Optional[str] = "draft"
     master_audio_path: Optional[str] = None
     voice_profile_tag: Optional[str] = None
+    audio_format: Optional[str] = "wav"
 
 class ProjectCreate(BaseModel):
     title: str
@@ -91,6 +92,7 @@ class ProjectUpdate(BaseModel):
     status: Optional[str] = None
     master_audio_path: Optional[str] = None
     voice_profile_tag: Optional[str] = None
+    audio_format: Optional[str] = None
 
 class ProjectOutList(ProjectBase):
     id: int
