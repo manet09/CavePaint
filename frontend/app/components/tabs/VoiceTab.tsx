@@ -356,18 +356,35 @@ export default function VoiceTab({ activeProject, refreshProjectData }: VoiceTab
   const handleGeneratePreview = async () => {
     setIsGeneratingPreview(true);
     try {
-      const res = await fetch("http://localhost:8000/api/characters/preview", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          gender,
-          personality_tag: compiledTag,
-          reference_text: newCharRefText
-        })
-      });
-      if (res.ok) {
-        setHasGeneratedPreview(true);
-        setPreviewCacheBuster(Date.now());
+      if (factoryMode === "design") {
+        const res = await fetch("http://localhost:8000/api/characters/preview", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            gender,
+            personality_tag: compiledTag,
+            reference_text: newCharRefText
+          })
+        });
+        if (res.ok) {
+          setHasGeneratedPreview(true);
+          setPreviewCacheBuster(Date.now());
+        }
+      } else {
+        const formData = new FormData();
+        formData.append("reference_text", newCharRefText);
+        formData.append("text_to_speak", "ភ្នំពេញគឺជាទីក្រុងធំនៃប្រទេសកម្ពុជា។");
+        if (newCharFile) {
+          formData.append("audio_file", newCharFile);
+        }
+        const res = await fetch("http://localhost:8000/api/characters/preview-clone", {
+          method: "POST",
+          body: formData,
+        });
+        if (res.ok) {
+          setHasGeneratedPreview(true);
+          setPreviewCacheBuster(Date.now());
+        }
       }
     } catch {
       // failed
@@ -383,7 +400,11 @@ export default function VoiceTab({ activeProject, refreshProjectData }: VoiceTab
     setHasGeneratedPreview(false);
     setPreviewCacheBuster(0);
     try {
-      await fetch("http://localhost:8000/api/characters/preview", { method: "DELETE" });
+      if (factoryMode === "design") {
+        await fetch("http://localhost:8000/api/characters/preview", { method: "DELETE" });
+      } else {
+        await fetch("http://localhost:8000/api/characters/preview-clone", { method: "DELETE" });
+      }
     } catch {
       // ignore error
     }
@@ -465,13 +486,21 @@ export default function VoiceTab({ activeProject, refreshProjectData }: VoiceTab
           {/* Tab Header */}
           <div className="flex border-b border-border bg-panel-header">
             <button
-              onClick={() => setActiveTab("library")}
+              onClick={() => {
+                if (previewPlayerRef.current) previewPlayerRef.current.stop();
+                setHasGeneratedPreview(false);
+                setActiveTab("library");
+              }}
               className={`flex-1 py-3 text-xs font-semibold tracking-wide uppercase transition-colors ${activeTab === "library" ? "text-primary border-b-2 border-primary bg-background" : "text-foreground/60 hover:text-foreground"}`}
             >
               Character Library
             </button>
             <button
-              onClick={() => setActiveTab("factory")}
+              onClick={() => {
+                if (previewPlayerRef.current) previewPlayerRef.current.stop();
+                setHasGeneratedPreview(false);
+                setActiveTab("factory");
+              }}
               className={`flex-1 py-3 text-xs font-semibold tracking-wide uppercase transition-colors ${activeTab === "factory" ? "text-primary border-b-2 border-primary bg-background" : "text-foreground/60 hover:text-foreground"}`}
             >
               Voice Factory
@@ -537,13 +566,21 @@ export default function VoiceTab({ activeProject, refreshProjectData }: VoiceTab
                 {/* Mode Toggle */}
                 <div className="flex bg-zinc-200 dark:bg-zinc-800 p-1 rounded-lg">
                   <button
-                    onClick={() => setFactoryMode("design")}
+                    onClick={() => {
+                      if (previewPlayerRef.current) previewPlayerRef.current.stop();
+                      setHasGeneratedPreview(false);
+                      setFactoryMode("design");
+                    }}
                     className={`flex-1 py-1.5 text-xs font-bold uppercase tracking-wider rounded-md transition-all ${factoryMode === "design" ? "bg-white dark:bg-zinc-700 text-primary shadow-sm" : "text-foreground/50 hover:text-foreground"}`}
                   >
                     AI Voice Design
                   </button>
                   <button
-                    onClick={() => setFactoryMode("clone")}
+                    onClick={() => {
+                      if (previewPlayerRef.current) previewPlayerRef.current.stop();
+                      setHasGeneratedPreview(false);
+                      setFactoryMode("clone");
+                    }}
                     className={`flex-1 py-1.5 text-xs font-bold uppercase tracking-wider rounded-md transition-all ${factoryMode === "clone" ? "bg-white dark:bg-zinc-700 text-primary shadow-sm" : "text-foreground/50 hover:text-foreground"}`}
                   >
                     Custom Clone
@@ -578,13 +615,31 @@ export default function VoiceTab({ activeProject, refreshProjectData }: VoiceTab
                 {factoryMode === "clone" && (
                   <div>
                     <label className="block text-xs text-foreground/70 mb-1">Upload Custom Voice Sample (.wav)</label>
-                    <label className="flex flex-col items-center justify-center w-full h-24 border-2 border-border border-dashed rounded-lg cursor-pointer bg-background hover:bg-zinc-50/50 dark:hover:bg-zinc-900/50 transition-colors">
-                      <div className="flex flex-col items-center justify-center pt-5 pb-6">
-                        <UploadCloud size={20} className="text-foreground/40 mb-2" />
-                        <p className="text-xs text-foreground/60 font-semibold">{newCharFile ? newCharFile.name : "Click or drag audio file here"}</p>
+                    {!newCharFile ? (
+                      <label className="flex flex-col items-center justify-center w-full h-24 border-2 border-border border-dashed rounded-lg cursor-pointer bg-background hover:bg-zinc-50/50 dark:hover:bg-zinc-900/50 transition-colors">
+                        <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                          <UploadCloud size={20} className="text-foreground/40 mb-2" />
+                          <p className="text-xs text-foreground/60 font-semibold">Click or drag audio file here</p>
+                        </div>
+                        <input type="file" accept=".wav" className="hidden" onChange={(e) => e.target.files && setNewCharFile(e.target.files[0])} />
+                      </label>
+                    ) : (
+                      <div className="flex flex-col items-center justify-center w-full h-24 border-2 border-border border-dashed rounded-lg bg-zinc-50 dark:bg-zinc-900/50 relative">
+                        <button 
+                          type="button" 
+                          onClick={() => setNewCharFile(null)}
+                          className="absolute top-2 right-2 p-1.5 bg-red-500/10 text-red-500 rounded-md hover:bg-red-500 hover:text-white transition-colors z-10"
+                          title="Remove file"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                        <UploadCloud size={20} className="text-primary/60 mb-2" />
+                        <p className="text-xs text-foreground/80 font-semibold truncate max-w-[80%]">{newCharFile.name}</p>
+                        <p className={`text-[10px] font-mono mt-1 ${newCharFile.size === 0 ? "text-red-500 font-bold" : "text-foreground/50"}`}>
+                          {newCharFile.size === 0 ? "⚠️ FILE IS 0 BYTES (EMPTY)" : `${(newCharFile.size / 1024).toFixed(2)} KB`}
+                        </p>
                       </div>
-                      <input type="file" accept=".wav" className="hidden" onChange={(e) => e.target.files && setNewCharFile(e.target.files[0])} />
-                    </label>
+                    )}
                   </div>
                 )}
 
@@ -628,36 +683,35 @@ export default function VoiceTab({ activeProject, refreshProjectData }: VoiceTab
 
                 {/* Workflow Actions */}
                 <div className="mt-auto flex flex-col gap-2 pt-4">
-                  {factoryMode === "design" && hasGeneratedPreview && (
+                  {hasGeneratedPreview && (
                     <CustomAudioPlayer 
                       ref={previewPlayerRef}
-                      src={`http://localhost:8000/static/shared_characters/temp_preview.wav?t=${previewCacheBuster}`}
+                      src={factoryMode === "design" 
+                        ? `http://localhost:8000/static/shared_characters/temp_preview.wav?t=${previewCacheBuster}`
+                        : `http://localhost:8000/static/custom_voices/temp_clone_preview.wav?t=${previewCacheBuster}`
+                      }
                       className="w-full mb-2"
                     />
                   )}
                   <div className="flex flex-row gap-2">
-                    {factoryMode === "design" && (
-                      <>
-                        <button
-                          onClick={handleGeneratePreview}
-                          disabled={isGeneratingPreview || !newCharRefText}
-                          className="flex-1 py-2.5 bg-zinc-100 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 text-[10px] font-bold uppercase tracking-wider rounded shadow-sm hover:bg-zinc-200 dark:hover:bg-zinc-700 disabled:opacity-50 transition-colors flex justify-center items-center gap-2"
-                        >
-                          {isGeneratingPreview ? <Loader2 size={14} className="animate-spin" /> : <Mic size={14} />}
-                          Generate Audition Sample
-                        </button>
-                        <button
-                          onClick={handleDeletePreview}
-                          disabled={!hasGeneratedPreview}
-                          className="flex-1 py-2.5 bg-transparent border border-red-500/50 text-red-500 text-[10px] font-bold uppercase tracking-wider rounded shadow-sm hover:bg-red-500/10 disabled:opacity-50 transition-colors flex justify-center items-center gap-2"
-                        >
-                          <Trash2 size={14} /> Delete Preview
-                        </button>
-                      </>
-                    )}
+                    <button
+                      onClick={handleGeneratePreview}
+                      disabled={isGeneratingPreview || !newCharRefText || (factoryMode === "clone" && (!newCharFile || newCharFile.size === 0))}
+                      className="flex-1 py-2.5 bg-zinc-100 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 text-[10px] font-bold uppercase tracking-wider rounded shadow-sm hover:bg-zinc-200 dark:hover:bg-zinc-700 disabled:opacity-50 transition-colors flex justify-center items-center gap-2"
+                    >
+                      {isGeneratingPreview ? <Loader2 size={14} className="animate-spin" /> : <Mic size={14} />}
+                      Generate Audition Sample
+                    </button>
+                    <button
+                      onClick={handleDeletePreview}
+                      disabled={!hasGeneratedPreview}
+                      className="flex-1 py-2.5 bg-transparent border border-red-500/50 text-red-500 text-[10px] font-bold uppercase tracking-wider rounded shadow-sm hover:bg-red-500/10 disabled:opacity-50 transition-colors flex justify-center items-center gap-2"
+                    >
+                      <Trash2 size={14} /> Delete Preview
+                    </button>
                     <button
                       onClick={handleSaveCharacter}
-                      disabled={isSavingChar || !newCharName || !newCharRefText || (factoryMode === "clone" && !newCharFile) || (factoryMode === "design" && !hasGeneratedPreview)}
+                      disabled={isSavingChar || !newCharName || !newCharRefText || (factoryMode === "clone" && (!newCharFile || newCharFile.size === 0)) || !hasGeneratedPreview}
                       className="flex-1 py-2.5 bg-primary text-white hover:bg-primary-hover transition-colors font-medium uppercase tracking-wider rounded shadow-sm disabled:opacity-40 flex justify-center items-center gap-2 text-[10px]"
                     >
                       {isSavingChar ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />} 

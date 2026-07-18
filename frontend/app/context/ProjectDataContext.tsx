@@ -101,11 +101,22 @@ export const ProjectDataProvider = ({ children }: { children: ReactNode }) => {
   const updateSingleScene = async (sceneId: number, fields: Partial<SceneData>) => {
     setActiveProject((prev) => {
       if (!prev) return prev;
+      
+      const newScenes = prev.scenes.map((scene) =>
+        scene.id === sceneId ? { ...scene, ...fields } : scene
+      );
+      
+      const cleanJsonArray = newScenes.map((scene) => ({
+        scene_number: scene.scene_number,
+        narration_khmer: scene.narration_khmer,
+        image_prompt_english: scene.image_prompt_english,
+        negative_prompt: scene.negative_prompt,
+      }));
+
       return {
         ...prev,
-        scenes: prev.scenes.map((scene) =>
-          scene.id === sceneId ? { ...scene, ...fields } : scene
-        ),
+        scenes: newScenes,
+        structured_json_data: JSON.stringify(cleanJsonArray, null, 2),
       };
     });
 

@@ -434,6 +434,22 @@ async def delete_project(project_id: int, db: Session = Depends(get_db)):
     return {"status": "success", "message": "Project and associated scenes deleted"}
 
 
+def sync_project_json(project_id: int, db: Session):
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        return
+    scenes = db.query(Scene).filter(Scene.project_id == project.id).order_by(Scene.scene_number).all()
+    clean_json_array = []
+    for s in scenes:
+        clean_json_array.append({
+            "scene_number": s.scene_number,
+            "narration_khmer": s.narration_khmer,
+            "image_prompt_english": s.image_prompt_english,
+            "negative_prompt": s.negative_prompt
+        })
+    project.structured_json_data = json.dumps(clean_json_array, indent=2)
+    db.commit()
+
 # Scene CRUD
 @app.put("/api/scenes/{scene_id}", response_model=SceneOut)
 async def update_scene(scene_id: int, payload: SceneUpdate, db: Session = Depends(get_db)):
@@ -447,6 +463,7 @@ async def update_scene(scene_id: int, payload: SceneUpdate, db: Session = Depend
         
     db.commit()
     db.refresh(scene)
+    sync_project_json(scene.project_id, db)
     return scene
 
 # Existing operations for generating and parsing
@@ -624,6 +641,8 @@ def refine_image_prompt_endpoint(scene_id: int, payload: SceneRefine, db: Sessio
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Database state commitment failure: {str(e)}")
         
+    sync_project_json(scene.project_id, db)
+
     # 5. Return structured payload to frontend components
     return {
         "status": "success",
@@ -750,6 +769,43 @@ async def delete_character_preview():
         os.remove(temp_preview_path)
     return {"status": "success", "message": "Preview deleted"}
 
+@app.post("/api/characters/preview-clone")
+async def create_clone_preview(
+    reference_text: str = Form(...),
+    text_to_speak: str = Form("ភ្នំពេញគឺជាទីក្រុងធំនៃប្រទេសកម្ពុជា។"),
+    audio_file: UploadFile = File(...)
+):
+    from .services.voice_engine import generate_clone_preview
+    from .database import CUSTOM_VOICES_DIR
+    
+    print(f"DEBUG: audio_file.filename = {audio_file.filename}, audio_file.size = {getattr(audio_file, 'size', 'unknown')}")
+    
+    temp_upload_path = os.path.join(CUSTOM_VOICES_DIR, "temp_clone_upload.wav")
+    await audio_file.seek(0)
+    content = await audio_file.read()
+    
+    print(f"DEBUG: len(content) = {len(content)}")
+    
+    if not content:
+        raise HTTPException(status_code=400, detail="The uploaded audio file is empty (0 bytes). Please select a valid audio file.")
+    
+    with open(temp_upload_path, "wb") as buffer:
+        buffer.write(content)
+        
+    path = generate_clone_preview(temp_upload_path, reference_text, text_to_speak)
+    return {"status": "success", "audio_path": path}
+
+@app.delete("/api/characters/preview-clone")
+async def delete_clone_preview():
+    from .database import CUSTOM_VOICES_DIR
+    temp_preview_path = os.path.join(CUSTOM_VOICES_DIR, "temp_clone_preview.wav")
+    temp_upload_path = os.path.join(CUSTOM_VOICES_DIR, "temp_clone_upload.wav")
+    if os.path.exists(temp_preview_path):
+        os.remove(temp_preview_path)
+    if os.path.exists(temp_upload_path):
+        os.remove(temp_upload_path)
+    return {"status": "success", "message": "Clone preview deleted"}
+
 @app.post("/api/characters", response_model=CharacterOut)
 async def create_character(
     name: str = Form(...),
@@ -762,14 +818,21 @@ async def create_character(
     slug_name = re.sub(r'[^a-z0-9]+', '_', name.lower()).strip('_')
     
     if audio_file:
+        from .database import CUSTOM_VOICES_DIR
         file_extension = os.path.splitext(audio_file.filename)[1] or '.wav'
         filename = f"{slug_name}{file_extension}"
-        save_path = os.path.join(SHARED_CHARACTERS_DIR, filename)
+        save_path = os.path.join(CUSTOM_VOICES_DIR, filename)
         
-        with open(save_path, "wb") as buffer:
-            shutil.copyfileobj(audio_file.file, buffer)
+        await audio_file.seek(0)
+        content = await audio_file.read()
+        
+        if not content:
+            raise HTTPException(status_code=400, detail="The uploaded audio file is empty (0 bytes). Please select a valid audio file.")
             
-        rel_audio_path = os.path.join("shared_characters", filename).replace("\\", "/")
+        with open(save_path, "wb") as buffer:
+            buffer.write(content)
+            
+        rel_audio_path = os.path.join("custom_voices", filename).replace("\\", "/")
     else:
         temp_preview_path = os.path.join(SHARED_CHARACTERS_DIR, "temp_preview.wav")
         if not os.path.exists(temp_preview_path):

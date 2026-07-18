@@ -327,3 +327,49 @@ def generate_character_preview(personality_tag: str, reference_text: str) -> str
     schedule_unload()
     
     return "shared_characters/temp_preview.wav"
+
+def generate_clone_preview(reference_audio_path: str, reference_text: str, text_to_speak: str = "ភ្នំពេញគឺជាទីក្រុងធំនៃប្រទេសកម្ពុជា។") -> str:
+    global _MODEL_STATE, _LAST_ACTIVITY_TIME, _VOXCPM_MODEL
+    
+    if _MODEL_STATE != "loaded":
+        load_model()
+        
+    _LAST_ACTIVITY_TIME = time.time()
+    
+    workspace_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "workspace"))
+    custom_voices_dir = os.path.join(workspace_dir, "custom_voices")
+    os.makedirs(custom_voices_dir, exist_ok=True)
+    
+    save_path = os.path.join(custom_voices_dir, "temp_clone_preview.wav")
+    sample_rate = _VOXCPM_MODEL.tts_model.sample_rate if hasattr(_VOXCPM_MODEL, 'tts_model') and hasattr(_VOXCPM_MODEL.tts_model, 'sample_rate') else 22050
+    
+    print(f"Generating Clone Preview... Reference Text: {reference_text}")
+    
+    if VoxCPM is not None and hasattr(_VOXCPM_MODEL, 'generate'):
+        raw_audio = _VOXCPM_MODEL.generate(
+            text=text_to_speak,
+            prompt_wav_path=reference_audio_path,
+            prompt_text=reference_text,
+            cfg_value=2.0,
+            inference_timesteps=15
+        )
+    else:
+        duration = 1.0
+        t = np.linspace(0, duration, int(sample_rate * duration), endpoint=False)
+        raw_audio = 0.5 * np.sin(2 * np.pi * 440 * t)
+        
+    audio_data = np.array(raw_audio, dtype=np.float32)
+    max_amp = np.max(np.abs(audio_data))
+    if max_amp > 0:
+        audio_data = audio_data / max_amp
+    audio_data = np.clip(audio_data, -1.0, 1.0)
+    
+    try:
+        sf.write(save_path, audio_data, sample_rate)
+    except Exception as e:
+        print(f"Failed to write clone preview audio: {e}")
+        
+    _LAST_ACTIVITY_TIME = time.time()
+    schedule_unload()
+    
+    return "custom_voices/temp_clone_preview.wav"

@@ -15,6 +15,9 @@ Base = declarative_base()
 SHARED_CHARACTERS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "workspace", "shared_characters"))
 os.makedirs(SHARED_CHARACTERS_DIR, exist_ok=True)
 
+CUSTOM_VOICES_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "workspace", "custom_voices"))
+os.makedirs(CUSTOM_VOICES_DIR, exist_ok=True)
+
 class Character(Base):
     __tablename__ = "characters"
 
