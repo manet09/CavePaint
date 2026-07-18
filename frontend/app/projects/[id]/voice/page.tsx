@@ -15,7 +15,7 @@ const VoiceTab = dynamic(() => import("../../../components/tabs/VoiceTab"), {
 });
 
 export default function VoicePage() {
-  const { activeProject, refreshProjects } = useProjectContext();
+  const { activeProject, refreshActiveProject } = useProjectContext();
   if (!activeProject) return null;
-  return <VoiceTab activeProject={activeProject} refreshProjectData={refreshProjects} />;
+  return <VoiceTab activeProject={activeProject} refreshProjectData={refreshActiveProject} />;
 }

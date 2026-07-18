@@ -21,6 +21,7 @@ export interface ProjectContextType {
   setTheme: (theme: "dark" | "light") => void;
 
   refreshProjects: () => Promise<void>;
+  refreshActiveProject: () => Promise<void>;
   selectProject: (id: number) => Promise<void>;
   setActiveProject: (project: Project | null) => void;
   createNewProject: (title: string) => Promise<CreatedProject | null>;
@@ -63,6 +64,7 @@ export const useProjectContext = (): ProjectContextType => {
     setTheme: ui.setTheme,
 
     refreshProjects: list.refreshList,
+    refreshActiveProject: data.refreshActive,
     selectProject: data.selectProject,
     setActiveProject,
     createNewProject: list.createNewProject,

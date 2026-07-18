@@ -25,13 +25,18 @@ def trigger_local_render(prompt: str, project_name: str, scene_number: int, widt
     
     if init_image_path and os.path.exists(init_image_path):
         try:
-            with open(init_image_path, "rb") as f:
-                b64_init = base64.b64encode(f.read()).decode("utf-8")
+            from PIL import Image
+            import io
+            with Image.open(init_image_path) as img:
+                img_resized = img.resize((width, height), Image.Resampling.LANCZOS)
+                buffered = io.BytesIO()
+                img_resized.save(buffered, format="PNG")
+                b64_init = base64.b64encode(buffered.getvalue()).decode("utf-8")
             payload["init_images"] = [b64_init]
             payload["denoising_strength"] = 0.55
             endpoint = "http://127.0.0.1:7860/sdapi/v1/img2img"
         except Exception as e:
-            print(f"Failed to load init image, falling back to txt2img: {e}")
+            print(f"Failed to load and resize init image, falling back to txt2img: {e}")
     
     try:
         response = requests.post(endpoint, json=payload, timeout=300)

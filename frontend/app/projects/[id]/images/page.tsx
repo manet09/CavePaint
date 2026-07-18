@@ -15,7 +15,7 @@ const ImagesTab = dynamic(() => import("../../../components/tabs/ImagesTab"), {
 });
 
 export default function ImagesPage() {
-  const { activeProject, refreshProjects } = useProjectContext();
+  const { activeProject, refreshActiveProject } = useProjectContext();
   if (!activeProject) return null;
-  return <ImagesTab activeProject={activeProject} refreshProjectData={refreshProjects} />;
+  return <ImagesTab activeProject={activeProject} refreshProjectData={refreshActiveProject} />;
 }
