@@ -2,7 +2,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
-import { useProjectContext } from "../context/ProjectContext";
+import { useProjectContext } from "../../context/ProjectContext";
 import { CornerDownLeft, Image as ImageIcon, SlidersHorizontal, Wand2, Trash2, Loader2, Check, Maximize2, X, CheckCircle2, Palette } from "lucide-react";
 
 interface ImagesTabProps {

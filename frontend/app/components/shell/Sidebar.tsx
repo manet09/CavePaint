@@ -1,16 +1,19 @@
-/* eslint-disable */
+ 
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
+import { useRouter, usePathname } from "next/navigation";
 import { FolderOpen, Sun, Moon, Plus, PanelLeftClose, PanelLeftOpen, Settings, MoreVertical } from "lucide-react";
-import { useProjectContext } from "../context/ProjectContext";
+import { useProjectsListContext, useUIContext } from "../../context/ProjectContext";
 
 export default function Sidebar() {
-  const { projectsList, activeProject, setActiveProject, theme, setTheme, refreshProjects, createNewProject, updateProject, deleteExistingProject, duplicateProject } = useProjectContext();
+  const router = useRouter();
+  const pathname = usePathname();
+  const { projectsList, createNewProject, updateProject, deleteExistingProject, duplicateProject } = useProjectsListContext();
+  const { theme, setTheme, sidebarCollapsed, setSidebarCollapsed } = useUIContext();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [newProjectTopic, setNewProjectTopic] = useState("");
   const [isCreating, setIsCreating] = useState(false);
-  const [isCollapsed, setIsCollapsed] = useState(false);
   const [openMenuId, setOpenMenuId] = useState<number | null>(null);
   const [renamingProjectId, setRenamingProjectId] = useState<number | null>(null);
   const [renamingTitle, setRenamingTitle] = useState("");
@@ -46,18 +49,8 @@ export default function Sidebar() {
 
   const menuRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    const stored = localStorage.getItem("sidebarCollapsed");
-    if (stored !== null) {
-      setIsCollapsed(stored === "true");
-    }
-  }, []);
-
-  const toggleCollapse = () => {
-    const newState = !isCollapsed;
-    setIsCollapsed(newState);
-    localStorage.setItem("sidebarCollapsed", String(newState));
-  };
+  const isCollapsed = sidebarCollapsed;
+  const toggleCollapse = () => setSidebarCollapsed(!sidebarCollapsed);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -75,9 +68,12 @@ export default function Sidebar() {
 
     setIsCreating(true);
     try {
-      await createNewProject(newProjectTopic);
+      const created = await createNewProject(newProjectTopic);
       setNewProjectTopic("");
       setIsModalOpen(false);
+      if (created && typeof created === "object" && "id" in created) {
+        router.push(`/projects/${(created as { id: number }).id}/overview`);
+      }
     } catch (error) {
       console.error("Error creating project:", error);
     } finally {
@@ -148,11 +144,11 @@ export default function Sidebar() {
           )
         ) : (
           projectsList.map((project) => {
-            const isActive = activeProject?.id === project.id;
+            const isActive = pathname === `/projects/${project.id}` || pathname?.startsWith(`/projects/${project.id}/`);
             return (
               <div key={project.id} className="relative group shrink-0 w-full flex">
                 <button
-                  onClick={() => setActiveProject(project)}
+                  onClick={() => router.push(`/projects/${project.id}/overview`)}
                   className={`w-full h-10 flex items-center rounded-xl transition-all text-left relative overflow-hidden px-0 shrink-0 ${
                     isActive
                       ? "bg-panel-header text-panel-icon font-semibold shadow-2xs"
@@ -238,7 +234,10 @@ export default function Sidebar() {
                       onClick={async (e) => {
                         e.stopPropagation();
                         setOpenMenuId(null);
-                        await duplicateProject(project.id);
+                        const dup = await duplicateProject(project.id);
+                        if (dup) {
+                          router.push(`/projects/${dup.id}/overview`);
+                        }
                       }}
                     >
                       Duplicate
@@ -250,6 +249,9 @@ export default function Sidebar() {
                         setOpenMenuId(null);
                         if (window.confirm("Are you sure you want to delete this project? This cannot be undone.")) {
                           await deleteExistingProject(project.id);
+                          if (pathname?.startsWith(`/projects/${project.id}`)) {
+                            router.push("/");
+                          }
                         }
                       }}
                     >

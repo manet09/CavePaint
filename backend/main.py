@@ -98,6 +98,17 @@ class ProjectOutList(ProjectBase):
 
     model_config = ConfigDict(from_attributes=True)
 
+class ProjectSummary(BaseModel):
+    id: int
+    title: str
+    slug: str
+    status: Optional[str] = "draft"
+    scene_count: int = 0
+    scenes_with_images: int = 0
+    scenes_with_audio: int = 0
+
+    model_config = ConfigDict(from_attributes=True)
+
 class ProjectOut(ProjectBase):
     id: int
     slug: str
@@ -279,6 +290,27 @@ async def duplicate_project(project_id: int, db: Session = Depends(get_db)):
 async def get_projects(db: Session = Depends(get_db)):
     projects = db.query(Project).all()
     return projects
+
+@app.get("/api/projects/summary", response_model=List[ProjectSummary])
+async def get_projects_summary(db: Session = Depends(get_db)):
+    projects = db.query(Project).all()
+    summaries = []
+    for project in projects:
+        scene_count = len(project.scenes)
+        scenes_with_images = sum(1 for s in project.scenes if s.image_path)
+        scenes_with_audio = sum(1 for s in project.scenes if s.audio_path)
+        summaries.append(
+            ProjectSummary(
+                id=project.id,
+                title=project.title,
+                slug=project.slug,
+                status=project.status,
+                scene_count=scene_count,
+                scenes_with_images=scenes_with_images,
+                scenes_with_audio=scenes_with_audio,
+            )
+        )
+    return summaries
 
 @app.get("/api/projects/{project_id}", response_model=ProjectOut)
 async def get_project_details(project_id: int, db: Session = Depends(get_db)):

@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef, forwardRef, useImperativeHandle } from "react";
 /* eslint-disable react-hooks/set-state-in-effect, react-hooks/purity */
-import { Project, SceneData } from "../context/ProjectContext";
+import { Project, SceneData } from "../../context/ProjectContext";
 import { Loader2, Check, Play, Pause, RefreshCcw, FileText, Volume2, AlertTriangle, Trash2, Upload, UploadCloud, Mic } from "lucide-react";
 
 export interface Character {

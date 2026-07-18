@@ -2,7 +2,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { useProjectContext } from "../context/ProjectContext";
+import { useProjectContext } from "../../context/ProjectContext";
 import { Search, Compass, Palette, FileText, Mic, Code, Sparkles, Loader2, Check, Wand2, X } from "lucide-react";
 
 interface OverviewTabProps {

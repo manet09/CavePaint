@@ -2,7 +2,7 @@
 "use client";
 
 import React from "react";
-import { Project } from "../context/ProjectContext";
+import { Project } from "../../context/ProjectContext";
 import { FolderCheck, Image as ImageIcon, AudioLines } from "lucide-react";
 
 interface OutputTabProps {

@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
-import { ProjectProvider } from "./context/ProjectContext";
+import { UIProvider, ProjectsListProvider } from "./context/ProjectContext";
+import Sidebar from "./components/shell/Sidebar";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -30,9 +31,14 @@ export default function RootLayout({
       data-theme="dark"
     >
       <body className="min-h-full flex flex-col bg-background text-foreground">
-        <ProjectProvider>
-          {children}
-        </ProjectProvider>
+        <UIProvider>
+          <ProjectsListProvider>
+            <div className="flex h-screen w-full bg-background text-foreground overflow-hidden select-none">
+              <Sidebar />
+              {children}
+            </div>
+          </ProjectsListProvider>
+        </UIProvider>
       </body>
     </html>
   );

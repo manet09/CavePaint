@@ -1,44 +1,17 @@
-/* eslint-disable */
+ 
 "use client";
 
-import React, { createContext, useContext, useState, useEffect, ReactNode } from "react";
+import { useProjectsListContext } from "./ProjectsListContext";
+import { useProjectDataContext } from "./ProjectDataContext";
+import { useUIContext } from "./UIContext";
+import type { Project, SceneData } from "./types";
+import type { ProjectSummary, CreatedProject } from "./ProjectsListContext";
 
-const API_BASE = "http://localhost:8000";
+export type { Project, SceneData, ProjectSummary, CreatedProject };
 
-export interface SceneData {
-  id: number;
-  project_id: number;
-  scene_number: number;
-  narration_khmer: string | null;
-  image_prompt_english: string | null;
-  negative_prompt: string | null;
-  user_refinement_prompt: string | null;
-  image_path: string | null;
-  image_status: string;
-  audio_path: string | null;
-  audio_status: string;
-  character_id?: number;
-  character_name?: string;
-}
-
-export interface Project {
-  id: number;
-  title: string;
-  slug: string;
-  raw_research: string | null;
-  script_narrative: string | null;
-  video_concept: string | null;
-  illustration_style: string | null;
-  global_voice_style: string | null;
-  structured_json_data: string | object | null;
-  master_audio_path?: string;
-  voice_profile_tag?: string;
-  scenes: SceneData[];
-}
-
-interface ProjectContextType {
-  projects: Project[];
-  projectsList: Project[]; // Backward compatibility alias
+export interface ProjectContextType {
+  projects: ProjectSummary[];
+  projectsList: ProjectSummary[];
   activeProject: Project | null;
   isLoading: boolean;
   error: string | null;
@@ -46,305 +19,64 @@ interface ProjectContextType {
   setActiveTab: (tab: string) => void;
   theme: "dark" | "light";
   setTheme: (theme: "dark" | "light") => void;
-  
-  // Abstraction Layers
+
   refreshProjects: () => Promise<void>;
   selectProject: (id: number) => Promise<void>;
-  setActiveProject: (project: Project | null) => void; // Backward compatibility alias
-  createNewProject: (title: string) => Promise<void>;
+  setActiveProject: (project: Project | null) => void;
+  createNewProject: (title: string) => Promise<CreatedProject | null>;
   updateActiveProject: (fields: Partial<Project>) => Promise<void>;
-  updateProject: (id: number, fields: Partial<Project>) => Promise<void>;
+  updateProject: (id: number, fields: Partial<ProjectSummary>) => Promise<void>;
   updateSingleScene: (sceneId: number, fields: Partial<SceneData>) => Promise<void>;
   deleteExistingProject: (id: number) => Promise<void>;
-  duplicateProject: (id: number) => Promise<void>;
+  duplicateProject: (id: number) => Promise<CreatedProject | null>;
 }
 
-const ProjectContext = createContext<ProjectContextType | undefined>(undefined);
-
-export const ProjectProvider = ({ children }: { children: ReactNode }) => {
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [activeProject, setActiveProjectState] = useState<Project | null>(null);
-  const [isLoading, setIsLoading] = useState<boolean>(false);
-  const [error, setError] = useState<string | null>(null);
-  
-  const [activeTab, setActiveTabState] = useState<string>("overview");
-  const [theme, setThemeState] = useState<"dark" | "light">("dark");
-
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      const savedTheme = localStorage.getItem("theme");
-      if (savedTheme === "dark" || savedTheme === "light") {
-        setThemeState(savedTheme);
-      }
-    }
-  }, []);
-
-  const setTheme = (newTheme: "dark" | "light") => {
-    setThemeState(newTheme);
-    if (typeof window !== "undefined") {
-      localStorage.setItem("theme", newTheme);
-    }
-  };
-
-  const refreshProjects = async () => {
-    setIsLoading(true);
-    setError(null);
-    try {
-      const response = await fetch(`${API_BASE}/api/projects`);
-      if (response.ok) {
-        const data = await response.json();
-        setProjects(data);
-      } else {
-        setError("Failed to fetch projects");
-      }
-      
-      // Sync active project if one is selected so tabs get fresh scene data
-      if (activeProject) {
-        const projRes = await fetch(`${API_BASE}/api/projects/${activeProject.id}`);
-        if (projRes.ok) {
-          const projData = await projRes.json();
-          setActiveProjectState(projData);
-        }
-      }
-    } catch (err) {
-      console.error(err);
-      setError("Error fetching projects");
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const selectProject = async (id: number) => {
-    setIsLoading(true);
-    setError(null);
-    try {
-      const response = await fetch(`${API_BASE}/api/projects/${id}`);
-      if (response.ok) {
-        const data = await response.json();
-        setActiveProjectState(data);
-        if (typeof window !== "undefined") localStorage.setItem("activeProjectId", String(data.id));
-      } else {
-        setError("Failed to load project details");
-      }
-    } catch (err) {
-      console.error(err);
-      setError("Error loading project details");
-    } finally {
-      setIsLoading(false);
-    }
-  };
+/**
+ * Unified facade hook. Composes the three split contexts (UI, ProjectsList, ProjectData).
+ * Prefer the individual hooks in new code:
+ *   - useUIContext()
+ *   - useProjectsListContext()
+ *   - useProjectDataContext()
+ */
+export const useProjectContext = (): ProjectContextType => {
+  const ui = useUIContext();
+  const list = useProjectsListContext();
+  const data = useProjectDataContext();
 
   const setActiveProject = (project: Project | null) => {
     if (project) {
-      selectProject(project.id);
+      data.selectProject(project.id);
     } else {
-      setActiveProjectState(null);
       if (typeof window !== "undefined") localStorage.removeItem("activeProjectId");
     }
   };
 
-  const createNewProject = async (title: string) => {
-    setIsLoading(true);
-    setError(null);
-    try {
-      const response = await fetch(`${API_BASE}/api/projects`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title }),
-      });
-      if (response.ok) {
-        const newProject = await response.json();
-        await refreshProjects();
-        setActiveProjectState(newProject);
-      } else {
-        setError("Failed to create project");
-      }
-    } catch (err) {
-      console.error(err);
-      setError("Error creating project");
-    } finally {
-      setIsLoading(false);
-    }
+  return {
+    projects: list.projects,
+    projectsList: list.projectsList,
+    activeProject: data.activeProject,
+    isLoading: list.isLoading || data.isLoading,
+    error: list.error ?? data.error,
+    activeTab: ui.activeTab,
+    setActiveTab: ui.setActiveTab,
+    theme: ui.theme,
+    setTheme: ui.setTheme,
+
+    refreshProjects: list.refreshList,
+    selectProject: data.selectProject,
+    setActiveProject,
+    createNewProject: list.createNewProject,
+    updateActiveProject: data.updateActiveProject,
+    updateProject: list.updateProject,
+    updateSingleScene: data.updateSingleScene,
+    deleteExistingProject: list.deleteExistingProject,
+    duplicateProject: list.duplicateProject,
   };
-
-  const updateActiveProject = async (fields: Partial<Project>) => {
-    if (!activeProject) return;
-    
-    // Optimistic update
-    setActiveProjectState((prev) => prev ? { ...prev, ...fields } : null);
-    
-    try {
-      const response = await fetch(`${API_BASE}/api/projects/${activeProject.id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(fields),
-      });
-      if (!response.ok) {
-        console.error("Failed to sync project update to backend");
-      } else {
-        await refreshProjects();
-      }
-    } catch (err) {
-      console.error("Error updating project:", err);
-    }
-  };
-
-  const updateProject = async (id: number, fields: Partial<Project>) => {
-    setIsLoading(true);
-    try {
-      const response = await fetch(`${API_BASE}/api/projects/${id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(fields),
-      });
-      if (response.ok) {
-        await refreshProjects();
-        if (activeProject?.id === id) {
-          const data = await response.json();
-          setActiveProjectState(data);
-        }
-      } else {
-        setError("Failed to update project");
-      }
-    } catch (err) {
-      console.error("Error updating project:", err);
-      setError("Error updating project");
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const updateSingleScene = async (sceneId: number, fields: Partial<SceneData>) => {
-    if (!activeProject || !activeProject.scenes) return;
-
-    // Optimistic mirror
-    setActiveProjectState((prev) => {
-      if (!prev) return prev;
-      return {
-        ...prev,
-        scenes: prev.scenes.map((scene) => 
-          scene.id === sceneId ? { ...scene, ...fields } : scene
-        )
-      };
-    });
-
-    try {
-      const response = await fetch(`${API_BASE}/api/scenes/${sceneId}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(fields),
-      });
-      if (!response.ok) {
-        console.error("Failed to sync scene update to backend");
-      }
-    } catch (err) {
-      console.error("Error updating scene:", err);
-    }
-  };
-
-  const deleteExistingProject = async (id: number) => {
-    setIsLoading(true);
-    setError(null);
-    try {
-      const response = await fetch(`${API_BASE}/api/projects/${id}`, {
-        method: "DELETE",
-      });
-      if (response.ok) {
-        if (activeProject?.id === id) {
-          setActiveProjectState(null);
-          if (typeof window !== "undefined") localStorage.removeItem("activeProjectId");
-        }
-        await refreshProjects();
-      } else {
-        setError("Failed to delete project");
-      }
-    } catch (err) {
-      console.error(err);
-      setError("Error deleting project");
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const duplicateProject = async (id: number) => {
-    setIsLoading(true);
-    setError(null);
-    try {
-      const response = await fetch(`${API_BASE}/api/projects/${id}/duplicate`, {
-        method: "POST",
-      });
-      if (response.ok) {
-        const newProject = await response.json();
-        await refreshProjects();
-        setActiveProjectState(newProject);
-        if (typeof window !== "undefined") localStorage.setItem("activeProjectId", String(newProject.id));
-      } else {
-        setError("Failed to duplicate project");
-      }
-    } catch (err) {
-      console.error(err);
-      setError("Error duplicating project");
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    refreshProjects();
-    
-    if (typeof window !== "undefined") {
-      const savedProjectId = localStorage.getItem("activeProjectId");
-      if (savedProjectId) {
-        selectProject(parseInt(savedProjectId, 10));
-      }
-      const savedTab = localStorage.getItem("activeTab");
-      if (savedTab) {
-        setActiveTabState(savedTab);
-      }
-    }
-  }, []);
-
-  const setActiveTab = (tab: string) => {
-    setActiveTabState(tab);
-    if (typeof window !== "undefined") localStorage.setItem("activeTab", tab);
-  };
-
-  useEffect(() => {
-    document.documentElement.setAttribute("data-theme", theme);
-  }, [theme]);
-
-  return (
-    <ProjectContext.Provider
-      value={{
-        projects,
-        projectsList: projects,
-        activeProject,
-        isLoading,
-        error,
-        activeTab,
-        setActiveTab,
-        theme,
-        setTheme,
-        refreshProjects,
-        selectProject,
-        setActiveProject,
-        createNewProject,
-        updateActiveProject,
-        updateProject,
-        updateSingleScene,
-        deleteExistingProject,
-        duplicateProject,
-      }}
-    >
-      {children}
-    </ProjectContext.Provider>
-  );
 };
 
-export const useProjectContext = () => {
-  const context = useContext(ProjectContext);
-  if (context === undefined) {
-    throw new Error("useProjectContext must be used within a ProjectProvider");
-  }
-  return context;
-};
+export { useUIContext } from "./UIContext";
+export { useProjectsListContext } from "./ProjectsListContext";
+export { useProjectDataContext } from "./ProjectDataContext";
+export { UIProvider } from "./UIContext";
+export { ProjectsListProvider } from "./ProjectsListContext";
+export { ProjectDataProvider } from "./ProjectDataContext";
