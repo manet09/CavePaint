@@ -51,6 +51,12 @@ class Project(Base):
     master_audio_path = Column(String, nullable=True)
     voice_profile_tag = Column(String, nullable=True)
     audio_format = Column(String, default="wav")
+    theme_era = Column(String, nullable=True)
+    theme_mood = Column(String, nullable=True)
+    theme_custom = Column(Text, nullable=True)
+    aspect_ratio = Column(String, default="16:9")
+    character_attire = Column(Text, nullable=True)
+    scene_staging = Column(String, default="studio")
 
     scenes = relationship("Scene", back_populates="project", cascade="all, delete-orphan")
 
@@ -96,6 +102,42 @@ except Exception:
 try:
     with engine.begin() as conn:
         conn.execute(text("ALTER TABLE projects ADD COLUMN audio_format VARCHAR DEFAULT 'wav';"))
+except Exception:
+    pass
+
+try:
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE projects ADD COLUMN theme_era VARCHAR;"))
+except Exception:
+    pass
+
+try:
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE projects ADD COLUMN theme_mood VARCHAR;"))
+except Exception:
+    pass
+
+try:
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE projects ADD COLUMN theme_custom TEXT;"))
+except Exception:
+    pass
+
+try:
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE projects ADD COLUMN aspect_ratio VARCHAR DEFAULT '16:9';"))
+except Exception:
+    pass
+
+try:
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE projects ADD COLUMN character_attire TEXT;"))
+except Exception:
+    pass
+
+try:
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE projects ADD COLUMN scene_staging VARCHAR DEFAULT 'studio';"))
 except Exception:
     pass
 

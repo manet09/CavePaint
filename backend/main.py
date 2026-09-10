@@ -77,6 +77,12 @@ class ProjectBase(BaseModel):
     master_audio_path: Optional[str] = None
     voice_profile_tag: Optional[str] = None
     audio_format: Optional[str] = "wav"
+    theme_era: Optional[str] = None
+    theme_mood: Optional[str] = None
+    theme_custom: Optional[str] = None
+    aspect_ratio: Optional[str] = "16:9"
+    character_attire: Optional[str] = None
+    scene_staging: Optional[str] = "studio"
 
 class ProjectCreate(BaseModel):
     title: str
@@ -93,6 +99,12 @@ class ProjectUpdate(BaseModel):
     master_audio_path: Optional[str] = None
     voice_profile_tag: Optional[str] = None
     audio_format: Optional[str] = None
+    theme_era: Optional[str] = None
+    theme_mood: Optional[str] = None
+    theme_custom: Optional[str] = None
+    aspect_ratio: Optional[str] = None
+    character_attire: Optional[str] = None
+    scene_staging: Optional[str] = None
 
 class ProjectOutList(ProjectBase):
     id: int
@@ -245,6 +257,12 @@ async def duplicate_project(project_id: int, db: Session = Depends(get_db)):
         illustration_style=project.illustration_style,
         global_voice_style=project.global_voice_style,
         structured_json_data=project.structured_json_data,
+        theme_era=project.theme_era,
+        theme_mood=project.theme_mood,
+        theme_custom=project.theme_custom,
+        aspect_ratio=project.aspect_ratio or "16:9",
+        character_attire=project.character_attire,
+        scene_staging=project.scene_staging or "studio",
         status="draft"
     )
     db.add(new_project)
@@ -257,12 +275,13 @@ async def duplicate_project(project_id: int, db: Session = Depends(get_db)):
             scenes_data = json.loads(new_project.structured_json_data)
             if isinstance(scenes_data, list) and len(scenes_data) > 0:
                 for scene_obj in scenes_data:
+                    neg = scene_obj.get("negative_prompt") or scene_obj.get("negative_prompt_english")
                     scene = Scene(
                         project_id=new_project.id,
                         scene_number=scene_obj.get("scene_number", 1),
                         narration_khmer=scene_obj.get("narration_khmer"),
                         image_prompt_english=scene_obj.get("image_prompt_english"),
-                        negative_prompt=scene_obj.get("negative_prompt"),
+                        negative_prompt=neg,
                         image_status="idle",
                         audio_status="idle"
                     )
@@ -398,12 +417,13 @@ async def update_project(project_id: int, payload: ProjectUpdate, db: Session = 
             if isinstance(scenes_data, list):
                 db.query(Scene).filter(Scene.project_id == project_id).delete()
                 for scene_obj in scenes_data:
+                    neg = scene_obj.get("negative_prompt") or scene_obj.get("negative_prompt_english")
                     scene = Scene(
                         project_id=project_id,
                         scene_number=scene_obj.get("scene_number", 1),
                         narration_khmer=scene_obj.get("narration_khmer"),
                         image_prompt_english=scene_obj.get("image_prompt_english"),
-                        negative_prompt=scene_obj.get("negative_prompt"),
+                        negative_prompt=neg,
                         image_status="idle",
                         audio_status="idle"
                     )
@@ -600,6 +620,78 @@ async def segment_project_script(project_id: int, payload: ScriptSegmentPayload,
             
     db.commit()
     return {"status": "success", "chunks_mapped": len(chunks)}
+
+
+class SceneImportItem(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    scene_number: Optional[int] = None
+    narration_khmer: Optional[str] = None
+    image_prompt_english: Optional[str] = None
+    negative_prompt: Optional[str] = None
+    negative_prompt_english: Optional[str] = None
+
+class ImportScenesPayload(BaseModel):
+    scenes: List[SceneImportItem]
+    mode: str = "replace"  # "replace" or "append"
+
+@app.post("/api/projects/{project_id}/import-scenes")
+async def import_project_scenes(project_id: int, payload: ImportScenesPayload, db: Session = Depends(get_db)):
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    if not payload.scenes:
+        raise HTTPException(status_code=400, detail="No scenes provided in payload")
+
+    if payload.mode == "replace":
+        existing_scenes = db.query(Scene).filter(Scene.project_id == project_id).all()
+        for s in existing_scenes:
+            if s.image_path:
+                img_f = os.path.join(workspace_dir, s.image_path)
+                if os.path.exists(img_f):
+                    try:
+                        os.remove(img_f)
+                    except OSError:
+                        pass
+            if s.audio_path:
+                aud_f = os.path.join(workspace_dir, s.audio_path)
+                if os.path.exists(aud_f):
+                    try:
+                        os.remove(aud_f)
+                    except OSError:
+                        pass
+        db.query(Scene).filter(Scene.project_id == project_id).delete()
+        base_scene_number = 1
+    elif payload.mode == "append":
+        existing_scenes = db.query(Scene).filter(Scene.project_id == project_id).all()
+        max_num = max([s.scene_number for s in existing_scenes], default=0)
+        base_scene_number = max_num + 1
+    else:
+        raise HTTPException(status_code=400, detail=f"Invalid import mode: {payload.mode}")
+
+    for idx, item in enumerate(payload.scenes):
+        neg = item.negative_prompt or item.negative_prompt_english
+        scene = Scene(
+            project_id=project_id,
+            scene_number=base_scene_number + idx,
+            narration_khmer=item.narration_khmer,
+            image_prompt_english=item.image_prompt_english,
+            negative_prompt=neg,
+            image_status="idle",
+            audio_status="idle"
+        )
+        db.add(scene)
+
+    db.commit()
+    db.refresh(project)
+    sync_project_json(project_id, db)
+    
+    return {
+        "status": "success",
+        "imported_count": len(payload.scenes),
+        "mode": payload.mode,
+        "total_scenes": len(project.scenes)
+    }
 
 
 @app.post("/api/scenes/{scene_id}/refine")

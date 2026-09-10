@@ -1,12 +1,18 @@
- 
 "use client";
 
-import React from "react";
-import OverviewTab from "../../../components/tabs/OverviewTab";
-import { useProjectContext } from "../../../context/ProjectContext";
+import { useEffect } from "react";
+import { useRouter, useParams } from "next/navigation";
 
-export default function OverviewPage() {
-  const { activeProject, refreshActiveProject } = useProjectContext();
-  if (!activeProject) return null;
-  return <OverviewTab activeProject={activeProject} refreshProjectData={refreshActiveProject} />;
+export default function LegacyOverviewRedirect() {
+  const router = useRouter();
+  const params = useParams();
+  const id = params?.id;
+
+  useEffect(() => {
+    if (id) {
+      router.replace(`/projects/${id}/brainstorming`);
+    }
+  }, [id, router]);
+
+  return null;
 }

@@ -72,7 +72,7 @@ export default function Sidebar() {
       setNewProjectTopic("");
       setIsModalOpen(false);
       if (created && typeof created === "object" && "id" in created) {
-        router.push(`/projects/${(created as { id: number }).id}/overview`);
+        router.push(`/projects/${(created as { id: number }).id}/brainstorming`);
       }
     } catch (error) {
       console.error("Error creating project:", error);
@@ -148,7 +148,7 @@ export default function Sidebar() {
             return (
               <div key={project.id} className="relative group shrink-0 w-full flex">
                 <button
-                  onClick={() => router.push(`/projects/${project.id}/overview`)}
+                  onClick={() => router.push(`/projects/${project.id}/brainstorming`)}
                   className={`w-full h-10 flex items-center rounded-xl transition-all text-left relative overflow-hidden px-0 shrink-0 ${
                     isActive
                       ? "bg-panel-header text-panel-icon font-semibold shadow-2xs"
@@ -236,7 +236,7 @@ export default function Sidebar() {
                         setOpenMenuId(null);
                         const dup = await duplicateProject(project.id);
                         if (dup) {
-                          router.push(`/projects/${dup.id}/overview`);
+                          router.push(`/projects/${dup.id}/brainstorming`);
                         }
                       }}
                     >

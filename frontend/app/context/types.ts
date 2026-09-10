@@ -27,5 +27,12 @@ export interface Project {
   structured_json_data: string | object | null;
   master_audio_path?: string;
   voice_profile_tag?: string;
+  audio_format?: string;
+  theme_era?: string | null;
+  theme_mood?: string | null;
+  theme_custom?: string | null;
+  aspect_ratio?: string | null;
+  character_attire?: string | null;
+  scene_staging?: string | null;
   scenes: SceneData[];
 }

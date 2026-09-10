@@ -4,10 +4,10 @@
 import React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { FileText, Sparkles, Mic, Film } from "lucide-react";
+import { Lightbulb, Sparkles, Mic, Film } from "lucide-react";
 
 const tabs = [
-  { id: "overview", label: "Overview", icon: FileText },
+  { id: "brainstorming", label: "Brainstorming", icon: Lightbulb },
   { id: "images", label: "Images", icon: Sparkles },
   { id: "voice", label: "Voice", icon: Mic },
   { id: "output", label: "Output", icon: Film },

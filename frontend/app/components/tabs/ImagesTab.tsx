@@ -11,7 +11,7 @@ interface ImagesTabProps {
 }
 
 export default function ImagesTab(props: ImagesTabProps) {
-  const { activeProject, updateSingleScene, refreshProjects } = useProjectContext();
+  const { activeProject, updateSingleScene, refreshProjects, updateActiveProject } = useProjectContext();
   
   const [activeSceneIndex, setActiveSceneIndex] = useState(0);
   const [refinementInput, setRefinementInput] = useState("");
@@ -36,6 +36,12 @@ export default function ImagesTab(props: ImagesTabProps) {
   const [isRefining, setIsRefining] = useState(false);
   const [refineAbortController, setRefineAbortController] = useState<AbortController | null>(null);
   const [activeProvider, setActiveProvider] = useState<string>("gemini");
+
+  useEffect(() => {
+    if (activeProject?.aspect_ratio) {
+      setAspectRatioValue(activeProject.aspect_ratio);
+    }
+  }, [activeProject?.aspect_ratio]);
 
   useEffect(() => {
     fetch("http://localhost:8000/api/settings")
@@ -414,7 +420,12 @@ export default function ImagesTab(props: ImagesTabProps) {
                           <button
                             key={ratio}
                             type="button"
-                            onClick={() => setAspectRatioValue(ratio)}
+                            onClick={async () => {
+                              setAspectRatioValue(ratio);
+                              if (activeProject?.id) {
+                                await updateActiveProject({ aspect_ratio: ratio });
+                              }
+                            }}
                             className={`py-2.5 flex flex-col items-center justify-center gap-1.5 text-[10px] font-mono rounded-xl border transition-all ${
                               isActive 
                                 ? "bg-zinc-100 dark:bg-zinc-900 border-zinc-400 dark:border-zinc-700 text-zinc-950 dark:text-zinc-50 shadow-2xs" 

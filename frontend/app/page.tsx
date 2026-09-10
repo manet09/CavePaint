@@ -14,7 +14,7 @@ export default function HomePage() {
     if (savedId) {
       const parsed = parseInt(savedId, 10);
       if (!Number.isNaN(parsed)) {
-        router.replace(`/projects/${parsed}/overview`);
+        router.replace(`/projects/${parsed}/brainstorming`);
       }
     }
   }, [router]);

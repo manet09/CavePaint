@@ -19,7 +19,7 @@ const UIContext = createContext<UIContextType | undefined>(undefined);
 export const UIProvider = ({ children }: { children: ReactNode }) => {
   const [theme, setThemeState] = useState<Theme>("dark");
   const [sidebarCollapsed, setSidebarCollapsedState] = useState<boolean>(false);
-  const [activeTab, setActiveTabState] = useState<string>("overview");
+  const [activeTab, setActiveTabState] = useState<string>("brainstorming");
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -33,7 +33,7 @@ export const UIProvider = ({ children }: { children: ReactNode }) => {
     }
     const savedTab = localStorage.getItem("activeTab");
     if (savedTab) {
-      setActiveTabState(savedTab);
+      setActiveTabState(savedTab === "overview" ? "brainstorming" : savedTab);
     }
   }, []);
 

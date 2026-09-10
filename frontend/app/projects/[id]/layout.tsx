@@ -22,8 +22,8 @@ function ProjectLayoutInner({ children, id }: { children: React.ReactNode; id: s
   useEffect(() => {
     const segments = pathname?.split("/").filter(Boolean) ?? [];
     const tab = segments[2];
-    if (tab && ["overview", "images", "voice", "output"].includes(tab)) {
-      setActiveTab(tab);
+    if (tab && ["brainstorming", "overview", "images", "voice", "output"].includes(tab)) {
+      setActiveTab(tab === "overview" ? "brainstorming" : tab);
     }
   }, [pathname, setActiveTab]);
 
