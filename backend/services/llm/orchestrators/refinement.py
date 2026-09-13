@@ -25,9 +25,13 @@ def refine_scene_prompt(
         
         "CRITICAL STYLE CONSTRAINT:\n"
         "You must preserve the core visual engine identity unless explicitly told otherwise:\n"
-        "- Simple 2D flat vector art style, minimalist stickman characters.\n"
-        "- Bold clean outlines, plain solid color backgrounds emphasizing absolute isolation.\n"
-        "- NO gradients, NO 3D shading, NO complex textures.\n\n"
+        "- Minimalist 2D flat vector stickman doodle art with bold thick black marker outlines.\n"
+        "- Characters must be simple stick figures (round head, large circle eyes, thin stick limbs) - NO realistic muscles, NO comic detail.\n"
+        "- Vibrant flat solid colors and seamless studio backgrounds.\n"
+        "- STRICTLY NO text, NO words, NO letters, NO labels on images.\n"
+        "- Keep prompts concise, punchy, and natural (under 50 words).\n"
+        "- Preserve the visual archetype of the shot and metaphor alignment with script.\n"
+        "- NO gradients, NO 3D shading, NO complex photorealism.\n\n"
         
         "OUTPUT RULE:\n"
         "You must output a strictly valid JSON object matching this schema exactly. "

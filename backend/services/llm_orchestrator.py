@@ -60,8 +60,14 @@ def generate_field_content(db: Session, field_name: str, context: str) -> str:
         raise HTTPException(status_code=500, detail=f"Unknown LLM Provider: {provider}")
 
 def get_system_prompt_for_field(field_name: str) -> str:
-    # Rigid instruction prompts enforcing 2D flat vector stickman art, bold clean outlines, and uniform plain solid backgrounds matching the Whatly channel style.
-    base_style = "CRITICAL STYLE ENFORCEMENT: All visual descriptions and generations must enforce 2D flat vector stickman art, bold clean outlines, and uniform plain solid backgrounds matching the Whatly channel style."
+    # Instruction prompts enforcing minimalist 2D flat vector stickman doodle art with diverse visual archetypes.
+    base_style = (
+        "CRITICAL STYLE ENFORCEMENT: All visual descriptions must enforce minimalist 2D flat vector stickman doodle art, "
+        "bold thick black marker outlines, flat solid colors, and seamless studio backgrounds. Zero shading, zero gradients, zero photorealism. "
+        "Characters must be simple cute stick figures with round heads, large white circle eyes, and thin black stick limbs (NO realistic muscles, NO comic detail). "
+        "STRICTLY NO text, NO words, NO labels on images. Enforce visual shot variety and clever visual metaphor alignment with narration. "
+        "Keep image prompts concise (30-50 words), natural, and free of proper-noun channel names."
+    )
     
     if field_name == "script_narrative":
         return f"You are an expert scriptwriter. Generate an engaging narrative script in Khmer based on the provided context. {base_style}"

@@ -24,7 +24,8 @@ import {
   X,
   Shirt,
   RotateCcw,
-  LayoutTemplate
+  LayoutTemplate,
+  CornerDownLeft
 } from "lucide-react";
 
 interface BrainstormingTabProps {
@@ -98,7 +99,7 @@ const MOOD_OPTIONS = [
 const SCENE_STAGING_OPTIONS = [
   { 
     id: "studio", 
-    label: "Studio Canvas (Whatly)", 
+    label: "Studio Canvas (Seamless)", 
     sub: "Grounded with floor contact shadow on seamless white/solid backdrop",
     desc: "Character & key props grounded with subtle floor shadow on seamless backdrop" 
   },
@@ -130,6 +131,7 @@ export default function BrainstormingTab({ activeProject, refreshProjectData }: 
   const [characterAttire, setCharacterAttire] = useState("");
   const [sceneStaging, setSceneStaging] = useState<"studio" | "environment">("studio");
   const [customSetting, setCustomSetting] = useState("");
+  const [splitMode, setSplitMode] = useState<"enter" | "sentence" | "beat">("enter");
 
   // Batching controller state (Option A: sentence-based, -1 = All Scenes)
   const [batchSize, setBatchSize] = useState(5);
@@ -163,15 +165,42 @@ export default function BrainstormingTab({ activeProject, refreshProjectData }: 
     }
   }, [activeProject?.id]);
 
-  // Sentence parser: split by Khmer punctuation (។) and newlines
+  // Sentence / Visual Beat parser:
+  // - "enter": split strictly by line breaks (Enter key). Each line is one scene.
+  // - "sentence": standard split by Khmer full stop (។) and newlines
+  // - "beat": also splits on commas, semicolons, and clause markers
   const sentences = useMemo(() => {
     if (!scriptText.trim()) return [];
     const clean = scriptText.replace(/\(.*?\)/g, "").trim();
+    let regex: RegExp;
+    if (splitMode === "enter") {
+      regex = /\n+/;
+    } else if (splitMode === "beat") {
+      regex = /[។\n,;៖]+/;
+    } else {
+      regex = /[។\n]+/;
+    }
     return clean
-      .split(/[។\n]+/)
+      .split(regex)
       .map((s) => s.trim())
       .filter((s) => s.length > 0);
-  }, [scriptText]);
+  }, [scriptText, splitMode]);
+
+  // Auto-break Khmer sentences (។) into separate lines (Enter)
+  const handleAutoBreakToLines = async () => {
+    if (!scriptText.trim()) return;
+    const formatted = scriptText
+      .replace(/([។])\s*/g, "$1\n")
+      .split("\n")
+      .map((l) => l.trim())
+      .filter((l) => l.length > 0)
+      .join("\n");
+    setScriptText(formatted);
+    setSplitMode("enter");
+    if (activeProject?.id) {
+      await updateActiveProject({ script_narrative: formatted });
+    }
+  };
 
   // Calculate batch slices
   const batches = useMemo(() => {
@@ -293,45 +322,72 @@ export default function BrainstormingTab({ activeProject, refreshProjectData }: 
       ? `Uniform seamless ${moodObj.label} (${moodObj.desc}) background. The character and key story elements are grounded with a clean subtle contact shadow/floor patch. Clean minimalist composition with zero border frames.`
       : `Full-bleed 2D illustrated ${eraObj.label} setting filling the frame edge-to-edge. Rich environmental context, vibrant flat colors. NO border margins, NO letterbox frames.`;
 
-    return `You are the lead visual director and storyboard artist for an educational animated YouTube channel in the style of "Whatly".
+    return `You are the lead visual director and storyboard artist for a top-tier educational animated explainer channel in the signature "Whatly" stickman doodle aesthetic.
 
-### 1. CORE VISUAL STYLE (BALANCED WHATLY CARTOON-STICKMAN HYBRID):
-- Minimalist 2D flat vector cartoon & stickman hybrid illustration in the signature "Whatly" educational YouTube style.
-- BALANCED COMPLEXITY: Neither too basic (NO featureless naked stick figures) nor too complex (NO realistic anatomy, NO 3D rendering, NO muscular detail, NO gradients).
-- HEAD & FACE: Simple round/oval cartoon head filled with flat skin tone. Two large round white circular cartoon eyes with black dot pupils. Simple expressive cartoon eyebrows and mouth (e.g. chattering shivering teeth, curious side-eye glance, wide shock, or deadpan smile).
-- HAIR: Distinct chunky 2D vector hairstyle fitting the character and era: ${eraObj.hair}.
-- TORSO & CLOTHING: Simple rounded capsule torso wearing flat-colored era attire: ${eraObj.attire}.
-- LIMBS: Clean thin black stickman line arms and legs with dynamic cartoon posing.
-- SCENE STAGING: ${stagingInstruction}
-- COMPOSITION & FRAMING: ${ratioObj.label} (${ratioObj.desc}). Full-bleed edge-to-edge artwork. NO artificial border frames, NO margin cutouts, NO letterbox bars.
-- ABSOLUTELY NO 3D shading, NO complex photorealism, NO muddy gradients, NO detailed anatomical rendering.
+### 1. CORE VISUAL ENGINE DIRECTIVE (LOCAL FLUX STICKMAN VECTOR SPEC):
+- Target Image Engine: Local FLUX.1 vector diffusion.
+- CRITICAL: DO NOT use the word "Whatly" in the prompts (the model does not recognize proper-noun channel tags).
+- CORE STYLE FORMULA: "Minimalist 2D flat vector stickman doodle illustration, clean thick bold black marker outlines, flat solid color fills, zero shading, zero gradients, zero shadows, pure simple minimalist shapes, ${sceneStaging === 'studio' ? 'seamless ' + moodObj.label + ' studio background' : 'full-bleed flat 2D ' + eraObj.label + ' environment'}, ${ratioObj.desc}, zero 3D rendering, zero photorealism, zero comic book detail".
+- PROMPT LENGTH: Concise and punchy (30 to 45 words max).
 
-### 2. THEME & SETTING CONTEXT:
+### 2. CHARACTER SPECIFICATION (TRUE WHATLY STICKMAN DOODLE):
+When human characters appear, they MUST be simple, cute 2D stick figures:
+- Round circle head filled with simple skin tone.
+- Two large round white cartoon eyes with black dot pupils.
+- Simple expressive line eyebrows and mouth (e.g. smiling, wide shock, shivering chattering teeth).
+- Simple rounded torso wearing flat-colored attire: ${attireText}.
+- Thin black stick-line arms and legs (pure stickman limbs).
+- ABSOLUTELY NO muscular detail, NO realistic face, NO gritty comic book shading, NO crosshatching.
+
+### 3. THE GOLDEN RULE OF WHATLY: CONCRETE PHYSICAL SCENES ONLY (NO ABSTRACT DIAGRAMS!):
+Image diffusion models are camera renderers, NOT graphic designers. They CANNOT understand abstract symbols like "bare skin symbol", "visual transition from X to Y", or "fading silhouettes behind red Xs" (these produce bizarre flesh blobs and clipart mess).
+EVERY PROMPT MUST DESCRIBE A REAL, CONCRETE, PHYSICAL SCENE:
+- HOW TO DO COMPARISONS (The Whatly Character Gag): Put subjects side by side in the physical scene! E.g. To show humans had no thick fur like animals: Show a shivering blue stickman with chattering teeth and shivering lines looking enviously at a cozy fluffy woolly mammoth standing happily in the snow.
+- HOW TO SHOW ABSTRACT IDEAS (Intelligence / Creativity): Draw a confident stickman winking with a bright glowing cartoon lightbulb and brain icon floating above his head, holding a simple stone tool.
+- HOW TO SHOW INVENTIONS & TOOLS: Draw a concrete macro close-up of a sharp carved bone needle threading leather hide, or a stickman proudly holding a finished fur jacket.
+- ZERO TEXT / ZERO WORDS: NEVER request words, letters, labels, or captions. Diffusion models cannot render text. Use only physical objects and simple visual icons.
+
+### 4. 4 DIVERSE PHYSICAL SHOT TYPES:
+Cycle through these 4 physical shot types to keep the storyboard exciting:
+1. CHARACTER GAG / ACTION: Stickman interacting with animals, tools, or elements (e.g. freezing stickman beside warm mammoth; stickman striking flint sparks).
+2. WIDE SCALE LANDSCAPE: Vast icy landscape where stickman is a tiny cute silhouette in the bottom corner dwarfed by colossal ice.
+3. MACRO OBJECT STILL-LIFE: Clean close-up of a tangible tool or invention (e.g. sharp bone needle piercing hide; campfire with orange sparks).
+4. WILDLIFE SCENE: A cute flat vector prehistoric beast (e.g. woolly mammoth with curved tusks walking across snowy plains; no humans).
+
+### 5. THEME & SETTING CONTEXT:
 - Era: ${eraObj.label} (${eraObj.desc}).
-- Palette / Backdrop: ${moodObj.label} (${moodObj.desc}).
-- Video Aspect Ratio: ${ratioObj.label}.
+- Character Attire & Hair (WHEN CHARACTERS APPEAR): ${attireText}.
+- Backdrop Palette: ${moodObj.label} (${moodObj.desc}).
+- Video Framing: ${ratioObj.label} (${ratioObj.desc}).
 ${customSetting.trim() ? `- Key Story Props / Elements: ${customSetting.trim()}\n` : ""}
-### 3. COMPLETE STORY SCRIPT BACKGROUND:
+### 6. COMPLETE STORY SCRIPT BACKGROUND:
 """
 ${scriptText}
 """
 
-### 4. ${taskTitle}:
+### 7. ${taskTitle}:
 Generate visual scene descriptions ONLY for the following target sentences. Do not skip or combine sentences.
 Target sentences:
 ${targetSlice}
 
-### 5. STRICT JSON OUTPUT FORMAT:
+### 8. STRICT JSON OUTPUT FORMAT:
 Output MUST be a valid JSON array of objects matching this schema exactly.
-Do not wrap in extra markdown text, greetings, or explanations. RETURN ONLY VALID JSON:
+Do not wrap in extra conversational markdown text. RETURN ONLY VALID JSON:
 [
   {
     "scene_number": ${startNum},
     "narration_khmer": "<exact Khmer sentence from target list>",
-    "image_prompt_english": "2D flat vector cartoon explainer illustration, Whatly youtube channel art style, balanced cartoon stickman hybrid, clean bold black outlines. Stylized character with round skin-toned head, two large round white cartoon eyes with black dot pupils, expressive face, ${eraObj.hair}, simple rounded torso wearing ${eraObj.attire}, thin black stickman line arms and legs, <describe character action and key props in the ${eraObj.label} setting>, ${sceneStaging === 'studio' ? 'grounded on a seamless ' + moodObj.label + ' background' : 'full-bleed 2D illustrated ' + eraObj.label + ' environment'}, ${ratioObj.desc}, flat solid colors, high visual contrast, minimalist educational animation.",
-    "negative_prompt": "naked, blank featureless circle head, photorealistic, 3D render, complex shading, detailed muscles, realistic face, gradients, blur, border, frame, margin, letterbox, cropped edges, jagged border"
+    "shot_type": "character_action | wide_scale | object_focus | wildlife",
+    "image_prompt_english": "<concise 30-45 word prompt describing a CONCRETE physical scene in minimalist stickman doodle style, zero text, bold black outlines, flat solid colors>",
+    "negative_prompt": "text, words, letters, labels, alphabet, captions, watermark, signature, comic book, gritty, realistic, muscular, detailed anatomy, 3D, render, shading, gradients, shadows, photorealistic"
   }
-]`;
+]
+
+### REFERENCE EXAMPLES OF PROPER WHATLY SCENES (CONCRETE & CLEAN):
+- Example Comparison (Physical Gag): "Minimalist 2D flat vector stickman illustration, a miserable stickman character shivering and hugging his thin arms with blue frost on his cheeks, standing next to a huge cozy woolly mammoth covered in thick fluffy fur smiling in the falling snow, bold black outlines, flat solid colors, seamless ${moodObj.label} background."
+- Example Idea / Intelligence: "Minimalist 2D flat vector stickman illustration, a clever prehistoric stickman smiling proudly with a bright glowing yellow lightbulb and brain icon floating above his head, holding a sharp flint spearhead, thin stick limbs, bold black outlines, flat solid colors, seamless ${moodObj.label} background."
+- Example Macro Tool: "Minimalist 2D flat vector doodle illustration, macro close-up of a sharp prehistoric carved bone needle with sinew thread puncturing thick animal hide leather, simple clean graphic lines, vibrant flat solid colors, bold black outlines, seamless ${moodObj.label} background."
+- Example Wide Landscape: "Minimalist 2D flat vector illustration, a massive flat-colored blue glacial wall towering across the frame, a tiny cute stickman silhouette walking in the lower corner dwarfed by the giant ice, cold minimalist atmosphere, bold black outlines, flat solid colors, seamless ${moodObj.label} background."`;
   };
 
   // Copy prompt to clipboard
@@ -465,7 +521,7 @@ Do not wrap in extra markdown text, greetings, or explanations. RETURN ONLY VALI
             </div>
             <span className="text-[11px] font-medium text-panel-text flex items-center gap-1.5">
               <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-              {sentences.length} {sentences.length === 1 ? "sentence" : "sentences"} detected
+              {sentences.length} {splitMode === "enter" ? (sentences.length === 1 ? "line/scene" : "lines/scenes") : splitMode === "beat" ? (sentences.length === 1 ? "beat" : "beats") : (sentences.length === 1 ? "sentence" : "sentences")} detected
             </span>
           </div>
 
@@ -478,14 +534,65 @@ Do not wrap in extra markdown text, greetings, or explanations. RETURN ONLY VALI
                 <label className="text-[11px] font-bold text-foreground/80 uppercase tracking-wider flex items-center gap-1.5">
                   <FileText size={13} className="text-primary" /> Narrative Script (Khmer)
                 </label>
-                <span className="text-[11px] text-panel-text">Paste your research script here</span>
+                <div className="flex items-center gap-1.5 flex-wrap justify-end">
+                  <div className="flex items-center gap-1 bg-background border border-border rounded-lg p-0.5 text-[10px]">
+                    <button
+                      type="button"
+                      onClick={() => setSplitMode("enter")}
+                      className={`px-2 py-0.5 rounded-md font-medium transition-all cursor-pointer ${
+                        splitMode === "enter"
+                          ? "bg-primary text-white shadow-2xs font-semibold"
+                          : "text-panel-text hover:text-foreground"
+                      }`}
+                      title="Split strictly by line breaks (Enter key). Each line becomes one scene without needing commas or punctuation."
+                    >
+                      Enter (↵)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSplitMode("sentence")}
+                      className={`px-2 py-0.5 rounded-md font-medium transition-all cursor-pointer ${
+                        splitMode === "sentence"
+                          ? "bg-primary text-white shadow-2xs font-semibold"
+                          : "text-panel-text hover:text-foreground"
+                      }`}
+                      title="Standard Khmer sentence boundary (splits on ។ and newlines)"
+                    >
+                      Sentences (។)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSplitMode("beat")}
+                      className={`px-2 py-0.5 rounded-md font-medium transition-all cursor-pointer ${
+                        splitMode === "beat"
+                          ? "bg-primary text-white shadow-2xs font-semibold"
+                          : "text-panel-text hover:text-foreground"
+                      }`}
+                      title="Visual beats: splits on commas (,), semicolons, and full stops"
+                    >
+                      Beats (, / ;)
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleAutoBreakToLines}
+                    className="text-[10px] font-semibold text-primary hover:text-primary/80 bg-primary/10 hover:bg-primary/15 border border-primary/20 px-2 py-0.5 rounded-md flex items-center gap-1 cursor-pointer transition-all"
+                    title="Automatically split sentences into separate lines at every Khmer full stop (។)"
+                  >
+                    <CornerDownLeft size={10} /> Auto-Line (។ ➔ ↵)
+                  </button>
+                </div>
               </div>
               <textarea
                 value={scriptText}
                 onChange={(e) => setScriptText(e.target.value)}
                 onBlur={handleScriptBlur}
                 rows={6}
-                placeholder="កាលពី ២ ម៉ឺនឆ្នាំមុន ផែនដីបានធ្លាក់ក្នុងយុគសម័យទឹកកកដ៏ត្រជាក់បំផុត... (Separate sentences with ។ or newlines)"
+                placeholder={
+                  splitMode === "enter"
+                    ? "In 'Enter' mode: each line is a separate scene. Just press Enter to start a new scene (no commas or punctuation needed)!"
+                    : "Paste your research script here... (Separate sentences with ។, commas, or newlines)"
+                }
                 className="w-full p-4 bg-background rounded-xl border border-border text-[13px] text-foreground leading-relaxed placeholder:text-zinc-400/40 focus:border-primary focus:outline-none transition-all resize-none custom-scrollbar"
               />
             </div>
@@ -520,7 +627,7 @@ Do not wrap in extra markdown text, greetings, or explanations. RETURN ONLY VALI
             <div>
               <div className="flex items-center justify-between mb-2">
                 <label className="text-[11px] font-bold text-foreground/80 uppercase tracking-wider flex items-center gap-1.5">
-                  <Shirt size={13} className="text-primary" /> 2. Character Attire & Hairstyle (Whatly Style)
+                  <Shirt size={13} className="text-primary" /> 2. Character Attire & Hairstyle (When Characters Appear)
                 </label>
                 <button
                   onClick={handleResetCharacterAttire}
@@ -539,7 +646,7 @@ Do not wrap in extra markdown text, greetings, or explanations. RETURN ONLY VALI
                 className="w-full px-3.5 py-2 bg-background rounded-xl border border-border text-[12px] text-foreground placeholder:text-zinc-400/40 focus:border-primary focus:outline-none transition-all resize-none"
               />
               <p className="text-[10px] text-panel-text mt-1">
-                Injected into prompts so characters have era-authentic hair & clothing instead of a naked stickman.
+                Used only when human characters appear (max 2 per 5 scenes). Keeps characters era-authentic while preserving visual variety.
               </p>
             </div>
 

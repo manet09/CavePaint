@@ -12,9 +12,9 @@
 **CavePaint** is an automated, local-first content creation studio and production pipeline that transforms raw research notes and ideas into fully synthesized, scene-by-scene audio-visual timelines.
 
 ### Primary Purpose & Visual Identity
-The system is built to automate the creation of educational/explainer videos in the visual style of YouTube channels like **Whatly**:
-* **Visual Style**: Minimalist 2D flat vector stickman characters, bold clean outlines, plain solid color backgrounds, zero gradients or 3D shading.
-* **Audio / Script**: Cinematic narrative scripts written and synthesized entirely in **Khmer** with native sentence pacing.
+The system is built to automate the creation of educational/explainer videos in the visual style of YouTube channels like **Whatly** and **Kurzgesagt**:
+* **Visual Style**: Clean 2D flat vector editorial illustrations, bold clean outlines, vibrant flat solid colors, and diverse shot archetypes (educational diagrams/infographics, tool/object close-ups, wildlife, wide scale contrast, and selective dynamic character action). Prompts are concise and optimized specifically for local FLUX.1 models.
+* **Audio / Script**: Cinematic narrative scripts written and synthesized entirely in **Khmer** with native sentence pacing and optional visual beat segmentation.
 * **Pipeline Output**: Rendered high-resolution `.png` scene images paired with synchronized `.wav` or `.mp3` voiceover chunks and a concatenated `master_voiceover` timeline track, ready for Non-Linear Editors (NLEs) or FFmpeg rendering.
 
 ---
