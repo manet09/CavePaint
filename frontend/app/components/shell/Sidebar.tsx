@@ -21,6 +21,7 @@ export default function Sidebar() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [provider, setProvider] = useState<"gemini" | "groq">("gemini");
   const [slot, setSlot] = useState<1 | 2>(1);
+  const [imageProvider, setImageProvider] = useState<"local" | "flow">("local");
 
   useEffect(() => {
     fetch("http://localhost:8000/api/settings")
@@ -28,6 +29,7 @@ export default function Sidebar() {
       .then(data => {
         setProvider(data.active_provider || "gemini");
         setSlot(data.active_slot || 1);
+        setImageProvider(data.image_provider || "local");
       })
       .catch(console.error);
   }, []);
@@ -37,7 +39,7 @@ export default function Sidebar() {
       const res = await fetch("http://localhost:8000/api/settings", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ active_provider: provider, active_slot: slot })
+        body: JSON.stringify({ active_provider: provider, active_slot: slot, image_provider: imageProvider })
       });
       if (res.ok) {
         setIsSettingsOpen(false);
@@ -368,6 +370,18 @@ export default function Sidebar() {
                 >
                   <option value={1}>Key Slot 1</option>
                   <option value={2}>Key Slot 2</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium mb-2 text-zinc-500 uppercase tracking-wider">Image Synthesis Engine</label>
+                <select 
+                  value={imageProvider}
+                  onChange={(e) => setImageProvider(e.target.value as "local" | "flow")}
+                  className="w-full px-3 py-2 bg-background border border-zinc-200 dark:border-zinc-800 rounded-xl focus:outline-none focus:ring-1 focus:ring-primary text-sm text-foreground"
+                >
+                  <option value="local">🖥️ Local (Draw Things)</option>
+                  <option value="flow">🌊 Google Flow (MCP)</option>
                 </select>
               </div>
             </div>

@@ -34,6 +34,7 @@ class Setting(Base):
     id = Column(Integer, primary_key=True, index=True)
     active_provider = Column(String, default="gemini")
     active_slot = Column(Integer, default=1)
+    image_provider = Column(String, default="local")  # "local" or "flow"
 
 class Project(Base):
     __tablename__ = "projects"
@@ -57,6 +58,7 @@ class Project(Base):
     aspect_ratio = Column(String, default="16:9")
     character_attire = Column(Text, nullable=True)
     scene_staging = Column(String, default="studio")
+    flow_project_id = Column(String, nullable=True)
 
     scenes = relationship("Scene", back_populates="project", cascade="all, delete-orphan")
 
@@ -73,6 +75,8 @@ class Scene(Base):
     user_refinement_prompt = Column(Text, nullable=True)
     audio_path = Column(String, nullable=True)
     image_path = Column(String, nullable=True)
+    images_list = Column(Text, default="[]")  # JSON string of relative paths
+    reference_images = Column(Text, default="[]")  # JSON string of reference paths or Flow media UUIDs
     audio_status = Column(String, default="idle")  # "idle", "processing", "completed", "failed"
     image_status = Column(String, default="idle")
     character_id = Column(Integer, ForeignKey("characters.id"), nullable=True)
@@ -80,6 +84,27 @@ class Scene(Base):
 
     project = relationship("Project", back_populates="scenes")
     character = relationship("Character")
+    generations = relationship("Generation", back_populates="scene", cascade="all, delete-orphan")
+
+
+class Generation(Base):
+    __tablename__ = "generations"
+
+    id = Column(Integer, primary_key=True, index=True)
+    scene_id = Column(Integer, ForeignKey("scenes.id"), nullable=False)
+    provider = Column(String, default="flow")  # "local", "flow", "upload"
+    model = Column(String, nullable=True)  # e.g. "nano2", "nano-pro", "draw_things"
+    aspect_ratio = Column(String, default="16:9")
+    count = Column(Integer, default=1)
+    prompt = Column(Text, nullable=True)
+    refinement_instruction = Column(Text, nullable=True)
+    reference_media_ids = Column(Text, default="[]")  # JSON list
+    output_paths = Column(Text, default="[]")  # JSON list of relative paths
+    flow_media_ids = Column(Text, default="[]")  # JSON list of Flow UUIDs
+    status = Column(String, default="completed")  # "pending", "completed", "failed"
+
+    scene = relationship("Scene", back_populates="generations")
+
 
 # Create tables automatically on import
 Base.metadata.create_all(bind=engine)
@@ -158,6 +183,30 @@ except Exception:
 try:
     with engine.begin() as conn:
         conn.execute(text("ALTER TABLE scenes ADD COLUMN character_name VARCHAR;"))
+except Exception:
+    pass
+
+try:
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE settings ADD COLUMN image_provider VARCHAR DEFAULT 'local';"))
+except Exception:
+    pass
+
+try:
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE projects ADD COLUMN flow_project_id VARCHAR;"))
+except Exception:
+    pass
+
+try:
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE scenes ADD COLUMN images_list TEXT DEFAULT '[]';"))
+except Exception:
+    pass
+
+try:
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE scenes ADD COLUMN reference_images TEXT DEFAULT '[]';"))
 except Exception:
     pass
 

@@ -11,7 +11,9 @@ CavePaint is a local video and content creation studio designed to automate the 
   - **LLM Orchestrator** (Hot-swappable via UI settings):
     - Google Gemini (`gemini-2.5-flash`) for text/scene generation and orchestration.
     - Groq (`llama3-70b-8192`) as a high-speed alternative engine.
-  - Draw Things (Local Stable Diffusion REST API) for image synthesis.
+  - Image Synthesis Engines (Hot-swappable via UI toggle & Settings):
+    - Google Flow MCP (Streamable HTTP MCP daemon on localhost:8765 via `gflow-cli` with Playwright Chromium).
+    - Draw Things (Local Stable Diffusion REST API on localhost:7860).
   - VoxCPM2 (Local TTS) for Khmer voice synthesis.
 
 ---
@@ -53,27 +55,39 @@ The application is structured into a decoupled frontend/backend system, relying 
   - `GET /api/settings` & `PUT /api/settings`: Fetch and save hot-swappable engine preferences (`active_provider`, `active_slot`).
   - `POST /api/projects/{id}/generate-field`: Takes a `field_name` (like `script_narrative` or `structured_json_data`), bundles the current project context (`raw_research` and `video_concept`), passes it to the orchestrator, and immediately commits the generated text/JSON back into the project database.
 
-### 2. Visual Synthesis (Images Tab & `draw_things.py`)
-The Images Tab is designed as a three-column workspace for iterative, scene-by-scene visual asset generation using a local Python engine (e.g., Draw Things pipeline).
+### 2. Visual Synthesis (Images Tab, `flow_engine.py`, and `draw_things.py`)
+The Images Tab is designed as a three-column workspace for iterative, scene-by-scene visual asset generation with hot-swappable support between Google Flow MCP and local Draw Things.
 
 **Architecture Layout**
 - **Column 1: Left List Panel**
-  - **Illustration Style Box:** A global configuration input for defining the overarching art style of the project.
-  - **Prompts Navigation Deck:** A vertically scrolling list of parsed scenes with green checkmarks indicating successfully generated assets.
+  - **Illustration Style Box:** Global configuration input for defining the overarching art style of the project.
+  - **Prompts Navigation Deck:** Vertically scrolling list of parsed scenes with green checkmarks and variant counters indicating generated assets.
 - **Column 2: Center Workspace Editor**
   - **Scene Script Segment:** Read-only reference of the translated Khmer script segment for the active scene.
-  - **Engine Prompt Configuration:** A textarea for the positive image prompt, featuring auto-save-on-blur.
-  - **Acoustic / Negative Constraints:** A textarea for negative prompts (e.g., "watermark, text, bad anatomy").
-  - **User Iteration Bar:** An inline input attached to the Gemini API (`/refine`). Users can type natural language instructions to programmatically rewrite the prompt.
+  - **Engine Prompt Configuration:** Textarea for the positive image prompt, featuring auto-save-on-blur.
+  - **Negative Constraints:** Textarea for negative prompts (e.g., "watermark, text, bad anatomy").
+  - **Reference Images Tray:** Displays attached reference files or Flow media UUIDs with one-click removal and upload options.
+  - **User Iteration Bar:** Inline input attached to the LLM API (`/refine`) for prompt rewrites and iterative follow-ups.
 - **Column 3: Right Operations Board**
-  - **Python Engine Parameters:** Controls for generation properties, including Aspect Ratio grids (1:1, 4:3, 16:9, etc.) and an Inference Steps slider.
-  - **Render Output Frame:** The primary display canvas, equipped with a spinning loader during generation and an interactive Lightbox Zoom button upon completion.
-  - **Footer Buttons:** Core control row containing Generate, Stop Rendering, and Delete (Trash) operations.
+  - **Engine Header & Hot-Swap Toggle:** Badge allowing instant switching between `Local (Draw Things)` and `Google Flow (MCP)`.
+  - **Engine Parameters:**
+    - Aspect Ratio selector (1:1, 4:3, 16:9, 9:16, 2:3).
+    - If Local: Inference Steps slider (5-30).
+    - If Google Flow: Model selector (`nano2`, `nano-pro`), Batch Count selector (`1` to `4`), and Daemon Status indicator.
+  - **Render Output Frame:**
+    - Viewfinder header with a direct **Upload** button to manually add images to the scene without generating.
+    - Drag-and-drop zone to drop external `.png`/`.jpg` files directly onto the frame.
+    - Interactive Lightbox Zoom modal.
+    - **Variant Gallery Strip:** Thumbnail carousel showing all generated variations. Users can click any thumbnail to promote it to the active timeline image, click **📌 Ref** to use it as a reference for future iterations, or delete individual variants.
+  - **Footer Buttons:** Core control row containing Generate Frame, Stop Rendering, and Clear Frames.
 
 **Backend Communication**
-- **`PUT /api/projects/{id}`**: Saves the global `illustration_style` on blur.
-- **`POST /api/scenes/{id}/refine`**: Dispatches existing prompts and user instruction to Gemini for intelligent rewrites.
-- **`POST /api/scenes/{id}/generate-image`**: Queues the image task passing `aspect_ratio`, `guidance_scale`, and `inference_steps` down to the local Draw Things REST API (`http://127.0.0.1:7860/sdapi/v1/txt2img`).
+- **`GET /api/flow/status`**: Checks connectivity to `gflow serve` daemon (:8765) and profile authentication.
+- **`POST /api/scenes/{id}/upload-image`**: Uploads an image directly, registers it in the scene's gallery, and marks it active.
+- **`PUT /api/scenes/{id}/set-active-image`**: Promotes any gallery thumbnail to the active scene frame.
+- **`DELETE /api/scenes/{id}/image-variant`**: Deletes a specific variant file from disk and updates the scene's gallery.
+- **`POST /api/scenes/{id}/reference-image`**: Uploads or attaches reference images.
+- **`POST /api/scenes/{id}/generate-image`**: Queues the generation task passing `model`, `count`, `aspect_ratio`, `reference_images`, and `image_provider` to the background worker.
 
 ### 3. Voice Synthesis (Voice Tab & `voice_engine.py`)
 The Voice Tab is built as a complex dual-pane orchestrator managing Global Character models and synchronizing them across timeline audio generation using VoxCPM2.

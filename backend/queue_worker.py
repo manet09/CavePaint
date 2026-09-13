@@ -1,9 +1,10 @@
 import os
+import json
 import asyncio
 from dataclasses import dataclass
 from typing import Optional
-from .database import SessionLocal, Scene, Project, Character
-from .services import draw_things, voice_engine
+from .database import SessionLocal, Scene, Project, Character, Setting, Generation
+from .services import draw_things, voice_engine, flow_engine
 
 @dataclass
 class GenerationTask:
@@ -29,6 +30,10 @@ async def process_task(task: GenerationTask):
             if scene.image_status != "processing":
                 print("Task cancelled in queue. Skipping.")
                 return
+
+            # Resolve image provider
+            setting = db.query(Setting).first()
+            image_provider = task.payload.get("image_provider") or (setting.image_provider if setting else "local") or "local"
             
             prompt = task.payload.get("prompt") or ""
             style = task.payload.get("style") or ""
@@ -36,48 +41,152 @@ async def process_task(task: GenerationTask):
             full_prompt = f"{style}, {prompt}".strip(", ")
             
             aspect_ratio = task.payload.get("aspect_ratio", "16:9")
-            guidance_scale = float(task.payload.get("guidance_scale", 7.5))
-            inference_steps = int(task.payload.get("inference_steps", 10))
-
-            # Map aspect ratio to width and height
-            ar_map = {
-                "1:1": (768, 768),
-                "4:3": (1024, 768),
-                "16:9": (1024, 576),
-                "9:16": (576, 1024),
-                "2:3": (640, 960)
-            }
-            width, height = ar_map.get(aspect_ratio, (576, 1024))
-
             workspace_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "workspace"))
-            init_image_path = None
-            if scene.image_path:
-                init_image_path = os.path.join(workspace_dir, scene.image_path)
-
             loop = asyncio.get_running_loop()
-            save_path = await loop.run_in_executor(
-                None, 
-                draw_things.trigger_local_render, 
-                full_prompt, 
-                project.slug, 
-                scene.scene_number,
-                width,
-                height,
-                guidance_scale,
-                inference_steps,
-                init_image_path,
-                negative_prompt
-            )
-            
-            db.refresh(scene)
-            if scene.image_status == "idle":
-                print("Task was cancelled during execution.")
-                return
-            
-            rel_save_path = os.path.relpath(save_path, workspace_dir).replace("\\", "/")
-            scene.image_path = rel_save_path
-            scene.image_status = "completed"
-            db.commit()
+
+            try:
+                if image_provider == "flow":
+                    model = task.payload.get("model", "nano2")
+                    count = int(task.payload.get("count", 1))
+
+                    # Resolve reference images
+                    refs = []
+                    if task.payload.get("reference_images"):
+                        refs = task.payload.get("reference_images")
+                    elif scene.reference_images:
+                        try:
+                            refs = json.loads(scene.reference_images)
+                        except Exception:
+                            refs = []
+
+                    render_result = await loop.run_in_executor(
+                        None,
+                        lambda: flow_engine.trigger_flow_render(
+                            prompt=full_prompt,
+                            project_slug=project.slug,
+                            scene_number=scene.scene_number,
+                            aspect_ratio=aspect_ratio,
+                            model=model,
+                            count=count,
+                            reference_images=refs,
+                            flow_project_id=project.flow_project_id
+                        )
+                    )
+
+                    db.refresh(scene)
+                    db.refresh(project)
+                    if scene.image_status == "idle":
+                        print("Task was cancelled during execution.")
+                        return
+
+                    # Persist newly created Flow project ID
+                    if render_result.get("flow_project_id") and not project.flow_project_id:
+                        project.flow_project_id = render_result["flow_project_id"]
+
+                    output_paths = render_result.get("output_paths", [])
+                    if not output_paths:
+                        raise Exception("Flow render completed but produced no output file paths.")
+
+                    try:
+                        current_images = json.loads(scene.images_list) if scene.images_list else []
+                    except Exception:
+                        current_images = []
+
+                    for p in output_paths:
+                        if p not in current_images:
+                            current_images.append(p)
+
+                    scene.images_list = json.dumps(current_images)
+                    scene.image_path = output_paths[0]
+                    scene.image_status = "completed"
+
+                    # Record Generation audit entry
+                    gen_entry = Generation(
+                        scene_id=scene.id,
+                        provider="flow",
+                        model=model,
+                        aspect_ratio=aspect_ratio,
+                        count=count,
+                        prompt=full_prompt,
+                        reference_media_ids=json.dumps(refs),
+                        output_paths=json.dumps(output_paths),
+                        flow_media_ids=json.dumps(render_result.get("flow_media_ids", [])),
+                        status="completed"
+                    )
+                    db.add(gen_entry)
+                    db.commit()
+
+                else:
+                    # Local Draw Things Render
+                    guidance_scale = float(task.payload.get("guidance_scale", 7.5))
+                    inference_steps = int(task.payload.get("inference_steps", 10))
+
+                    ar_map = {
+                        "1:1": (768, 768),
+                        "4:3": (1024, 768),
+                        "16:9": (1024, 576),
+                        "9:16": (576, 1024),
+                        "2:3": (640, 960)
+                    }
+                    width, height = ar_map.get(aspect_ratio, (576, 1024))
+
+                    init_image_path = None
+                    if scene.image_path:
+                        init_image_path = os.path.join(workspace_dir, scene.image_path)
+
+                    save_path = await loop.run_in_executor(
+                        None, 
+                        draw_things.trigger_local_render, 
+                        full_prompt, 
+                        project.slug, 
+                        scene.scene_number,
+                        width,
+                        height,
+                        guidance_scale,
+                        inference_steps,
+                        init_image_path,
+                        negative_prompt
+                    )
+                    
+                    db.refresh(scene)
+                    if scene.image_status == "idle":
+                        print("Task was cancelled during execution.")
+                        return
+                    
+                    rel_save_path = os.path.relpath(save_path, workspace_dir).replace("\\", "/")
+
+                    try:
+                        current_images = json.loads(scene.images_list) if scene.images_list else []
+                    except Exception:
+                        current_images = []
+
+                    if rel_save_path not in current_images:
+                        current_images.append(rel_save_path)
+
+                    scene.images_list = json.dumps(current_images)
+                    scene.image_path = rel_save_path
+                    scene.image_status = "completed"
+
+                    # Record Generation audit entry
+                    gen_entry = Generation(
+                        scene_id=scene.id,
+                        provider="local",
+                        model="draw_things",
+                        aspect_ratio=aspect_ratio,
+                        count=1,
+                        prompt=full_prompt,
+                        output_paths=json.dumps([rel_save_path]),
+                        status="completed"
+                    )
+                    db.add(gen_entry)
+                    db.commit()
+
+            except Exception as img_err:
+                print(f"Error during {image_provider} image generation: {img_err}")
+                db.refresh(scene)
+                scene.image_status = "failed"
+                db.commit()
+                raise img_err
             
         elif task.task_type == "audio":
             if scene.audio_status != "processing":

@@ -8,6 +8,8 @@ export interface SceneData {
   negative_prompt: string | null;
   user_refinement_prompt: string | null;
   image_path: string | null;
+  images_list?: string | string[];
+  reference_images?: string | string[];
   image_status: string;
   audio_path: string | null;
   audio_status: string;
@@ -34,5 +36,6 @@ export interface Project {
   aspect_ratio?: string | null;
   character_attire?: string | null;
   scene_staging?: string | null;
+  flow_project_id?: string | null;
   scenes: SceneData[];
 }

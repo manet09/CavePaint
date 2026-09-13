@@ -13,7 +13,7 @@
 
 ### Primary Purpose & Visual Identity
 The system is built to automate the creation of educational/explainer videos in the visual style of YouTube channels like **Whatly** and **Kurzgesagt**:
-* **Visual Style**: Clean 2D flat vector editorial illustrations, bold clean outlines, vibrant flat solid colors, and diverse shot archetypes (educational diagrams/infographics, tool/object close-ups, wildlife, wide scale contrast, and selective dynamic character action). Prompts are concise and optimized specifically for local FLUX.1 models.
+* **Visual Style**: Clean 2D flat vector editorial illustrations, bold clean outlines, vibrant flat solid colors, and diverse shot archetypes (educational diagrams/infographics, tool/object close-ups, wildlife, wide scale contrast, and selective dynamic character action). Prompts are concise and optimized specifically for local FLUX.1 models as well as Google Flow (Nano Banana 2 / Nano Banana Pro).
 * **Audio / Script**: Cinematic narrative scripts written and synthesized entirely in **Khmer** with native sentence pacing and optional visual beat segmentation.
 * **Pipeline Output**: Rendered high-resolution `.png` scene images paired with synchronized `.wav` or `.mp3` voiceover chunks and a concatenated `master_voiceover` timeline track, ready for Non-Linear Editors (NLEs) or FFmpeg rendering.
 
@@ -45,7 +45,7 @@ flowchart TD
     end
 
     subgraph ProductionPipeline ["4. Production Engine (Tabs 2-4)"]
-        SceneBuilder --> ImagesTab["Images Tab (Draw Things SD API)"]
+        SceneBuilder --> ImagesTab["Images Tab (Draw Things & Google Flow MCP)"]
         SceneBuilder --> VoiceTab["Voice Tab (VoxCPM2 Khmer Audio)"]
         ImagesTab --> OutputTab["Output Tab (Final Timeline Review)"]
         VoiceTab --> OutputTab
@@ -70,13 +70,19 @@ flowchart TD
 * **LLM Clients**: `google-generativeai==0.8.4`, `groq>=0.9.0`.
 * **Audio & Tensor Libraries**: `soundfile==0.12.1`, `numpy==1.26.4`, PyTorch (`torch.mps` / `torch.cuda`).
 * **Local TTS Model**: `voxcpm` (`ravuthz/VoxCPM2-khmer`).
+* **Cloud Image Generation & MCP**: `gflow-cli==0.73.2` (Streamable HTTP MCP daemon + Playwright Chromium).
 * **Environment Loader**: `python-dotenv==1.0.1` (loads `.env` and `.env.local`).
+
+### Runtime Architecture & Python Isolation
+* **FastAPI Backend Runtime**: Conda environment `voice` (Python 3.10.16) for FastAPI, PyTorch, and VoxCPM2.
+* **Google Flow MCP Runtime**: Python 3.13 (`gflow`) for `gflow-cli`, Playwright Chromium, and the MCP HTTP daemon on port `8765`.
+* **Communication**: The backend communicates with the Google Flow daemon via Streamable HTTP JSON-RPC (`http://127.0.0.1:8765/mcp`) with an automated subprocess CLI fallback (`gflow image t2i / i2i`).
 
 ---
 
 ## 4. Database Schema & Data Models (`backend/database.py`)
 
-The SQLite database is stored persistently at `workspace/studio.db`.
+The SQLite database is stored persistently at `workspace/studio.db`. Automatic column migrations ensure non-destructive upgrades across versions.
 
 ### 1. `Project` Table
 Represents a complete video production workspace.
@@ -99,6 +105,7 @@ Represents a complete video production workspace.
 * `aspect_ratio` (`String`): Target video aspect ratio (`16:9`, `9:16`, `1:1`, `4:3`, `2:3`, default `16:9`).
 * `character_attire` (`Text`): Era-appropriate clothing and hairstyle instructions (Whatly style).
 * `scene_staging` (`String`): Staging mode (`studio` for grounded white backdrop or `environment` for full-bleed scenery).
+* `flow_project_id` (`String`, Nullable): Unique Google Flow cloud project ID tied to this CavePaint project (1 CavePaint project = 1 Flow project ID, preventing Google anti-bot triggers).
 * `scenes`: Relationship to `Scene` records with cascade delete.
 
 ### 2. `Scene` Table
@@ -110,14 +117,27 @@ Represents an individual slice/shot in the video timeline.
 * `image_prompt_english` (`Text`): Positive Stable Diffusion prompt in English.
 * `negative_prompt` (`Text`): Negative Stable Diffusion prompt constraints.
 * `user_refinement_prompt` (`Text`): Natural language prompt edit history.
-* `image_path` (`String`): Relative path to rendered image (e.g., `<slug>/scene_001.png`).
+* `image_path` (`String`): Relative path to active rendered image (e.g., `<slug>/scene_001.png`).
+* `images_list` (`Text`, Nullable): JSON-stringified array of relative paths for all generated or uploaded variants (e.g., `["slug/scene_001.png", "slug/scene_001_v2.png"]`).
+* `reference_images` (`Text`, Nullable): JSON-stringified array of relative paths for reference images attached to this scene for conditioning.
 * `image_status` (`String`): `idle`, `processing`, `completed`, or `failed`.
 * `audio_path` (`String`): Relative path to scene audio (e.g., `<slug>/scene_001.wav`).
 * `audio_status` (`String`): `idle`, `processing`, `completed`, `failed`, or `outdated`.
 * `character_id` (`Integer`, FK -> `characters.id`, Optional): Voice profile assigned.
 * `character_name` (`String`, Optional): Cached display name of character.
 
-### 3. `Character` Table
+### 3. `Generation` Table
+Audit trail and variant history tracking every image synthesis run across local and cloud providers.
+* `id` (`Integer`, PK): Unique generation record ID.
+* `scene_id` (`Integer`, FK -> `scenes.id`): Parent scene link.
+* `provider` (`String`): Synthesis engine used (`draw_things` or `flow`).
+* `model` (`String`): Model identifier (e.g., `flux`, `nano2`, `nano-pro`).
+* `prompt` (`Text`): Exact positive prompt used for this generation run.
+* `image_path` (`String`): Relative filesystem path to the generated image file.
+* `parameters` (`Text`, Nullable): JSON-stringified parameter bundle (aspect ratio, steps, batch count, reference image paths, flow project ID).
+* `created_at` (`DateTime`): Timestamp of creation.
+
+### 4. `Character` Table
 Global library of voice profiles across all projects.
 * `id` (`Integer`, PK): Unique character ID.
 * `name` (`String`): Display name.
@@ -126,18 +146,25 @@ Global library of voice profiles across all projects.
 * `audio_path` (`String`): Path to reference `.wav` (`workspace/shared_characters/` or `custom_voices/`).
 * `reference_text` (`String`): The exact transcription of the reference audio for zero-shot cloning.
 
-### 4. `Setting` Table
-Application-wide LLM configuration (single row).
-* `active_provider` (`String`): `gemini` or `groq`.
+### 5. `Setting` Table
+Application-wide configuration (single row).
+* `active_provider` (`String`): Active LLM provider (`gemini` or `groq`).
 * `active_slot` (`Integer`): Active API key slot (`1` or `2`).
+* `image_provider` (`String`, default `'local'`): Active image synthesis engine (`'local'` for Draw Things or `'flow'` for Google Flow MCP).
 
 ---
 
 ## 5. Subsystems & Execution Logic
 
 ### 5.1 Single-Lane Sequential Worker (`backend/queue_worker.py`)
-* Processes tasks strictly **one-at-a-time** (`asyncio.Queue`) to prevent VRAM exhaustion and GPU out-of-memory crashes between Draw Things and VoxCPM2.
-* Task types: `image` (Draw Things render), `audio` (bulk voiceover generation), `audio_single` (targeted voice cloning).
+* Processes tasks strictly **one-at-a-time** using an `asyncio.Queue` background loop.
+* **Why Sequential?**
+  1. Prevents VRAM exhaustion and GPU out-of-memory crashes between Draw Things and VoxCPM2 on Apple Silicon unified memory.
+  2. Protects Google Flow's Playwright Chromium user profile directory (`profile_cavepaint`) from concurrent browser lockouts.
+* **Task Routing**:
+  * `image`: Dispatches to `FlowEngine.generate()` if `image_provider == 'flow'` (or task-specified), otherwise to `draw_things.generate_image()`. Automatically logs a `Generation` audit record, updates `scene.images_list`, and updates `scene.image_path`.
+  * `audio`: Bulk voiceover generation across all scenes in a project using VoxCPM2.
+  * `audio_single`: Targeted voice generation or cloning for an individual scene.
 
 ### 5.2 Brainstorming Engine & Frontier Prompt Generator
 The Brainstorming Studio integrates the following components:
@@ -153,10 +180,48 @@ The Brainstorming Studio integrates the following components:
    * Accepts pasted JSON arrays from the frontier chat UI.
    * Toggle between **Append** (adding new scenes sequentially) and **Replace All** (overwriting timeline).
 
-### 5.3 Local Image Synthesis Engine (`backend/services/draw_things.py`)
+### 5.3 Dual Image Synthesis Architecture
+
+```mermaid
+flowchart TD
+    UserTrigger["UI: Generate Image"] --> Queue["backend/queue_worker.py (Single-Lane Queue)"]
+    Queue --> EngineCheck{"image_provider?"}
+    
+    subgraph LocalEngine ["Local Engine (Draw Things)"]
+        EngineCheck -->|local| DT["backend/services/draw_things.py"]
+        DT --> DTAPI["Draw Things REST API (http://127.0.0.1:7860)"]
+        DTAPI --> DTRender["Render 1 Image (.png)"]
+    end
+
+    subgraph FlowEngineSub ["Cloud Engine (Google Flow MCP)"]
+        EngineCheck -->|flow| FlowService["backend/services/flow_engine.py"]
+        FlowService --> DaemonCheck{"MCP Daemon Running?"}
+        DaemonCheck -->|Yes| MCPCall["Streamable HTTP MCP JSON-RPC (http://127.0.0.1:8765/mcp)"]
+        DaemonCheck -->|Fallback| CLICall["gflow CLI Subprocess (image t2i / i2i)"]
+        MCPCall --> FlowBrowser["Playwright Chromium (profile_cavepaint)"]
+        CLICall --> FlowBrowser
+        FlowBrowser --> FlowCloud["Google Flow Web Service"]
+        FlowCloud --> FlowVariants["Download 1-4 Variant PNGs"]
+    end
+
+    DTRender --> DBUpdate["Update Scene: image_path, images_list & record Generation"]
+    FlowVariants --> DBUpdate
+```
+
+#### 5.3.1 Local Engine (`backend/services/draw_things.py`)
 * Connects to the local Draw Things REST API (`http://127.0.0.1:7860/sdapi/v1/txt2img`).
 * Supports aspect ratio mapping (16:9, 9:16, 1:1, 4:3, 2:3), steps, and CFG scale.
 * Includes a PIL fallback placeholder if the local service is offline.
+
+#### 5.3.2 Cloud Engine: Google Flow MCP (`backend/services/flow_engine.py`)
+* Powered by `ffroliva/gflow-cli` (v0.73.2+).
+* **Protocol**: Connects to the persistent daemon via Streamable HTTP MCP JSON-RPC (`http://127.0.0.1:8765/mcp`) using `tools/call` (`image_generate` or `generate_images`).
+* **Subprocess CLI Fallback**: If the daemon is temporarily offline or unresponsive, automatically falls back to `gflow image t2i` or `gflow image i2i` using Python 3.13.
+* **Project Isolation (Anti-Bot Pattern)**: One CavePaint project is mapped to exactly one Google Flow project ID (`flow_project_id`). This preserves Google Flow's workspace continuity and avoids triggering bot-detection rate limits from rapid project creation.
+* **Deterministic Refinement**: When refining a scene, CavePaint passes the active image and attached reference images directly as conditioning inputs, rather than relying on fragile multi-turn conversational session states.
+* **Batch Variant Generation**: Supports generating 1 to 4 images per run (`count` parameter).
+* **Model Selection**: Supports `nano2` (Nano Banana 2) and `nano-pro` (Nano Banana Pro).
+* **Manual Uploads & Variant Management**: Users can directly upload `.png`, `.jpg`, or `.webp` files, promote any variant to the active canvas, or promote any variant to a reference image.
 
 ### 5.4 Local Khmer Voice Engine (`backend/services/voice_engine.py`)
 * Uses `ravuthz/VoxCPM2-khmer` with automatic 60-second idle VRAM unloading (`torch.mps.empty_cache()` / `torch.cuda.empty_cache()`).
@@ -170,8 +235,9 @@ The Brainstorming Studio integrates the following components:
 | Method | Endpoint | Description |
 |---|---|---|
 | `GET` | `/api/health` | Backend health check. |
-| `GET` | `/api/settings` | Retrieve active LLM provider and slot. |
-| `PUT` | `/api/settings` | Update active LLM provider and slot. |
+| `GET` | `/api/flow/status` | Google Flow daemon connectivity and CLI availability status. |
+| `GET` | `/api/settings` | Retrieve active LLM provider, slot, and `image_provider` (`local` \| `flow`). |
+| `PUT` | `/api/settings` | Update active LLM provider, slot, or `image_provider`. |
 | `GET` | `/api/projects` | List all projects. |
 | `GET` | `/api/projects/summary` | List projects with scene counts and completion stats. |
 | `POST` | `/api/projects` | Create a new project. |
@@ -184,9 +250,14 @@ The Brainstorming Studio integrates the following components:
 | `POST` | `/api/projects/{id}/reset-voice` | Clear all generated audio files and reset voice seed for project. |
 | `PUT` | `/api/scenes/{id}` | Update scene prompts, narration, or notes. |
 | `POST` | `/api/scenes/{id}/refine` | AI-rewrite image positive & negative prompts with user instructions. |
-| `POST` | `/api/scenes/{id}/generate-image` | Enqueue an image generation task. |
+| `POST` | `/api/scenes/{id}/generate-image` | Enqueue image generation task (accepts optional `?model=nano2&count=1`). |
 | `POST` | `/api/scenes/{id}/stop` | Interrupt active image generation. |
-| `DELETE` | `/api/scenes/{id}/image` | Delete scene image file and reset scene status. |
+| `DELETE` | `/api/scenes/{id}/image` | Delete active scene image file and reset scene status. |
+| `POST` | `/api/scenes/{id}/upload-image` | Direct manual image file upload (PNG/JPG/WEBP); adds to variants and sets active. |
+| `PUT` | `/api/scenes/{id}/set-active-image` | Promote a specific image variant to become the primary `image_path`. |
+| `DELETE` | `/api/scenes/{id}/image-variant` | Delete a specific variant file from disk and remove from `images_list`. |
+| `POST` | `/api/scenes/{id}/reference-image` | Upload a reference conditioning image for image-to-image synthesis. |
+| `DELETE` | `/api/scenes/{id}/reference-image` | Remove a reference image from scene conditioning tray. |
 | `POST` | `/api/scenes/{id}/generate-audio` | Enqueue single scene audio generation task. |
 | `POST` | `/api/projects/{id}/generate-voice` | Enqueue audio generation for all scenes. |
 | `POST` | `/api/projects/{id}/stop-voice` | Cancel all pending voice tasks for the project. |
@@ -227,15 +298,25 @@ The Brainstorming Studio integrates the following components:
      * **"📥 Ingest into Timeline" Button**.
      * Live Storyboard Scene Cards showing Scene #, Khmer Line, and English Stickman Prompt with direct editing capabilities.
 2. **Images Tab (`ImagesTab.tsx`)**:
-   * Scene navigation deck with green render badges.
-   * English positive and negative prompt editors.
-   * AI natural language prompt refinement assistant.
-   * Aspect ratio controls and live render canvas with Lightbox.
+   * **Engine Toggle**: Instant hot-swap button between `🖥️ Local (Draw Things)` and `🌊 Google Flow (MCP)` in the top toolbar.
+   * **Flow Controls**: Model dropdown (`Nano Banana 2`, `Nano Banana Pro`), batch count chips (`1`, `2`, `3`, `4`), and live daemon health indicator (`Ready` / `Offline`).
+   * **Viewfinder Canvas**: Direct file upload button, drag-and-drop file target directly onto the canvas, aspect ratio controls, and Lightbox inspection.
+   * **Multi-Image Variant Strip**: Horizontal gallery below the canvas displaying all rendered and uploaded variants for the active scene.
+     * **Active Badge**: Highlights current active frame.
+     * **Click to Activate**: Promote any variant to primary active canvas image.
+     * **"📌 Ref" Button**: One-click promotion of any variant into the reference conditioning tray.
+     * **Trash Button**: Permanently delete unneeded variants.
+   * **Multi-Reference Conditioning Tray**: Horizontal shelf showing active reference images with quick remove chips and an **"+ Add Reference"** file uploader.
+   * **Prompt Studio**: Positive and negative prompt editors, plus the AI natural language refinement assistant.
 3. **Voice Tab (`VoiceTab.tsx`)**:
    * Character profile library and Voice Factory (Audition generator & Clone uploader).
    * Timeline audio speaker mapping and batch voice generation.
 4. **Output Tab (`OutputTab.tsx`)**:
    * Vertical production timeline matching rendered `.png` image frames with the synthesized `.wav`/`.mp3` audio tracks.
+
+### 7.3 Settings Modal (`Sidebar.tsx`)
+* Configures global LLM provider (`gemini` or `groq`) and active key slot.
+* Configures global **Image Synthesis Engine** (`Local (Draw Things)` or `Google Flow (MCP)`).
 
 ---
 
@@ -248,6 +329,10 @@ video_studio/
 ├── overview.md                 # THIS FILE (Comprehensive system documentation)
 ├── .env.local                  # Local API keys (Gemini & Groq)
 │
+├── scripts/
+│   ├── start_flow_daemon.sh    # Launches persistent gflow serve daemon on port 8765
+│   └── update_flow_mcp.sh      # Controlled pip upgrade script for gflow-cli
+│
 ├── backend/
 │   ├── main.py                 # FastAPI application, REST routers & lifecycle
 │   ├── database.py             # SQLAlchemy models, SQLite connection & migrations
@@ -255,6 +340,7 @@ video_studio/
 │   ├── requirements.txt        # Python pip dependencies
 │   └── services/
 │       ├── draw_things.py      # Draw Things REST API integration
+│       ├── flow_engine.py      # Google Flow MCP client (Streamable HTTP + CLI fallback)
 │       ├── voice_engine.py     # VoxCPM2 TTS, cloning, and VRAM manager
 │       ├── llm_orchestrator.py # High-level field generation router
 │       └── llm/
@@ -280,8 +366,8 @@ video_studio/
 │   │   │   ├── UIContext.tsx
 │   │   │   └── types.ts
 │   │   ├── components/
-│   │   │   ├── shell/          # Sidebar, ProjectHeader, WelcomeScreen
-│   │   │   └── tabs/           # OverviewTab (Brainstorming), ImagesTab, VoiceTab, OutputTab
+│   │   │   ├── shell/          # Sidebar (with Settings), ProjectHeader, WelcomeScreen
+│   │   │   └── tabs/           # OverviewTab, ImagesTab, VoiceTab, OutputTab
 │   │   └── projects/[id]/      # Dynamic project routing
 │   │       ├── layout.tsx      # Project data provider & layout wrapper
 │   │       ├── overview/page.tsx
@@ -301,13 +387,23 @@ video_studio/
 ## 9. Environment Setup & Execution Guide
 
 ### Prerequisites
-1. **Python Environment**: Conda environment named `voice` (Python 3.10+):
+1. **Python Environment for Backend**: Conda environment named `voice` (Python 3.10+):
    ```bash
    conda activate voice
    ```
-2. **Node.js**: Node 18+ or 20+.
-3. **Draw Things**: Draw Things application installed on macOS with the HTTP REST API enabled in Settings (`Port 7860`).
-4. **Environment Variables**: Create `.env.local` or `.env` in the project root:
+2. **Python Environment for Google Flow MCP**: Python 3.13 (`python3`) with `gflow-cli` and Playwright:
+   ```bash
+   pip install --upgrade gflow-cli
+   miniconda3/bin/playwright install chromium
+   ```
+3. **One-Time Google Flow Authentication**:
+   Log in to Google Flow once to save session cookies into the dedicated profile:
+   ```bash
+   gflow auth login --profile cavepaint --browser chrome
+   ```
+4. **Node.js**: Node 18+ or 20+.
+5. **Draw Things (Optional)**: If using local generation, install Draw Things on macOS with the HTTP REST API enabled in Settings (`Port 7860`).
+6. **Environment Variables**: Create `.env.local` or `.env` in the project root:
    ```env
    GEMINI_KEY_1=your_gemini_api_key_here
    GEMINI_KEY_2=your_optional_backup_gemini_key
@@ -315,30 +411,47 @@ video_studio/
    GROQ_KEY_2=your_optional_backup_groq_key
    ```
 
-### Starting the Application
-* **Start Backend**:
+### Starting the Application Services
+* **Step 1: Start Google Flow Daemon**:
+  ```bash
+  bash scripts/start_flow_daemon.sh
+  ```
+  *(Runs `gflow serve --host 127.0.0.1 --port 8765 --profile cavepaint` in the background).*
+* **Step 2: Start Backend**:
   ```bash
   conda activate voice
   uvicorn backend.main:app --reload --port 8000
   ```
-* **Start Frontend**:
+* **Step 3: Start Frontend**:
   ```bash
   cd frontend
   npm run dev
   ```
 * Open your browser to `http://localhost:3000`.
 
+### Upgrading Google Flow MCP
+To upgrade `gflow-cli` safely without breaking Python dependencies:
+```bash
+bash scripts/update_flow_mcp.sh
+```
+
 ---
 
 ## 10. Developer Gotchas & Critical Guidelines
 
-1. **Next.js 16 Dynamic Route Parameters**:
-   In Next.js 16 App Router, `params` in layout components is a `Promise`. It **must** be unwrapped using React's `use(params)` before accessing properties (e.g. `const { id } = use(params);`).
-2. **GPU Concurrency Lockout**:
+1. **Google Flow Anti-Bot Heuristics**:
+   Always maintain **1 CavePaint project = 1 Google Flow project ID (`flow_project_id`)**. Never create a new Flow project per scene. Rapid project creation triggers Google bot detection and captcha challenges.
+2. **Playwright Chromium Profile Lock**:
+   `gflow-cli` uses an exclusive lock on its user profile directory (`profile_cavepaint`). Do not run multiple concurrent `gflow` processes using the same profile. CavePaint's single-lane sequential worker (`queue_worker.py`) guarantees serial execution.
+3. **Python Runtime Isolation**:
+   Do **not** attempt to install `gflow-cli` inside the `voice` Conda environment (Python 3.10). `gflow-cli` requires Python >= 3.11, while VoxCPM2/PyTorch dependencies in `voice` require Python 3.10. Keep them isolated via the HTTP daemon on port `8765`.
+4. **Next.js 16 Dynamic Route Parameters**:
+   In Next.js 16 App Router, `params` in layout components is a `Promise`. It **must** be unwrapped using React's `use(params)` before accessing properties (e.g., `const { id } = use(params);`).
+5. **GPU Concurrency Lockout**:
    Never bypass the `task_queue` in `queue_worker.py` to run model generation concurrently in threads. Concurrent execution of Draw Things and VoxCPM2 on macOS Unified Memory causes heavy paging or kernel panic.
-3. **Khmer Script Termination**:
+6. **Khmer Script Termination**:
    Khmer sentences must terminate with the special character `។`. The voice engine checks and enforces this before inference to ensure correct cadence and intonation.
-4. **SQLite JSON Synchronization**:
+7. **SQLite JSON Synchronization**:
    Whenever a scene's prompt, narration, or order is updated via `/api/scenes/{id}`, the helper function `sync_project_json` is invoked to synchronize the changes back into the parent project's `structured_json_data` column.
-5. **Asset URL Resolution**:
+8. **Asset URL Resolution**:
    Assets stored under `workspace/<slug>/` are referenced in the database as relative paths (e.g. `my-project/scene_001.png`). The frontend converts these to URLs using `http://localhost:8000/static/<filename>`.

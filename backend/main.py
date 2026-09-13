@@ -4,6 +4,7 @@ import json
 import asyncio
 import requests
 import dotenv
+import time
 from contextlib import asynccontextmanager
 from typing import List, Optional
 
@@ -19,9 +20,9 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 import shutil
 
-from .database import get_db, Project, Scene, Character, Setting, SHARED_CHARACTERS_DIR
+from .database import get_db, Project, Scene, Character, Setting, Generation, SHARED_CHARACTERS_DIR
 from .queue_worker import start_queue_worker, task_queue, GenerationTask
-from .services import voice_engine
+from .services import voice_engine, flow_engine
 
 # Pydantic Schemas
 
@@ -33,6 +34,8 @@ class SceneBase(BaseModel):
     user_refinement_prompt: Optional[str] = None
     audio_path: Optional[str] = None
     image_path: Optional[str] = None
+    images_list: Optional[str] = "[]"
+    reference_images: Optional[str] = "[]"
     audio_status: Optional[str] = "idle"
     image_status: Optional[str] = "idle"
 
@@ -83,6 +86,7 @@ class ProjectBase(BaseModel):
     aspect_ratio: Optional[str] = "16:9"
     character_attire: Optional[str] = None
     scene_staging: Optional[str] = "studio"
+    flow_project_id: Optional[str] = None
 
 class ProjectCreate(BaseModel):
     title: str
@@ -105,6 +109,7 @@ class ProjectUpdate(BaseModel):
     aspect_ratio: Optional[str] = None
     character_attire: Optional[str] = None
     scene_staging: Optional[str] = None
+    flow_project_id: Optional[str] = None
 
 class ProjectOutList(ProjectBase):
     id: int
@@ -137,13 +142,21 @@ class GenerateFieldPayload(BaseModel):
     field_name: str
 
 class SettingUpdate(BaseModel):
-    active_provider: str
-    active_slot: int
+    active_provider: Optional[str] = "gemini"
+    active_slot: Optional[int] = 1
+    image_provider: Optional[str] = "local"
 
 class ImageGeneratePayload(BaseModel):
-    aspect_ratio: str
-    guidance_scale: float
-    inference_steps: int
+    aspect_ratio: Optional[str] = "16:9"
+    guidance_scale: Optional[float] = 7.5
+    inference_steps: Optional[int] = 10
+    model: Optional[str] = "nano2"
+    count: Optional[int] = 1
+    image_provider: Optional[str] = None
+    reference_images: Optional[List[str]] = None
+
+class SetActiveImagePayload(BaseModel):
+    image_path: str
 
 
 # Background worker task reference
@@ -179,23 +192,39 @@ app.add_middleware(
 async def health_check():
     return {"status": "ok", "message": "CavePaint backend is healthy"}
 
+@app.get("/api/flow/status")
+async def get_flow_status():
+    return flow_engine.check_flow_status()
+
 
 @app.get("/api/settings")
 async def get_settings(db: Session = Depends(get_db)):
     setting = db.query(Setting).first()
     if not setting:
-        return {"active_provider": "gemini", "active_slot": 1}
-    return {"active_provider": setting.active_provider, "active_slot": setting.active_slot}
+        return {"active_provider": "gemini", "active_slot": 1, "image_provider": "local"}
+    return {
+        "active_provider": setting.active_provider,
+        "active_slot": setting.active_slot,
+        "image_provider": setting.image_provider or "local"
+    }
 
 @app.put("/api/settings")
 async def update_settings(payload: SettingUpdate, db: Session = Depends(get_db)):
     setting = db.query(Setting).first()
     if not setting:
-        setting = Setting(active_provider=payload.active_provider, active_slot=payload.active_slot)
+        setting = Setting(
+            active_provider=payload.active_provider or "gemini",
+            active_slot=payload.active_slot or 1,
+            image_provider=payload.image_provider or "local"
+        )
         db.add(setting)
     else:
-        setting.active_provider = payload.active_provider
-        setting.active_slot = payload.active_slot
+        if payload.active_provider is not None:
+            setting.active_provider = payload.active_provider
+        if payload.active_slot is not None:
+            setting.active_slot = payload.active_slot
+        if payload.image_provider is not None:
+            setting.image_provider = payload.image_provider
     db.commit()
     return {"status": "success"}
 
@@ -758,9 +787,13 @@ async def generate_scene_image(scene_id: int, payload: ImageGeneratePayload, db:
         "prompt": scene.image_prompt_english,
         "style": project.illustration_style,
         "negative_prompt": scene.negative_prompt,
-        "aspect_ratio": payload.aspect_ratio,
-        "guidance_scale": payload.guidance_scale,
-        "inference_steps": payload.inference_steps
+        "aspect_ratio": payload.aspect_ratio or "16:9",
+        "guidance_scale": payload.guidance_scale or 7.5,
+        "inference_steps": payload.inference_steps or 10,
+        "model": payload.model or "nano2",
+        "count": payload.count or 1,
+        "image_provider": payload.image_provider,
+        "reference_images": payload.reference_images,
     }
     
     task = GenerationTask(
@@ -775,6 +808,174 @@ async def generate_scene_image(scene_id: int, payload: ImageGeneratePayload, db:
     scene.image_status = "processing"
     db.commit()
     return {"status": "queued"}
+
+@app.post("/api/scenes/{scene_id}/upload-image")
+async def upload_scene_image(scene_id: int, file: UploadFile = File(...), db: Session = Depends(get_db)):
+    scene = db.query(Scene).filter(Scene.id == scene_id).first()
+    if not scene:
+        raise HTTPException(status_code=404, detail="Scene not found")
+    project = db.query(Project).filter(Project.id == scene.project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    ext = os.path.splitext(file.filename)[1].lower() if file.filename else ".png"
+    if ext not in [".png", ".jpg", ".jpeg", ".webp"]:
+        ext = ".png"
+
+    ts = int(time.time())
+    proj_dir = os.path.join(workspace_dir, project.slug)
+    os.makedirs(proj_dir, exist_ok=True)
+    filename = f"scene_{scene.scene_number:03d}_upload_{ts}{ext}"
+    dest_path = os.path.join(proj_dir, filename)
+
+    with open(dest_path, "wb") as f:
+        shutil.copyfileobj(file.file, f)
+
+    rel_path = f"{project.slug}/{filename}"
+
+    try:
+        current_images = json.loads(scene.images_list) if scene.images_list else []
+    except Exception:
+        current_images = []
+
+    if rel_path not in current_images:
+        current_images.append(rel_path)
+
+    scene.images_list = json.dumps(current_images)
+    scene.image_path = rel_path
+    scene.image_status = "completed"
+
+    generation = Generation(
+        scene_id=scene.id,
+        provider="upload",
+        prompt="Manual direct file upload",
+        output_paths=json.dumps([rel_path]),
+        status="completed"
+    )
+    db.add(generation)
+    db.commit()
+
+    return {
+        "status": "success",
+        "image_path": rel_path,
+        "images_list": current_images
+    }
+
+@app.put("/api/scenes/{scene_id}/set-active-image")
+async def set_active_scene_image(scene_id: int, payload: SetActiveImagePayload, db: Session = Depends(get_db)):
+    scene = db.query(Scene).filter(Scene.id == scene_id).first()
+    if not scene:
+        raise HTTPException(status_code=404, detail="Scene not found")
+
+    try:
+        current_images = json.loads(scene.images_list) if scene.images_list else []
+    except Exception:
+        current_images = []
+
+    if payload.image_path not in current_images:
+        current_images.append(payload.image_path)
+        scene.images_list = json.dumps(current_images)
+
+    scene.image_path = payload.image_path
+    scene.image_status = "completed"
+    db.commit()
+
+    return {
+        "status": "success",
+        "image_path": scene.image_path,
+        "images_list": current_images
+    }
+
+@app.delete("/api/scenes/{scene_id}/image-variant")
+async def delete_scene_image_variant(scene_id: int, image_path: str, db: Session = Depends(get_db)):
+    scene = db.query(Scene).filter(Scene.id == scene_id).first()
+    if not scene:
+        raise HTTPException(status_code=404, detail="Scene not found")
+
+    full_path = os.path.join(workspace_dir, image_path)
+    if os.path.exists(full_path):
+        try:
+            os.remove(full_path)
+        except OSError as e:
+            print(f"Error removing variant file {full_path}: {e}")
+
+    try:
+        current_images = json.loads(scene.images_list) if scene.images_list else []
+    except Exception:
+        current_images = []
+
+    if image_path in current_images:
+        current_images.remove(image_path)
+    scene.images_list = json.dumps(current_images)
+
+    if scene.image_path == image_path:
+        scene.image_path = current_images[0] if len(current_images) > 0 else None
+        if not scene.image_path:
+            scene.image_status = "idle"
+
+    db.commit()
+    return {
+        "status": "success",
+        "image_path": scene.image_path,
+        "images_list": current_images
+    }
+
+@app.post("/api/scenes/{scene_id}/reference-image")
+async def add_scene_reference_image(
+    scene_id: int,
+    file: Optional[UploadFile] = File(None),
+    reference_path: Optional[str] = Form(None),
+    db: Session = Depends(get_db)
+):
+    scene = db.query(Scene).filter(Scene.id == scene_id).first()
+    if not scene:
+        raise HTTPException(status_code=404, detail="Scene not found")
+    project = db.query(Project).filter(Project.id == scene.project_id).first()
+
+    try:
+        current_refs = json.loads(scene.reference_images) if scene.reference_images else []
+    except Exception:
+        current_refs = []
+
+    if file:
+        ts = int(time.time())
+        ext = os.path.splitext(file.filename)[1].lower() if file.filename else ".png"
+        proj_dir = os.path.join(workspace_dir, project.slug)
+        os.makedirs(proj_dir, exist_ok=True)
+        filename = f"scene_{scene.scene_number:03d}_ref_{ts}{ext}"
+        dest_path = os.path.join(proj_dir, filename)
+        with open(dest_path, "wb") as f:
+            shutil.copyfileobj(file.file, f)
+        rel_path = f"{project.slug}/{filename}"
+        if rel_path not in current_refs:
+            current_refs.append(rel_path)
+    elif reference_path:
+        if reference_path not in current_refs:
+            current_refs.append(reference_path)
+    else:
+        raise HTTPException(status_code=400, detail="Must provide either file or reference_path")
+
+    scene.reference_images = json.dumps(current_refs)
+    db.commit()
+    return {"status": "success", "reference_images": current_refs}
+
+@app.delete("/api/scenes/{scene_id}/reference-image")
+async def remove_scene_reference_image(scene_id: int, reference: str, db: Session = Depends(get_db)):
+    scene = db.query(Scene).filter(Scene.id == scene_id).first()
+    if not scene:
+        raise HTTPException(status_code=404, detail="Scene not found")
+
+    try:
+        current_refs = json.loads(scene.reference_images) if scene.reference_images else []
+    except Exception:
+        current_refs = []
+
+    if reference in current_refs:
+        current_refs.remove(reference)
+
+    scene.reference_images = json.dumps(current_refs)
+    db.commit()
+    return {"status": "success", "reference_images": current_refs}
 
 @app.post("/api/scenes/{scene_id}/stop")
 async def stop_scene_generation(scene_id: int, db: Session = Depends(get_db)):
@@ -807,6 +1008,7 @@ async def delete_scene_image(scene_id: int, db: Session = Depends(get_db)):
                 print(f"Error removing file {full_path}: {e}")
             
     scene.image_path = None
+    scene.images_list = "[]"
     scene.image_status = "idle"
     db.commit()
     
