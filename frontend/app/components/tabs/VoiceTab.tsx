@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef, forwardRef, useImperativeHandle } from "react";
 /* eslint-disable react-hooks/set-state-in-effect, react-hooks/purity */
 import { Project, SceneData } from "../../context/ProjectContext";
-import { Loader2, Check, Play, Pause, RefreshCcw, FileText, Volume2, AlertTriangle, Trash2, Upload, UploadCloud, Mic } from "lucide-react";
+import { Loader2, Check, Play, Pause, RefreshCcw, FileText, PenLine, Volume2, AlertTriangle, Trash2, Upload, UploadCloud, Mic } from "lucide-react";
 
 export interface Character {
   id: number;
@@ -478,7 +478,7 @@ export default function VoiceTab({ activeProject, refreshProjectData }: VoiceTab
         <div className="bg-card rounded-xl border border-border flex flex-col h-60 overflow-hidden shrink-0 shadow-sm">
           <div className="bg-panel-header px-4 py-2 border-b border-border flex items-center justify-between">
             <div className="flex items-center gap-2 text-xs font-semibold tracking-wide uppercase text-panel-text">
-              <FileText size={14} className="text-panel-icon" /> Narrative Script (Khmer)
+              <PenLine size={14} strokeWidth={1.8} className="text-panel-icon" /> Narrative Script (Khmer)
             </div>
             <button
               onClick={handleSyncScript}
@@ -914,7 +914,7 @@ export default function VoiceTab({ activeProject, refreshProjectData }: VoiceTab
           {activeProject?.master_audio_path ? (
             <CustomAudioPlayer 
               src={`http://localhost:8000/static/${activeProject.slug}/master_voiceover.wav?t=${cacheBuster}`} 
-              className="mt-1 bg-zinc-900 shadow-inner"
+              className="mt-1 bg-zinc-100 dark:bg-zinc-900 border border-border/50 shadow-inner"
             />
           ) : (
             <div className="w-full h-10 flex items-center justify-center bg-background border border-border border-dashed rounded-md text-xs text-foreground/40 font-medium">

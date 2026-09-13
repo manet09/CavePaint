@@ -1,7 +1,7 @@
 /* eslint-disable */
 "use client";
 
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useProjectContext } from "../../context/ProjectContext";
 import { 
   Copy, 
@@ -10,6 +10,7 @@ import {
   Layers, 
   Sliders, 
   FileText, 
+  PenLine, 
   ArrowRight, 
   Trash2, 
   RefreshCw, 
@@ -20,12 +21,17 @@ import {
   Compass,
   FileCode2,
   ChevronRight,
+  ChevronDown,
+  ChevronLeft,
   Eye,
   X,
   Shirt,
   RotateCcw,
   LayoutTemplate,
-  CornerDownLeft
+  CornerDownLeft,
+  Columns2,
+  Maximize2,
+  Minimize2
 } from "lucide-react";
 
 interface BrainstormingTabProps {
@@ -38,6 +44,7 @@ const ERA_OPTIONS = [
   { 
     id: "ancient", 
     label: "🦖 Ancient / Prehistoric", 
+    shortLabel: "🦖 Ancient",
     desc: "Stone Age, Ice Age, primitive caves, mammoth hunters, tribal camps",
     attire: "Thick woolly mammoth fur pelt wrap, ragged animal hide tunic, stitched leather boots",
     hair: "Wild, thick, messy prehistoric caveman hair",
@@ -46,6 +53,7 @@ const ERA_OPTIONS = [
   { 
     id: "medieval", 
     label: "🏰 Medieval / Feudal", 
+    shortLabel: "🏰 Medieval",
     desc: "Stone castles, feudal kingdoms, muddy peasant villages, iron swords, dungeons",
     attire: "Coarse linen peasant tunic with leather belt, woolen trousers, worn leather boots",
     hair: "Shaggy medieval peasant haircut or hooded cloth cowl",
@@ -54,6 +62,7 @@ const ERA_OPTIONS = [
   { 
     id: "90s", 
     label: "📼 90s / Retro", 
+    shortLabel: "📼 90s Retro",
     desc: "Analog era, chunky CRT monitors, messy bedrooms, floppy disks, dial-up internet",
     attire: "Oversized vintage color-block windbreaker, graphic t-shirt, baggy denim jeans, chunky retro sneakers",
     hair: "90s curtains/middle-parted haircut or backwards baseball cap",
@@ -62,6 +71,7 @@ const ERA_OPTIONS = [
   { 
     id: "modern", 
     label: "📱 Today / Modern", 
+    shortLabel: "📱 Modern",
     desc: "Urban minimalist apartments, modern coffee shops, glass offices, smartphones",
     attire: "Clean modern hoodie or casual jacket, minimalist t-shirt, dark jeans, white sneakers",
     hair: "Neat styled contemporary haircut (textured crop or modern fade)",
@@ -70,6 +80,7 @@ const ERA_OPTIONS = [
   { 
     id: "scifi", 
     label: "🚀 Future / Sci-Fi", 
+    shortLabel: "🚀 Sci-Fi",
     desc: "Cyberpunk neon alleys, orbital space stations, hologram servers, Martian colonies",
     attire: "Sleek minimalist form-fitting tech jumpsuit, tactical utility belt, magnetic boots",
     hair: "Sleek futuristic haircut, neon-tinted tips, or subtle cybernetic earpiece",
@@ -78,6 +89,7 @@ const ERA_OPTIONS = [
   { 
     id: "dystopian", 
     label: "☢️ Dystopian", 
+    shortLabel: "☢️ Dystopian",
     desc: "Bleak post-apocalyptic wastelands, overgrown concrete ruins, fallout bunkers",
     attire: "Scavenged patchwork duster coat, ragged wrapped scarf, utility straps, combat boots",
     hair: "Windblown dusty hair, protective fabric bandana or goggles pushed onto forehead",
@@ -87,12 +99,12 @@ const ERA_OPTIONS = [
 
 // Preset Atmosphere & Solid Backdrop Color Palettes (Pure Studio White as default)
 const MOOD_OPTIONS = [
-  { id: "pure_white", label: "Pure Studio White", color: "#ffffff", desc: "Crisp clean pure white background, signature YouTube explainer aesthetic" },
-  { id: "pale_ice", label: "Pale Ice Blue", color: "#e0f2fe", desc: "Chilly crisp light blue, isolated and analytical" },
-  { id: "parchment_cream", label: "Parchment Cream", color: "#fef3c7", desc: "Warm antique parchment, historical and academic" },
-  { id: "muted_sand", label: "Muted Sand", color: "#f5ebe0", desc: "Warm desert earth, prehistoric and rugged" },
-  { id: "slate_navy", label: "Slate Navy", color: "#1e293b", desc: "Deep dark navy blue, contemplative and serious" },
-  { id: "dark_crimson", label: "Dark Crimson", color: "#450a0a", desc: "Deep brooding burgundy, conflict and danger" },
+  { id: "pure_white", label: "Pure Studio White", shortLabel: "Pure White", color: "#ffffff", desc: "Crisp clean pure white background, signature YouTube explainer aesthetic" },
+  { id: "pale_ice", label: "Pale Ice Blue", shortLabel: "Ice Blue", color: "#e0f2fe", desc: "Chilly crisp light blue, isolated and analytical" },
+  { id: "parchment_cream", label: "Parchment Cream", shortLabel: "Parchment", color: "#fef3c7", desc: "Warm antique parchment, historical and academic" },
+  { id: "muted_sand", label: "Muted Sand", shortLabel: "Muted Sand", color: "#f5ebe0", desc: "Warm desert earth, prehistoric and rugged" },
+  { id: "slate_navy", label: "Slate Navy", shortLabel: "Slate Navy", color: "#1e293b", desc: "Deep dark navy blue, contemplative and serious" },
+  { id: "dark_crimson", label: "Dark Crimson", shortLabel: "Dark Crimson", color: "#450a0a", desc: "Deep brooding burgundy, conflict and danger" },
 ];
 
 // Preset Scene Staging options
@@ -100,28 +112,106 @@ const SCENE_STAGING_OPTIONS = [
   { 
     id: "studio", 
     label: "Studio Canvas (Seamless)", 
+    shortLabel: "Studio Canvas",
     sub: "Grounded with floor contact shadow on seamless white/solid backdrop",
     desc: "Character & key props grounded with subtle floor shadow on seamless backdrop" 
   },
   { 
     id: "environment", 
     label: "Full Environment", 
+    shortLabel: "Environment",
     sub: "Full-bleed 2D illustrated setting filling the entire canvas",
     desc: "Rich 2D illustrated setting filling the canvas edge-to-edge without border cutouts" 
   },
 ];
 
-// Preset Video Aspect Ratio options
+// Preset Video Aspect Ratio options matching Google Flow
 const ASPECT_RATIO_OPTIONS = [
-  { id: "16:9", label: "🖥️ 16:9 Widescreen", sub: "YouTube Long-form", desc: "16:9 widescreen landscape composition, full-bleed framing" },
-  { id: "9:16", label: "📱 9:16 Vertical", sub: "Shorts / TikTok / Reels", desc: "9:16 vertical orientation, full-bleed vertical composition" },
-  { id: "1:1", label: "⏹️ 1:1 Square", sub: "Instagram / Feed", desc: "1:1 square centered composition, full-bleed framing" },
-  { id: "4:3", label: "📺 4:3 Classic", sub: "Standard / Retro", desc: "4:3 standard balanced composition, full-bleed framing" },
-  { id: "2:3", label: "🖼️ 2:3 Portrait", sub: "Vertical Feed", desc: "2:3 vertical portrait composition, full-bleed framing" },
+  { id: "16:9", label: "16:9", sub: "Widescreen", desc: "16:9 widescreen landscape composition, full-bleed framing" },
+  { id: "4:3", label: "4:3", sub: "Standard", desc: "4:3 standard balanced composition, full-bleed framing" },
+  { id: "1:1", label: "1:1", sub: "Square", desc: "1:1 square centered composition, full-bleed framing" },
+  { id: "3:4", label: "3:4", sub: "Vertical", desc: "3:4 vertical composition, full-bleed framing" },
+  { id: "9:16", label: "9:16", sub: "Portrait / Shorts", desc: "9:16 vertical orientation, full-bleed vertical composition" },
 ];
+
+// Graphic Wireframe Icon for Aspect Ratios matching Google Flow UI
+function AspectRatioGraphic({ ratio, className = "" }: { ratio: string; className?: string }) {
+  switch (ratio) {
+    case "16:9":
+      return <div className={`w-[18px] h-[10px] rounded-[1.5px] border border-current shrink-0 ${className}`} />;
+    case "4:3":
+      return <div className={`w-[15px] h-[11px] rounded-[1.5px] border border-current shrink-0 ${className}`} />;
+    case "1:1":
+      return <div className={`w-[12px] h-[12px] rounded-[1.5px] border border-current shrink-0 ${className}`} />;
+    case "3:4":
+      return <div className={`w-[11px] h-[15px] rounded-[1.5px] border border-current shrink-0 ${className}`} />;
+    case "9:16":
+      return <div className={`w-[10px] h-[18px] rounded-[1.5px] border border-current shrink-0 ${className}`} />;
+    default:
+      return <div className={`w-[14px] h-[10px] rounded-[1.5px] border border-current shrink-0 ${className}`} />;
+  }
+}
+
+// Auto-resizing textarea to display full scene detail with NO internal scrollbars
+function AutoResizeTextarea({
+  defaultValue,
+  onBlur,
+  className,
+  placeholder,
+}: {
+  defaultValue: string;
+  onBlur: (val: string) => void;
+  className: string;
+  placeholder?: string;
+}) {
+  const [val, setVal] = useState(defaultValue || "");
+  const ref = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    setVal(defaultValue || "");
+  }, [defaultValue]);
+
+  useEffect(() => {
+    if (ref.current) {
+      ref.current.style.height = "auto";
+      ref.current.style.height = `${Math.max(ref.current.scrollHeight, 24)}px`;
+    }
+  }, [val]);
+
+  return (
+    <textarea
+      ref={ref}
+      value={val}
+      onChange={(e) => setVal(e.target.value)}
+      onBlur={() => {
+        if (val !== (defaultValue || "")) {
+          onBlur(val);
+        }
+      }}
+      placeholder={placeholder}
+      className={`${className} overflow-hidden resize-none`}
+      rows={1}
+    />
+  );
+}
 
 export default function BrainstormingTab({ activeProject, refreshProjectData }: BrainstormingTabProps) {
   const { updateActiveProject, updateSingleScene } = useProjectContext();
+
+  // Custom dropdown popovers state & click-outside refs
+  const [openDropdown, setOpenDropdown] = useState<"era" | "staging" | "ratio" | "mood" | "batch" | "batchSize" | null>(null);
+  const styleBarRef = useRef<HTMLDivElement>(null);
+  const batchDropdownRef = useRef<HTMLDivElement>(null);
+  const batchSizeRef = useRef<HTMLDivElement>(null);
+
+  // Collapsible JSON Ingest drawer
+  const [isJsonDrawerOpen, setIsJsonDrawerOpen] = useState(false);
+
+  // Collapsible exclusions accordion state per scene
+  const [expandedExclusions, setExpandedExclusions] = useState<Record<number, boolean>>({});
+  const toggleExclusion = (sceneId: number) => {
+    setExpandedExclusions((prev) => ({ ...prev, [sceneId]: !prev[sceneId] }));
+  };
 
   // Local state for creative fields
   const [scriptText, setScriptText] = useState("");
@@ -143,10 +233,24 @@ export default function BrainstormingTab({ activeProject, refreshProjectData }: 
 
   // JSON Ingestion state
   const [jsonInput, setJsonInput] = useState("");
-  const [importMode, setImportMode] = useState<"append" | "replace">("replace");
+  const [importMode, setImportMode] = useState<"append" | "replace">("append");
   const [jsonError, setJsonError] = useState<string | null>(null);
   const [isImporting, setIsImporting] = useState(false);
   const [importSuccessMessage, setImportSuccessMessage] = useState<string | null>(null);
+
+  // Click-outside listener to close any open dropdown popover
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      const isInsideStyleBar = styleBarRef.current && styleBarRef.current.contains(e.target as Node);
+      const isInsideBatchDropdown = batchDropdownRef.current && batchDropdownRef.current.contains(e.target as Node);
+      const isInsideBatchSize = batchSizeRef.current && batchSizeRef.current.contains(e.target as Node);
+      if (!isInsideStyleBar && !isInsideBatchDropdown && !isInsideBatchSize) {
+        setOpenDropdown(null);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   // Sync initial project data into local state
   useEffect(() => {
@@ -162,6 +266,10 @@ export default function BrainstormingTab({ activeProject, refreshProjectData }: 
       const eraObj = ERA_OPTIONS.find((e) => e.id === era);
       const defaultAttire = eraObj ? `${eraObj.attire}, ${eraObj.hair}` : "";
       setCharacterAttire(activeProject.character_attire || defaultAttire);
+
+      if (!activeProject.scenes || activeProject.scenes.length === 0) {
+        setIsJsonDrawerOpen(true);
+      }
     }
   }, [activeProject?.id]);
 
@@ -501,452 +609,601 @@ Do not wrap in extra conversational markdown text. RETURN ONLY VALID JSON:
   };
 
   const scenes = activeProject?.scenes || [];
+  const currentEra = ERA_OPTIONS.find((e) => e.id === selectedEra) || ERA_OPTIONS[0];
+  const currentMood = MOOD_OPTIONS.find((m) => m.id === selectedMood) || MOOD_OPTIONS[0];
 
   return (
-    <>
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 w-full h-[calc(100vh-56px-48px)] pb-4 animate-in fade-in duration-300 overflow-hidden select-none">
+    <div className="flex flex-col h-[calc(100vh-56px-48px)] max-h-[calc(100vh-56px-48px)] animate-in fade-in duration-200">
+      
+      {/* ========================================================= */}
+      {/* MAIN WORKSPACE: PLAIN ON BACKGROUND (NO GIANT OUTER BOXES)*/}
+      {/* ========================================================= */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 w-full flex-1 min-h-0 pt-1">
         
-        {/* ========================================================= */}
-        {/* LEFT PANEL (COL 1-6): SCRIPT, THEMES & FRONTIER PROMPT */}
-        {/* ========================================================= */}
-        <div className="lg:col-span-6 flex flex-col h-full bg-card rounded-2xl border border-border shadow-xs overflow-hidden">
-          
-          {/* Panel Header */}
-          <div className="h-12 shrink-0 bg-panel-header/80 border-b border-border px-5 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Compass size={15} className="text-primary" />
-              <span className="text-[12px] font-bold text-foreground uppercase tracking-wider">
-                Script & Frontier Prompt Studio
+        {/* ======================================================= */}
+        {/* SCRIPT STUDIO (LEFT COLUMN)                             */}
+        {/* ======================================================= */}
+        <div className="lg:col-span-6 flex flex-col h-full pr-1">
+          {/* Header Bar */}
+          <div className="h-8 shrink-0 flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <div className="flex items-center gap-2">
+                <PenLine size={14} strokeWidth={1.8} className="text-primary" />
+                <span className="text-[12px] font-bold text-foreground uppercase tracking-wider">
+                  Narrative Script (Khmer)
+                </span>
+              </div>
+              <span className="text-[10px] font-semibold text-panel-text bg-zinc-100 dark:bg-zinc-800 px-2 py-0.5 rounded-md">
+                {sentences.length} {sentences.length === 1 ? "Line" : "Lines"}
               </span>
             </div>
-            <span className="text-[11px] font-medium text-panel-text flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-              {sentences.length} {splitMode === "enter" ? (sentences.length === 1 ? "line/scene" : "lines/scenes") : splitMode === "beat" ? (sentences.length === 1 ? "beat" : "beats") : (sentences.length === 1 ? "sentence" : "sentences")} detected
-            </span>
+
+            {/* Auto-Break to Lines */}
+            <button
+              type="button"
+              onClick={handleAutoBreakToLines}
+              className="text-[10px] font-medium text-primary hover:text-primary-hover bg-primary/10 hover:bg-primary/15 px-2.5 py-1 rounded-lg flex items-center gap-1.5 cursor-pointer transition-all border border-primary/20 shadow-2xs"
+              title="Automatically split sentences into separate lines at every Khmer full stop (។)"
+            >
+              <CornerDownLeft size={11} /> Auto-Break
+            </button>
           </div>
 
-          {/* Scrollable Content Body */}
-          <div className="flex-1 overflow-y-auto p-5 custom-scrollbar space-y-6">
-            
-            {/* 1. Khmer Narrative Script */}
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <label className="text-[11px] font-bold text-foreground/80 uppercase tracking-wider flex items-center gap-1.5">
-                  <FileText size={13} className="text-primary" /> Narrative Script (Khmer)
-                </label>
-                <div className="flex items-center gap-1.5 flex-wrap justify-end">
-                  <div className="flex items-center gap-1 bg-background border border-border rounded-lg p-0.5 text-[10px]">
-                    <button
-                      type="button"
-                      onClick={() => setSplitMode("enter")}
-                      className={`px-2 py-0.5 rounded-md font-medium transition-all cursor-pointer ${
-                        splitMode === "enter"
-                          ? "bg-primary text-white shadow-2xs font-semibold"
-                          : "text-panel-text hover:text-foreground"
-                      }`}
-                      title="Split strictly by line breaks (Enter key). Each line becomes one scene without needing commas or punctuation."
-                    >
-                      Enter (↵)
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setSplitMode("sentence")}
-                      className={`px-2 py-0.5 rounded-md font-medium transition-all cursor-pointer ${
-                        splitMode === "sentence"
-                          ? "bg-primary text-white shadow-2xs font-semibold"
-                          : "text-panel-text hover:text-foreground"
-                      }`}
-                      title="Standard Khmer sentence boundary (splits on ។ and newlines)"
-                    >
-                      Sentences (។)
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setSplitMode("beat")}
-                      className={`px-2 py-0.5 rounded-md font-medium transition-all cursor-pointer ${
-                        splitMode === "beat"
-                          ? "bg-primary text-white shadow-2xs font-semibold"
-                          : "text-panel-text hover:text-foreground"
-                      }`}
-                      title="Visual beats: splits on commas (,), semicolons, and full stops"
-                    >
-                      Beats (, / ;)
-                    </button>
+          {/* Clean Writing Paper / Canvas (Box only where necessary!) */}
+          <div className="flex-1 flex flex-col min-h-[260px] bg-card rounded-xl border border-border/80 shadow-2xs p-4 my-2 focus-within:border-primary/50 transition-all overflow-hidden">
+            <textarea
+              value={scriptText}
+              onChange={(e) => setScriptText(e.target.value)}
+              onBlur={handleScriptBlur}
+              placeholder={
+                splitMode === "enter"
+                  ? "Type or paste your narrative script here. Each new line (Enter ↵) becomes an individual scene..."
+                  : "Paste your research script here... (Separate sentences with ។, commas, or newlines)"
+              }
+              className="w-full h-full bg-transparent text-[15px] text-foreground leading-relaxed placeholder:text-zinc-400/40 focus:outline-none resize-none custom-scrollbar"
+            />
+          </div>
+
+          {/* Clean Minimalist Style Bar with Custom Upward-Popping Dropdowns */}
+          <div ref={styleBarRef} className="py-2 flex items-center justify-between gap-2 text-xs flex-wrap shrink-0 border-t border-border/50">
+            <div className="flex items-center gap-2 flex-wrap">
+              {/* 1. Custom Era Dropdown */}
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setOpenDropdown(openDropdown === "era" ? null : "era")}
+                  className={`flex items-center gap-1.5 bg-card hover:bg-zinc-100 dark:hover:bg-zinc-800 border rounded-lg px-2 py-1 text-[11px] font-semibold text-foreground cursor-pointer transition-colors shadow-2xs ${
+                    openDropdown === "era" ? "border-primary ring-1 ring-primary/30" : "border-border/70"
+                  }`}
+                  title="Select narrative era and setting"
+                >
+                  <span className="text-panel-text font-normal text-[11px]">Era:</span>
+                  <span>{currentEra.shortLabel || currentEra.label}</span>
+                  <ChevronDown size={11} className={`text-panel-text ml-0.5 transition-transform duration-150 ${openDropdown === "era" ? "rotate-180 text-primary" : ""}`} />
+                </button>
+
+                {openDropdown === "era" && (
+                  <div className="absolute bottom-full mb-2 left-0 z-50 bg-card border border-border/80 rounded-xl shadow-2xl p-2 min-w-[270px] max-h-[250px] overflow-y-auto custom-scrollbar animate-in fade-in zoom-in-95 duration-100">
+                    <div className="text-[10px] font-semibold text-panel-text uppercase tracking-wider px-2 pb-1.5 border-b border-border/40 mb-1">
+                      Narrative Era & Setting
+                    </div>
+                    <div className="space-y-0.5">
+                      {ERA_OPTIONS.map((era) => {
+                        const isSelected = selectedEra === era.id;
+                        return (
+                          <button
+                            key={era.id}
+                            type="button"
+                            onClick={() => {
+                              handleSelectEra(era.id);
+                              setOpenDropdown(null);
+                            }}
+                            className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-left transition-colors cursor-pointer ${
+                              isSelected ? "bg-primary/10 text-primary font-semibold" : "text-foreground/85 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                            }`}
+                          >
+                            <div className="pr-2 min-w-0">
+                              <div className="text-[11px] font-semibold flex items-center gap-1.5 truncate">
+                                {era.label}
+                              </div>
+                              <div className="text-[10px] text-panel-text leading-tight mt-0.5 truncate">
+                                {era.desc}
+                              </div>
+                            </div>
+                            {isSelected && <Check size={12} className="text-primary shrink-0" />}
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
+                )}
+              </div>
+
+              {/* 2. Custom Staging Dropdown */}
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setOpenDropdown(openDropdown === "staging" ? null : "staging")}
+                  className={`flex items-center gap-1.5 bg-card hover:bg-zinc-100 dark:hover:bg-zinc-800 border rounded-lg px-2 py-1 text-[11px] font-semibold text-foreground cursor-pointer transition-colors shadow-2xs ${
+                    openDropdown === "staging" ? "border-primary ring-1 ring-primary/30" : "border-border/70"
+                  }`}
+                  title="Select scene staging style"
+                >
+                  <span className="text-panel-text font-normal text-[11px]">Staging:</span>
+                  <span>{sceneStaging === "studio" ? "Studio Canvas" : "Environment"}</span>
+                  <ChevronDown size={11} className={`text-panel-text ml-0.5 transition-transform duration-150 ${openDropdown === "staging" ? "rotate-180 text-primary" : ""}`} />
+                </button>
+
+                {openDropdown === "staging" && (
+                  <div className="absolute bottom-full mb-2 left-0 z-50 bg-card border border-border/80 rounded-xl shadow-2xl p-2 min-w-[270px] max-h-[220px] overflow-y-auto custom-scrollbar animate-in fade-in zoom-in-95 duration-100">
+                    <div className="text-[10px] font-semibold text-panel-text uppercase tracking-wider px-2 pb-1.5 border-b border-border/40 mb-1">
+                      Scene Staging Style
+                    </div>
+                    <div className="space-y-0.5">
+                      {SCENE_STAGING_OPTIONS.map((st) => {
+                        const isSelected = sceneStaging === st.id;
+                        return (
+                          <button
+                            key={st.id}
+                            type="button"
+                            onClick={() => {
+                              handleSelectStaging(st.id as any);
+                              setOpenDropdown(null);
+                            }}
+                            className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-left transition-colors cursor-pointer ${
+                              isSelected ? "bg-primary/10 text-primary font-semibold" : "text-foreground/85 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                            }`}
+                          >
+                            <div className="pr-2 min-w-0">
+                              <div className="text-[11px] font-semibold truncate">
+                                {st.label}
+                              </div>
+                              <div className="text-[10px] text-panel-text leading-tight mt-0.5 truncate">
+                                {st.sub}
+                              </div>
+                            </div>
+                            {isSelected && <Check size={12} className="text-primary shrink-0" />}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* 3. Custom Aspect Ratio Dropdown with Graphic matching Google Flow */}
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setOpenDropdown(openDropdown === "ratio" ? null : "ratio")}
+                  className={`flex items-center gap-1.5 bg-card hover:bg-zinc-100 dark:hover:bg-zinc-800 border rounded-lg px-2 py-1 text-[11px] font-semibold text-foreground cursor-pointer transition-colors shadow-2xs ${
+                    openDropdown === "ratio" ? "border-primary ring-1 ring-primary/30" : "border-border/70"
+                  }`}
+                  title="Select video aspect ratio matching Google Flow"
+                >
+                  <span className="text-panel-text font-normal text-[11px]">Ratio:</span>
+                  <AspectRatioGraphic ratio={selectedAspectRatio} className="text-primary" />
+                  <span>{selectedAspectRatio}</span>
+                  <ChevronDown size={11} className={`text-panel-text ml-0.5 transition-transform duration-150 ${openDropdown === "ratio" ? "rotate-180 text-primary" : ""}`} />
+                </button>
+
+                {openDropdown === "ratio" && (
+                  <div className="absolute bottom-full mb-2 left-0 z-50 bg-card border border-border/80 rounded-xl shadow-2xl p-2.5 min-w-[250px] max-h-[250px] overflow-y-auto custom-scrollbar animate-in fade-in zoom-in-95 duration-100">
+                    <div className="text-[10px] font-semibold text-panel-text uppercase tracking-wider px-1 pb-1.5 border-b border-border/40 mb-1.5">
+                      Google Flow Aspect Ratio
+                    </div>
+                    
+                    {/* Horizontal 5-graphic strip matching Google Flow UI */}
+                    <div className="grid grid-cols-5 gap-1 p-1 bg-background/80 dark:bg-zinc-900/50 rounded-lg mb-2 border border-border/40">
+                      {ASPECT_RATIO_OPTIONS.map((opt) => {
+                        const isSelected = selectedAspectRatio === opt.id;
+                        return (
+                          <button
+                            key={opt.id}
+                            type="button"
+                            onClick={() => {
+                              handleSelectAspectRatio(opt.id);
+                              setOpenDropdown(null);
+                            }}
+                            className={`flex flex-col items-center justify-center py-1.5 px-1 rounded-md cursor-pointer transition-all ${
+                              isSelected
+                                ? "bg-primary text-white shadow-2xs font-bold"
+                                : "text-panel-text hover:text-foreground hover:bg-card"
+                            }`}
+                            title={`${opt.id} - ${opt.sub}`}
+                          >
+                            <AspectRatioGraphic ratio={opt.id} className="mb-1" />
+                            <span className="text-[10px] font-medium leading-none">{opt.id}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    {/* Detailed List */}
+                    <div className="space-y-0.5">
+                      {ASPECT_RATIO_OPTIONS.map((opt) => {
+                        const isSelected = selectedAspectRatio === opt.id;
+                        return (
+                          <button
+                            key={opt.id}
+                            type="button"
+                            onClick={() => {
+                              handleSelectAspectRatio(opt.id);
+                              setOpenDropdown(null);
+                            }}
+                            className={`w-full flex items-center justify-between px-2 py-1.5 rounded-lg text-left text-[11px] transition-colors cursor-pointer ${
+                              isSelected ? "bg-primary/10 text-primary font-semibold" : "text-foreground/85 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                            }`}
+                          >
+                            <div className="flex items-center gap-2">
+                              <AspectRatioGraphic ratio={opt.id} className={isSelected ? "text-primary" : "text-panel-text"} />
+                              <span className="font-semibold">{opt.id}</span>
+                              <span className="text-[10px] text-panel-text">({opt.sub})</span>
+                            </div>
+                            {isSelected && <Check size={12} className="text-primary" />}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* 4. Custom Backdrop Color Dropdown */}
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setOpenDropdown(openDropdown === "mood" ? null : "mood")}
+                  className={`flex items-center gap-1.5 bg-card hover:bg-zinc-100 dark:hover:bg-zinc-800 border rounded-lg px-2 py-1 text-[11px] font-semibold text-foreground cursor-pointer transition-colors shadow-2xs ${
+                    openDropdown === "mood" ? "border-primary ring-1 ring-primary/30" : "border-border/70"
+                  }`}
+                  title="Select studio backdrop color"
+                >
+                  <span className="text-panel-text font-normal text-[11px]">Backdrop:</span>
+                  <div 
+                    className="w-3.5 h-3.5 rounded-full border border-black/20 dark:border-white/30 shadow-2xs shrink-0" 
+                    style={{ backgroundColor: currentMood.color }} 
+                  />
+                  <span>{currentMood.shortLabel || currentMood.label}</span>
+                  <ChevronDown size={11} className={`text-panel-text ml-0.5 transition-transform duration-150 ${openDropdown === "mood" ? "rotate-180 text-primary" : ""}`} />
+                </button>
+
+                {openDropdown === "mood" && (
+                  <div className="absolute bottom-full mb-2 left-0 z-50 bg-card border border-border/80 rounded-xl shadow-2xl p-2 min-w-[250px] max-h-[250px] overflow-y-auto custom-scrollbar animate-in fade-in zoom-in-95 duration-100">
+                    <div className="text-[10px] font-semibold text-panel-text uppercase tracking-wider px-2 pb-1.5 border-b border-border/40 mb-1">
+                      Studio Backdrop Color
+                    </div>
+                    <div className="space-y-0.5">
+                      {MOOD_OPTIONS.map((m) => {
+                        const isSelected = selectedMood === m.id;
+                        return (
+                          <button
+                            key={m.id}
+                            type="button"
+                            onClick={() => {
+                              handleSelectMood(m.id);
+                              setOpenDropdown(null);
+                            }}
+                            className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-left transition-colors cursor-pointer ${
+                              isSelected ? "bg-primary/10 text-primary font-semibold" : "text-foreground/85 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                            }`}
+                          >
+                            <div className="flex items-center gap-2.5 pr-2 min-w-0">
+                              <div 
+                                className="w-5 h-5 rounded-full border border-black/20 dark:border-white/30 shadow-xs ring-2 ring-black/5 dark:ring-white/10 shrink-0" 
+                                style={{ backgroundColor: m.color }} 
+                              />
+                              <div className="min-w-0">
+                                <div className="text-[11px] font-semibold truncate">
+                                  {m.label}
+                                </div>
+                                <div className="text-[10px] text-panel-text leading-tight mt-0.5 truncate">
+                                  {m.desc}
+                                </div>
+                              </div>
+                            </div>
+                            {isSelected && <Check size={12} className="text-primary shrink-0 ml-1" />}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Prompt Action Bar (Target Batches + Copy) */}
+          <div className="pt-2 flex items-center justify-between gap-2 shrink-0 border-t border-border/40">
+            {/* Left: Compact Batch Stepper & Popover (No horizontal scrolling!) */}
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="text-[11px] font-semibold text-panel-text uppercase tracking-wider shrink-0">
+                Target:
+              </span>
+              
+              {batches.length > 0 ? (
+                <div className="flex items-center gap-1.5 shrink-0">
+                  {/* All Scenes Button */}
                   <button
                     type="button"
-                    onClick={handleAutoBreakToLines}
-                    className="text-[10px] font-semibold text-primary hover:text-primary/80 bg-primary/10 hover:bg-primary/15 border border-primary/20 px-2 py-0.5 rounded-md flex items-center gap-1 cursor-pointer transition-all"
-                    title="Automatically split sentences into separate lines at every Khmer full stop (។)"
-                  >
-                    <CornerDownLeft size={10} /> Auto-Line (។ ➔ ↵)
-                  </button>
-                </div>
-              </div>
-              <textarea
-                value={scriptText}
-                onChange={(e) => setScriptText(e.target.value)}
-                onBlur={handleScriptBlur}
-                rows={6}
-                placeholder={
-                  splitMode === "enter"
-                    ? "In 'Enter' mode: each line is a separate scene. Just press Enter to start a new scene (no commas or punctuation needed)!"
-                    : "Paste your research script here... (Separate sentences with ។, commas, or newlines)"
-                }
-                className="w-full p-4 bg-background rounded-xl border border-border text-[13px] text-foreground leading-relaxed placeholder:text-zinc-400/40 focus:border-primary focus:outline-none transition-all resize-none custom-scrollbar"
-              />
-            </div>
-
-            {/* 2. Theme & Era Selector */}
-            <div>
-              <label className="text-[11px] font-bold text-foreground/80 uppercase tracking-wider block mb-2">
-                1. Choose Era & Setting
-              </label>
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-                {ERA_OPTIONS.map((era) => {
-                  const isSelected = selectedEra === era.id;
-                  return (
-                    <button
-                      key={era.id}
-                      onClick={() => handleSelectEra(era.id)}
-                      className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
-                        isSelected
-                          ? "bg-primary/10 border-primary text-primary shadow-2xs"
-                          : "bg-background border-border text-foreground/70 hover:border-zinc-300 dark:hover:border-zinc-700"
-                      }`}
-                    >
-                      <span className="text-[12px] font-semibold tracking-tight">{era.label}</span>
-                      <span className="text-[10px] text-panel-text line-clamp-1 mt-0.5">{era.desc}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* 2. Character Attire & Hair */}
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <label className="text-[11px] font-bold text-foreground/80 uppercase tracking-wider flex items-center gap-1.5">
-                  <Shirt size={13} className="text-primary" /> 2. Character Attire & Hairstyle (When Characters Appear)
-                </label>
-                <button
-                  onClick={handleResetCharacterAttire}
-                  className="text-[10px] font-semibold text-primary hover:underline flex items-center gap-1 cursor-pointer"
-                  title="Reset to selected Era defaults"
-                >
-                  <RotateCcw size={11} /> Reset to Era Default
-                </button>
-              </div>
-              <textarea
-                value={characterAttire}
-                onChange={(e) => setCharacterAttire(e.target.value)}
-                onBlur={handleCharacterAttireBlur}
-                rows={2}
-                placeholder="e.g. Thick woolly mammoth fur pelt wrap, ragged animal hide tunic, wild messy prehistoric caveman hair"
-                className="w-full px-3.5 py-2 bg-background rounded-xl border border-border text-[12px] text-foreground placeholder:text-zinc-400/40 focus:border-primary focus:outline-none transition-all resize-none"
-              />
-              <p className="text-[10px] text-panel-text mt-1">
-                Used only when human characters appear (max 2 per 5 scenes). Keeps characters era-authentic while preserving visual variety.
-              </p>
-            </div>
-
-            {/* 3. Scene Staging */}
-            <div>
-              <label className="text-[11px] font-bold text-foreground/80 uppercase tracking-wider block mb-2">
-                3. Scene Staging & Staging Style
-              </label>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                {SCENE_STAGING_OPTIONS.map((staging) => {
-                  const isSelected = sceneStaging === staging.id;
-                  return (
-                    <button
-                      key={staging.id}
-                      onClick={() => handleSelectStaging(staging.id as any)}
-                      className={`p-3 rounded-xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
-                        isSelected
-                          ? "bg-primary/10 border-primary text-primary shadow-2xs"
-                          : "bg-background border-border text-foreground/70 hover:border-zinc-300 dark:hover:border-zinc-700"
-                      }`}
-                    >
-                      <div className="flex items-center gap-2">
-                        <div className={`w-3 h-3 rounded-full border flex items-center justify-center ${isSelected ? "border-primary bg-primary" : "border-zinc-400"}`}>
-                          {isSelected && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
-                        </div>
-                        <span className="text-[12px] font-semibold tracking-tight">{staging.label}</span>
-                      </div>
-                      <span className="text-[10px] text-panel-text mt-1 pl-5">{staging.sub}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* 4. Solid Backdrop Atmosphere */}
-            <div>
-              <label className="text-[11px] font-bold text-foreground/80 uppercase tracking-wider block mb-2">
-                4. Backdrop Color Palette
-              </label>
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2">
-                {MOOD_OPTIONS.map((mood) => {
-                  const isSelected = selectedMood === mood.id;
-                  return (
-                    <button
-                      key={mood.id}
-                      onClick={() => handleSelectMood(mood.id)}
-                      className={`p-2 rounded-xl border text-left transition-all cursor-pointer flex items-center gap-2 ${
-                        isSelected
-                          ? "bg-primary/10 border-primary shadow-2xs"
-                          : "bg-background border-border hover:border-zinc-300 dark:hover:border-zinc-700"
-                      }`}
-                    >
-                      <div 
-                        className="w-3.5 h-3.5 rounded-full shrink-0 shadow-2xs border border-zinc-400/30" 
-                        style={{ backgroundColor: mood.color }} 
-                      />
-                      <span className={`text-[11px] font-medium truncate ${isSelected ? "text-primary font-semibold" : "text-foreground/80"}`}>
-                        {mood.label}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* 5. Video Aspect Ratio & Framing */}
-            <div>
-              <label className="text-[11px] font-bold text-foreground/80 uppercase tracking-wider block mb-2">
-                5. Video Aspect Ratio & Framing
-              </label>
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2">
-                {ASPECT_RATIO_OPTIONS.map((ratio) => {
-                  const isSelected = selectedAspectRatio === ratio.id;
-                  return (
-                    <button
-                      key={ratio.id}
-                      onClick={() => handleSelectAspectRatio(ratio.id)}
-                      className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
-                        isSelected
-                          ? "bg-primary/10 border-primary text-primary shadow-2xs"
-                          : "bg-background border-border text-foreground/70 hover:border-zinc-300 dark:hover:border-zinc-700"
-                      }`}
-                    >
-                      <span className="text-[12px] font-semibold tracking-tight">{ratio.label}</span>
-                      <span className="text-[10px] text-panel-text truncate mt-0.5">{ratio.sub}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* 6. Custom Props & Detail Notes */}
-            <div>
-              <label className="text-[11px] font-bold text-foreground/80 uppercase tracking-wider block mb-1.5">
-                6. Specific Props / Environmental Detail (Optional)
-              </label>
-              <input
-                type="text"
-                value={customSetting}
-                onChange={(e) => setCustomSetting(e.target.value)}
-                onBlur={handleCustomSettingBlur}
-                placeholder="e.g. mammoth bone needles, snowstorm wind, campfire"
-                className="w-full px-3.5 py-2.5 bg-background rounded-xl border border-border text-[12px] text-foreground placeholder:text-zinc-400/40 focus:border-primary focus:outline-none transition-all"
-              />
-            </div>
-
-            {/* 5. Batch Controller (Option A) */}
-            <div className="bg-background rounded-xl p-4 border border-border space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Sliders size={14} className="text-primary" />
-                  <span className="text-[12px] font-bold text-foreground">
-                    Frontier LLM Batch Controller
-                  </span>
-                </div>
-                <div className="flex items-center gap-2 text-[11px] text-panel-text">
-                  <span>Batch Size:</span>
-                  <select
-                    value={batchSize}
-                    onChange={(e) => {
-                      setBatchSize(Number(e.target.value));
-                      setSelectedBatchIndex(0);
-                    }}
-                    className="bg-card border border-border rounded-lg px-2 py-1 text-[11px] font-semibold text-foreground outline-none cursor-pointer"
-                  >
-                    <option value={3}>3 scenes</option>
-                    <option value={5}>5 scenes (Recommended)</option>
-                    <option value={8}>8 scenes</option>
-                    <option value={10}>10 scenes</option>
-                  </select>
-                </div>
-              </div>
-
-              {/* Batch Chips Selector */}
-              {batches.length > 0 ? (
-                <div className="flex flex-wrap gap-1.5 pt-1">
-                  {/* Option to target all scenes */}
-                  <button
                     onClick={() => setSelectedBatchIndex(-1)}
-                    className={`px-3 py-1.5 rounded-lg text-[11px] font-medium transition-all cursor-pointer ${
+                    className={`px-2.5 py-1 rounded-lg text-[11px] font-medium transition-all cursor-pointer ${
                       selectedBatchIndex === -1
-                        ? "bg-primary text-white font-semibold shadow-xs"
-                        : "bg-card border border-border text-foreground/70 hover:bg-panel-header"
+                        ? "bg-primary text-white font-semibold shadow-2xs"
+                        : "bg-card hover:bg-zinc-100 dark:hover:bg-zinc-800 text-panel-text border border-border/60"
                     }`}
                   >
-                    🌐 All Scenes (1–{sentences.length})
+                    All ({sentences.length})
                   </button>
 
-                  {/* Individual Batches */}
-                  {batches.map((batch, idx) => (
+                  {/* Batch Dropdown */}
+                  <div className="relative" ref={batchDropdownRef}>
                     <button
-                      key={idx}
-                      onClick={() => setSelectedBatchIndex(idx)}
-                      className={`px-3 py-1.5 rounded-lg text-[11px] font-medium transition-all cursor-pointer ${
-                        selectedBatchIndex === idx
-                          ? "bg-primary text-white font-semibold shadow-xs"
-                          : "bg-card border border-border text-foreground/70 hover:bg-panel-header"
+                      type="button"
+                      onClick={() => setOpenDropdown(openDropdown === "batch" ? null : "batch")}
+                      className={`flex items-center gap-1.5 bg-card hover:bg-zinc-100 dark:hover:bg-zinc-800 border rounded-lg px-2.5 py-1 text-[11px] font-semibold cursor-pointer transition-colors shadow-2xs ${
+                        selectedBatchIndex >= 0 ? "border-primary text-primary font-bold" : "border-border/70 text-panel-text hover:text-foreground"
                       }`}
+                      title="Select target batch"
                     >
-                      Batch {idx + 1} ({batch.start}–{batch.end})
+                      <span>
+                        {selectedBatchIndex >= 0 && batches[selectedBatchIndex]
+                          ? `B${selectedBatchIndex + 1} (${batches[selectedBatchIndex].start}–${batches[selectedBatchIndex].end})`
+                          : `Batches (1–${batches.length})`}
+                      </span>
+                      <ChevronDown size={11} className={`transition-transform duration-150 ${openDropdown === "batch" ? "rotate-180 text-primary" : "text-panel-text"}`} />
                     </button>
-                  ))}
+
+                    {/* Upward Popover Grid */}
+                    {openDropdown === "batch" && (
+                      <div className="absolute bottom-full mb-2 left-0 z-50 bg-card border border-border/80 rounded-xl shadow-2xl p-2.5 min-w-[280px] max-w-[340px] max-h-[260px] overflow-y-auto custom-scrollbar animate-in fade-in zoom-in-95 duration-100">
+                        <div className="flex items-center justify-between text-[10px] font-semibold text-panel-text uppercase tracking-wider px-1 pb-1.5 border-b border-border/40 mb-2">
+                          <span>Select Target Batch</span>
+                          <span className="text-[10px] text-panel-text font-medium">{batches.length} Batches Total</span>
+                        </div>
+
+                        {/* All Scenes Option */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedBatchIndex(-1);
+                            setOpenDropdown(null);
+                          }}
+                          className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-left text-[11px] mb-1.5 transition-colors cursor-pointer ${
+                            selectedBatchIndex === -1 ? "bg-primary/10 text-primary font-bold" : "text-foreground/85 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                          }`}
+                        >
+                          <span>All Scenes (1–{sentences.length})</span>
+                          {selectedBatchIndex === -1 && <Check size={12} className="text-primary" />}
+                        </button>
+
+                        {/* Grid of Batches */}
+                        <div className="grid grid-cols-2 gap-1.5">
+                          {batches.map((batch, idx) => {
+                            const isSelected = selectedBatchIndex === idx;
+                            return (
+                              <button
+                                key={idx}
+                                type="button"
+                                onClick={() => {
+                                  setSelectedBatchIndex(idx);
+                                  setOpenDropdown(null);
+                                }}
+                                className={`flex items-center justify-between px-2.5 py-1.5 rounded-lg text-left text-[11px] transition-all cursor-pointer border ${
+                                  isSelected
+                                    ? "bg-primary text-white border-primary shadow-2xs font-bold"
+                                    : "bg-background/60 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-foreground/90 border-border/50"
+                                }`}
+                              >
+                                <div className="flex items-baseline gap-1.5">
+                                  <span className={isSelected ? "text-white font-bold" : "text-primary font-semibold"}>B{idx + 1}</span>
+                                  <span className={`text-[10px] ${isSelected ? "text-white/80" : "text-panel-text"}`}>
+                                    ({batch.start}–{batch.end})
+                                  </span>
+                                </div>
+                                {isSelected && <Check size={12} className="text-white shrink-0" />}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Custom Batch Size Dropdown (Beside stepper, appears above, plenty of options!) */}
+                  <div className="relative" ref={batchSizeRef}>
+                    <button
+                      type="button"
+                      onClick={() => setOpenDropdown(openDropdown === "batchSize" ? null : "batchSize")}
+                      className={`flex items-center gap-1.5 bg-card hover:bg-zinc-100 dark:hover:bg-zinc-800 border rounded-lg px-2 py-1 text-[11px] font-semibold text-foreground cursor-pointer transition-colors shadow-2xs ${
+                        openDropdown === "batchSize" ? "border-primary ring-1 ring-primary/30" : "border-border/70"
+                      }`}
+                      title="Choose scenes per batch"
+                    >
+                      <span className="text-panel-text font-normal text-[11px]">Size:</span>
+                      <span>{batchSize}/batch</span>
+                      <ChevronDown size={11} className={`text-panel-text ml-0.5 transition-transform duration-150 ${openDropdown === "batchSize" ? "rotate-180 text-primary" : ""}`} />
+                    </button>
+
+                    {openDropdown === "batchSize" && (
+                      <div className="absolute bottom-full mb-2 left-0 z-50 bg-card border border-border/80 rounded-xl shadow-2xl p-2 min-w-[150px] animate-in fade-in zoom-in-95 duration-100">
+                        <div className="text-[10px] font-semibold text-panel-text uppercase tracking-wider px-2 pb-1.5 border-b border-border/40 mb-1">
+                          Scenes Per Batch
+                        </div>
+                        <div className="space-y-0.5">
+                          {[3, 5, 8, 10, 15, 20].map((sz) => {
+                            const isSelected = batchSize === sz;
+                            return (
+                              <button
+                                key={sz}
+                                type="button"
+                                onClick={() => {
+                                  setBatchSize(sz);
+                                  setSelectedBatchIndex(0);
+                                  setOpenDropdown(null);
+                                }}
+                                className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-left text-[11px] transition-colors cursor-pointer ${
+                                  isSelected ? "bg-primary/10 text-primary font-semibold" : "text-foreground/85 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                                }`}
+                              >
+                                <span>{sz} scenes</span>
+                                {isSelected && <Check size={12} className="text-primary" />}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
               ) : (
-                <p className="text-[11px] text-panel-text italic">
-                  Paste your Khmer script above to generate scene batches.
-                </p>
-              )}
-
-              {/* Target Slice Preview */}
-              {sentences.length > 0 && (
-                <div className="mt-2 bg-card/70 border border-border/80 rounded-lg p-3 text-[11px] text-panel-text space-y-1">
-                  <div className="font-semibold text-foreground text-[10px] uppercase tracking-wider flex items-center justify-between">
-                    <span>
-                      {selectedBatchIndex === -1 
-                        ? `Targeting All ${sentences.length} Sentences for Prompt` 
-                        : `Target Sentences for Batch ${selectedBatchIndex + 1} (Scenes ${activeBatch?.start}–${activeBatch?.end}):`}
-                    </span>
-                    <span className="text-primary font-mono text-[10px]">
-                      {selectedBatchIndex === -1 ? `Total: ${sentences.length}` : `${activeBatch?.items.length} items`}
-                    </span>
-                  </div>
-                  {selectedBatchIndex === -1 ? (
-                    <div className="truncate text-foreground/70 italic">
-                      All {sentences.length} sentences will be sent to the LLM at once.
-                    </div>
-                  ) : (
-                    activeBatch?.items.map((sent, i) => (
-                      <div key={i} className="truncate">
-                        <span className="font-bold text-primary mr-1.5">#{activeBatch.start + i}</span>
-                        {sent}
-                      </div>
-                    ))
-                  )}
-                </div>
+                <span className="text-[11px] text-panel-text italic">
+                  Paste script to prompt
+                </span>
               )}
             </div>
 
-          </div>
-
-          {/* Panel Footer: Action Buttons (Preview + Copy) */}
-          <div className="p-4 bg-panel-header/50 border-t border-border shrink-0 flex items-center justify-between gap-3">
-            <p className="text-[11px] text-panel-text hidden sm:block">
-              {selectedBatchIndex === -1 
-                ? `Ready to prompt for all ${sentences.length} scenes` 
-                : `Batch ${selectedBatchIndex + 1} ready (${activeBatch?.start}–${activeBatch?.end})`}
-            </p>
-            
-            <div className="flex items-center gap-2 w-full sm:w-auto">
-              {/* Preview Button */}
+            {/* Right: Action Buttons (Preview + Copy Prompt with Merged Stepper) */}
+            <div className="flex items-center gap-2 shrink-0">
               <button
+                type="button"
                 onClick={() => setIsPreviewOpen(true)}
                 disabled={sentences.length === 0}
-                className="flex-1 sm:flex-initial px-4 py-2.5 rounded-xl border border-border bg-card hover:bg-panel-header text-[13px] font-semibold text-foreground flex items-center justify-center gap-1.5 transition-all cursor-pointer disabled:opacity-40 disabled:pointer-events-none"
-                title="Preview the exact prompt before copying"
+                className="h-8 px-2.5 rounded-lg border border-border/80 bg-card hover:bg-zinc-100 dark:hover:bg-zinc-800 text-[11.5px] font-medium text-foreground flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-40 disabled:pointer-events-none shadow-2xs"
+                title="Preview prompt"
               >
-                <Eye size={15} className="text-primary" />
-                <span>Preview Prompt</span>
+                <Eye size={13} className="text-primary" />
+                <span>Preview</span>
               </button>
 
-              {/* Copy Button */}
-              <button
-                onClick={handleCopyPrompt}
-                disabled={sentences.length === 0}
-                className={`flex-1 sm:flex-initial px-5 py-2.5 rounded-xl font-semibold text-[13px] transition-all flex items-center justify-center gap-2 cursor-pointer ${
-                  isCopied
-                    ? "bg-emerald-600 text-white"
-                    : "bg-primary hover:bg-primary/90 text-white shadow-xs active:scale-98 disabled:opacity-50 disabled:pointer-events-none"
-                }`}
-              >
-                {isCopied ? (
-                  <>
-                    <Check size={16} />
-                    <span>Copied!</span>
-                  </>
-                ) : (
-                  <>
-                    <Copy size={16} />
-                    <span>
-                      Copy {selectedBatchIndex === -1 ? "All Scenes" : `Batch ${selectedBatchIndex + 1}`}
-                    </span>
-                  </>
-                )}
-              </button>
+              {/* Merged Stepper Copy Button */}
+              <div className="flex items-center rounded-lg shadow-2xs overflow-hidden border border-primary/40 bg-primary h-8">
+                {/* Prev Batch Button */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (selectedBatchIndex > 0) {
+                      setSelectedBatchIndex(selectedBatchIndex - 1);
+                    } else if (selectedBatchIndex === 0) {
+                      setSelectedBatchIndex(-1);
+                    }
+                  }}
+                  disabled={selectedBatchIndex === -1 || sentences.length === 0}
+                  className="h-full px-2 bg-primary hover:bg-primary-hover active:bg-primary text-white disabled:opacity-35 disabled:pointer-events-none transition-colors cursor-pointer border-r border-white/20 flex items-center justify-center"
+                  title={selectedBatchIndex > 0 ? `Previous batch (B${selectedBatchIndex})` : "Previous (All scenes)"}
+                >
+                  <ChevronLeft size={13} strokeWidth={2.5} />
+                </button>
+
+                {/* Middle Copy Button */}
+                <button
+                  type="button"
+                  onClick={handleCopyPrompt}
+                  disabled={sentences.length === 0}
+                  className={`h-full px-3.5 bg-primary hover:bg-primary-hover active:bg-primary text-white font-semibold text-[11.5px] flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-40 disabled:pointer-events-none ${
+                    isCopied ? "bg-emerald-600 hover:bg-emerald-600" : ""
+                  }`}
+                  title="Copy prompt for current target"
+                >
+                  {isCopied ? (
+                    <>
+                      <Check size={13} strokeWidth={2.5} />
+                      <span>Copied!</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy size={13} />
+                      <span>Copy {selectedBatchIndex === -1 ? `All (${sentences.length})` : `B${selectedBatchIndex + 1}`}</span>
+                    </>
+                  )}
+                </button>
+
+                {/* Next Batch Button */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (selectedBatchIndex === -1) {
+                      setSelectedBatchIndex(0);
+                    } else if (selectedBatchIndex < batches.length - 1) {
+                      setSelectedBatchIndex(selectedBatchIndex + 1);
+                    }
+                  }}
+                  disabled={selectedBatchIndex >= batches.length - 1 || sentences.length === 0}
+                  className="h-full px-2 bg-primary hover:bg-primary-hover active:bg-primary text-white disabled:opacity-35 disabled:pointer-events-none transition-colors cursor-pointer border-l border-white/20 flex items-center justify-center"
+                  title={selectedBatchIndex < batches.length - 1 ? `Next batch (B${selectedBatchIndex + 2})` : "Next batch"}
+                >
+                  <ChevronRight size={13} strokeWidth={2.5} />
+                </button>
+              </div>
             </div>
           </div>
 
         </div>
 
-        {/* ========================================================= */}
-        {/* RIGHT PANEL (COL 7-12): INGESTION & LIVE STORYBOARD DECK */}
-        {/* ========================================================= */}
-        <div className="lg:col-span-6 flex flex-col h-full bg-card rounded-2xl border border-border shadow-xs overflow-hidden">
-          
-          {/* Panel Header */}
-          <div className="h-12 shrink-0 bg-panel-header/80 border-b border-border px-5 flex items-center justify-between">
+        {/* ======================================================= */}
+        {/* STORYBOARD DECK (RIGHT COLUMN)                          */}
+        {/* ======================================================= */}
+        <div className="lg:col-span-6 flex flex-col h-full overflow-hidden pl-5 border-l border-border/50">
+          {/* Header Bar */}
+          <div className="h-8 shrink-0 flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <Layers size={15} className="text-primary" />
+              <Layers size={14} className="text-primary" />
               <span className="text-[12px] font-bold text-foreground uppercase tracking-wider">
-                Scene Ingestion & Storyboard Deck
+                Storyboard Deck
+              </span>
+              <span className="text-[10px] font-semibold text-panel-text bg-zinc-100 dark:bg-zinc-800 px-2 py-0.5 rounded-md">
+                {scenes.length} {scenes.length === 1 ? "Scene" : "Scenes"}
               </span>
             </div>
-            <span className="text-[11px] font-semibold text-foreground/80 bg-background px-2.5 py-1 rounded-lg border border-border">
-              {scenes.length} {scenes.length === 1 ? "Scene" : "Scenes"} in Timeline
-            </span>
+
+            <button
+              type="button"
+              onClick={() => setIsJsonDrawerOpen(!isJsonDrawerOpen)}
+              className={`text-[11px] font-medium px-2.5 py-1 rounded-md transition-all flex items-center gap-1.5 cursor-pointer ${
+                isJsonDrawerOpen
+                  ? "bg-primary/10 text-primary border border-primary/20"
+                  : "bg-card hover:bg-zinc-100 dark:hover:bg-zinc-800 text-panel-text hover:text-foreground border border-border/50"
+              }`}
+            >
+              <FileCode2 size={12} />
+              <span>{isJsonDrawerOpen ? "Close Ingest" : "Paste JSON"}</span>
+              {isJsonDrawerOpen ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+            </button>
           </div>
 
-          {/* Scrollable Content Body */}
-          <div className="flex-1 overflow-y-auto p-5 custom-scrollbar space-y-6">
-            
-            {/* JSON Ingestion Box */}
-            <div className="bg-background rounded-xl p-4 border border-border space-y-3">
+          {/* Collapsible JSON Ingestion Drawer (Box only when open) */}
+          {isJsonDrawerOpen && (
+            <div className="bg-card rounded-xl p-3 my-2 border border-border/80 shadow-2xs space-y-2 animate-in fade-in duration-150 shrink-0">
               <div className="flex items-center justify-between">
-                <label className="text-[11px] font-bold text-foreground uppercase tracking-wider flex items-center gap-1.5">
-                  <FileCode2 size={13} className="text-primary" /> Paste Frontier JSON
-                </label>
+                <span className="text-[11px] font-semibold text-foreground/80 uppercase tracking-wider">
+                  Paste AI Response JSON
+                </span>
 
-                {/* Append vs Replace Toggle */}
-                <div className="flex items-center gap-1 bg-card p-1 rounded-lg border border-border">
+                {/* Mode toggle */}
+                <div className="flex items-center gap-0.5 bg-zinc-100 dark:bg-zinc-800/80 p-0.5 rounded-md text-[10px]">
                   <button
+                    type="button"
                     onClick={() => setImportMode("replace")}
-                    className={`px-2.5 py-1 rounded-md text-[10px] font-semibold transition-all cursor-pointer ${
+                    className={`px-2 py-0.5 rounded font-medium transition-all cursor-pointer ${
                       importMode === "replace"
-                        ? "bg-red-500/10 text-red-500 border border-red-500/20"
+                        ? "bg-card text-red-500 shadow-2xs font-semibold"
                         : "text-panel-text hover:text-foreground"
                     }`}
-                    title="Wipe existing scenes and start from Scene 1"
+                    title="Wipe existing scenes and replace"
                   >
-                    🔄 Replace All
+                    Replace All
                   </button>
                   <button
+                    type="button"
                     onClick={() => setImportMode("append")}
-                    className={`px-2.5 py-1 rounded-md text-[10px] font-semibold transition-all cursor-pointer ${
+                    className={`px-2 py-0.5 rounded font-medium transition-all cursor-pointer ${
                       importMode === "append"
-                        ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
+                        ? "bg-card text-emerald-500 shadow-2xs font-semibold"
                         : "text-panel-text hover:text-foreground"
                     }`}
-                    title="Append new scenes to the end of timeline"
+                    title="Append new scenes to end"
                   >
-                    ➕ Append
+                    Append
                   </button>
                 </div>
               </div>
@@ -954,126 +1211,147 @@ Do not wrap in extra conversational markdown text. RETURN ONLY VALID JSON:
               <textarea
                 value={jsonInput}
                 onChange={handleJsonChange}
-                rows={4}
-                placeholder='Paste the JSON response from ChatGPT/Claude here: [ { "scene_number": 1, "narration_khmer": "...", "image_prompt_english": "...", "negative_prompt": "..." } ]'
-                className="w-full p-3 bg-card rounded-lg border border-border font-mono text-[11px] text-foreground placeholder:text-zinc-400/40 focus:border-primary focus:outline-none transition-all resize-none custom-scrollbar"
+                rows={3}
+                placeholder='Paste JSON here: [ { "scene_number": 1, "narration_khmer": "...", "image_prompt_english": "...", "negative_prompt": "..." } ]'
+                className="w-full p-2.5 bg-background/50 dark:bg-zinc-900/40 rounded-lg border border-border/60 font-mono text-[11px] text-foreground placeholder:text-zinc-400/40 focus:border-primary focus:outline-none transition-all resize-none custom-scrollbar"
               />
 
-              {/* Error or Success notification */}
               {jsonError && (
-                <div className="text-[11px] text-red-500 flex items-center gap-1.5 bg-red-500/10 p-2 rounded-lg border border-red-500/20">
-                  <AlertCircle size={13} className="shrink-0" />
+                <div className="text-[11px] text-red-500 flex items-center gap-1.5 bg-red-500/10 p-2 rounded-md">
+                  <AlertCircle size={12} className="shrink-0" />
                   <span className="truncate">{jsonError}</span>
                 </div>
               )}
               {importSuccessMessage && (
-                <div className="text-[11px] text-emerald-500 flex items-center gap-1.5 bg-emerald-500/10 p-2 rounded-lg border border-emerald-500/20">
-                  <CheckCircle2 size={13} className="shrink-0" />
+                <div className="text-[11px] text-emerald-500 flex items-center gap-1.5 bg-emerald-500/10 p-2 rounded-md">
+                  <CheckCircle2 size={12} className="shrink-0" />
                   <span>{importSuccessMessage}</span>
                 </div>
               )}
 
               <button
+                type="button"
                 onClick={handleImportScenes}
                 disabled={!jsonInput.trim() || !!jsonError || isImporting}
-                className="w-full py-2 bg-primary hover:bg-primary/90 text-white rounded-lg text-[12px] font-semibold transition-all shadow-xs flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-40 disabled:pointer-events-none"
+                className="w-full py-1.5 bg-primary hover:bg-primary-hover text-white rounded-lg text-[11px] font-semibold transition-all shadow-2xs flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-40 disabled:pointer-events-none"
               >
                 {isImporting ? (
                   <>
-                    <RefreshCw size={14} className="animate-spin" />
+                    <RefreshCw size={12} className="animate-spin" />
                     <span>Ingesting Scenes...</span>
                   </>
                 ) : (
                   <>
-                    <ArrowRight size={14} />
-                    <span>Ingest {importMode === "append" ? "and Append" : "and Replace"} into Timeline</span>
+                    <ArrowRight size={12} />
+                    <span>Ingest {importMode === "append" ? "and Append" : "and Replace"}</span>
                   </>
                 )}
               </button>
             </div>
+          )}
 
-            {/* Live Storyboard Scene Cards */}
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-[11px] font-bold text-foreground/80 uppercase tracking-wider">
-                  Current Scenes in Project ({scenes.length})
-                </span>
+          {/* Storyboard Scene Cards List - Fully Displayed, NO internal scrollbars */}
+          <div className="flex-1 overflow-y-auto custom-scrollbar space-y-2.5 my-2 pr-1">
+            {scenes.length === 0 ? (
+              <div className="text-center py-12 px-4 border border-dashed border-border/70 rounded-xl text-panel-text space-y-2">
+                <Layers size={22} className="mx-auto opacity-30" />
+                <p className="text-[12px] font-medium text-foreground/80">Timeline is currently empty</p>
+                <p className="text-[11px] text-panel-text max-w-xs mx-auto leading-relaxed">
+                  1. Copy the frontier prompt on the left.
+                  <br />2. Paste into ChatGPT / Claude.
+                  <br />3. Click "Paste JSON" above to ingest scenes.
+                </p>
               </div>
-
-              {scenes.length === 0 ? (
-                <div className="text-center p-10 border border-dashed border-border rounded-xl text-panel-text space-y-2">
-                  <Layers size={24} className="mx-auto opacity-30" />
-                  <p className="text-[12px] font-medium">Timeline is currently empty.</p>
-                  <p className="text-[11px] text-panel-text/70 max-w-xs mx-auto">
-                    1. Copy the frontier prompt on the left.
-                    <br />2. Paste into ChatGPT/Claude.
-                    <br />3. Paste the returned JSON above and click Ingest.
-                  </p>
-                </div>
-              ) : (
-                scenes.map((scene: any) => (
-                  <div 
-                    key={scene.id || scene.scene_number} 
-                    className="bg-background rounded-xl p-3.5 border border-border hover:border-zinc-300 dark:hover:border-zinc-700 transition-all space-y-2.5"
-                  >
-                    {/* Scene Card Header */}
-                    <div className="flex items-center justify-between border-b border-border/50 pb-2">
-                      <span className="text-[11px] font-bold text-primary tracking-wide">
-                        Scene #{String(scene.scene_number).padStart(2, "0")}
-                      </span>
-                      <button
-                        onClick={() => handleDeleteScene(scene.id)}
-                        className="text-panel-text hover:text-red-500 transition-colors p-1 rounded cursor-pointer"
-                        title="Delete this scene"
-                      >
-                        <Trash2 size={13} />
-                      </button>
-                    </div>
-
-                    {/* Khmer Narration */}
-                    <div>
-                      <label className="text-[10px] font-semibold text-panel-text uppercase tracking-wider block mb-1">
-                        Voiceover Script (Khmer)
-                      </label>
-                      <textarea
-                        defaultValue={scene.narration_khmer || ""}
-                        onBlur={(e) => updateSingleScene(scene.id, { narration_khmer: e.target.value })}
-                        rows={2}
-                        className="w-full p-2 bg-card rounded-lg border border-border text-[12px] text-foreground leading-relaxed focus:border-primary focus:outline-none transition-all resize-none"
-                      />
-                    </div>
-
-                    {/* English Image Prompt */}
-                    <div>
-                      <label className="text-[10px] font-semibold text-panel-text uppercase tracking-wider block mb-1">
-                        Stickman Visual Prompt (English)
-                      </label>
-                      <textarea
-                        defaultValue={scene.image_prompt_english || ""}
-                        onBlur={(e) => updateSingleScene(scene.id, { image_prompt_english: e.target.value })}
-                        rows={2}
-                        className="w-full p-2 bg-card rounded-lg border border-border text-[11px] text-foreground/80 font-mono leading-relaxed focus:border-primary focus:outline-none transition-all resize-none"
-                      />
-                    </div>
-
-                    {/* Negative Prompt / Exclusions */}
-                    <div>
-                      <label className="text-[10px] font-semibold text-panel-text uppercase tracking-wider block mb-1">
-                        Negative Constraints / Exclusions
-                      </label>
-                      <textarea
-                        defaultValue={scene.negative_prompt || ""}
-                        onBlur={(e) => updateSingleScene(scene.id, { negative_prompt: e.target.value })}
-                        rows={1}
-                        placeholder="e.g. photorealistic, 3D render, gradient, complex textures..."
-                        className="w-full p-2 bg-card rounded-lg border border-border text-[11px] text-foreground/70 font-mono leading-relaxed focus:border-primary focus:outline-none transition-all resize-none"
-                      />
-                    </div>
+            ) : (
+              scenes.map((scene: any) => (
+                <div 
+                  key={scene.id || scene.scene_number} 
+                  className="group bg-card rounded-xl p-3.5 border border-border/70 hover:border-border transition-all shadow-2xs space-y-2"
+                >
+                  {/* Scene Header */}
+                  <div className="flex items-center justify-between pb-1 border-b border-border/30">
+                    <span className="text-[11px] font-bold text-primary tracking-wide">
+                      Scene #{String(scene.scene_number).padStart(2, "0")}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteScene(scene.id)}
+                      className="text-panel-text/60 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all p-1 rounded cursor-pointer"
+                      title="Delete scene"
+                    >
+                      <Trash2 size={12} />
+                    </button>
                   </div>
-                ))
-              )}
-            </div>
 
+                  {/* Khmer Voiceover - Fully Displayed (AutoResize) */}
+                  <div>
+                    <label className="text-[9px] font-semibold text-panel-text uppercase tracking-wider block mb-0.5">
+                      Voiceover (Khmer)
+                    </label>
+                    <AutoResizeTextarea
+                      defaultValue={scene.narration_khmer || ""}
+                      onBlur={(val) => updateSingleScene(scene.id, { narration_khmer: val })}
+                      placeholder="Khmer voiceover narration..."
+                      className="w-full bg-transparent text-[13px] text-foreground leading-relaxed outline-none border-b border-border/30 focus:border-primary transition-colors py-0.5"
+                    />
+                  </div>
+
+                  {/* English Visual Prompt - Fully Displayed (AutoResize) */}
+                  <div>
+                    <label className="text-[9px] font-semibold text-panel-text uppercase tracking-wider block mb-0.5">
+                      Stickman Visual Prompt (English)
+                    </label>
+                    <AutoResizeTextarea
+                      defaultValue={scene.image_prompt_english || ""}
+                      onBlur={(val) => updateSingleScene(scene.id, { image_prompt_english: val })}
+                      placeholder="Stickman visual prompt in English..."
+                      className="w-full bg-transparent font-mono text-[11px] text-foreground/80 leading-relaxed outline-none border-b border-border/30 focus:border-primary transition-colors py-0.5"
+                    />
+                  </div>
+
+                  {/* Negative Constraints: Click-to-expand dropdown */}
+                  <div className="pt-1 border-t border-border/30">
+                    <button
+                      type="button"
+                      onClick={() => toggleExclusion(scene.id)}
+                      className="flex items-center gap-1.5 text-[10px] font-medium text-panel-text hover:text-foreground cursor-pointer transition-colors py-0.5 w-full text-left"
+                      title="Click to expand/collapse exclusions"
+                    >
+                      <ChevronRight 
+                        size={11} 
+                        className={`text-panel-text transition-transform duration-150 shrink-0 ${
+                          expandedExclusions[scene.id] ? "rotate-90 text-primary" : ""
+                        }`} 
+                      />
+                      <span className="uppercase tracking-wider text-[9px] font-semibold text-panel-text">
+                        Exclusions
+                      </span>
+                      {!expandedExclusions[scene.id] && scene.negative_prompt && (
+                        <span className="text-[10px] font-mono text-panel-text/60 truncate flex-1 ml-1">
+                          — {scene.negative_prompt}
+                        </span>
+                      )}
+                      {!expandedExclusions[scene.id] && !scene.negative_prompt && (
+                        <span className="text-[10px] text-panel-text/40 italic flex-1 ml-1">
+                          (none)
+                        </span>
+                      )}
+                    </button>
+
+                    {expandedExclusions[scene.id] && (
+                      <div className="pt-1.5 pb-0.5 animate-in fade-in duration-100">
+                        <AutoResizeTextarea
+                          defaultValue={scene.negative_prompt || ""}
+                          onBlur={(val) => updateSingleScene(scene.id, { negative_prompt: val })}
+                          placeholder="e.g. text, words, labels, comic book, 3D, photorealistic..."
+                          className="w-full bg-zinc-100/60 dark:bg-zinc-900/60 p-2 rounded-lg font-mono text-[10px] text-foreground leading-relaxed outline-none border border-border/60 focus:border-primary transition-colors"
+                        />
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))
+            )}
           </div>
 
         </div>
@@ -1081,92 +1359,135 @@ Do not wrap in extra conversational markdown text. RETURN ONLY VALID JSON:
       </div>
 
       {/* ========================================================= */}
-      {/* MODAL: PROMPT PREVIEW WITH INTERACTIVE BATCH SELECTOR     */}
+      {/* MODAL: PROMPT PREVIEW WITH BATCH SWITCHER                */}
       {/* ========================================================= */}
       {isPreviewOpen && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-card border border-border rounded-2xl w-full max-w-3xl max-h-[85vh] flex flex-col shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+        <div 
+          onClick={() => setIsPreviewOpen(false)}
+          className="fixed inset-0 z-50 bg-black/35 dark:bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 cursor-pointer"
+        >
+          <div 
+            onClick={(e) => e.stopPropagation()}
+            className="bg-card border border-border rounded-2xl w-full max-w-3xl max-h-[85vh] flex flex-col shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150 cursor-default"
+          >
             
             {/* Modal Header */}
-            <div className="h-14 px-6 border-b border-border bg-panel-header flex items-center justify-between shrink-0">
-              <div className="flex items-center gap-2.5">
-                <Eye size={17} className="text-primary" />
+            <div className="h-12 px-5 border-b border-border flex items-center justify-between shrink-0 bg-card">
+              <div className="flex items-center gap-2">
+                <Eye size={15} className="text-primary" />
                 <div>
                   <h3 className="text-[13px] font-bold text-foreground">Frontier Prompt Preview</h3>
                   <p className="text-[10px] text-panel-text">Exact text formatted for ChatGPT / Claude web chat</p>
                 </div>
               </div>
               <button
+                type="button"
                 onClick={() => setIsPreviewOpen(false)}
-                className="text-panel-text hover:text-foreground p-1 rounded-lg hover:bg-card transition-colors cursor-pointer"
+                className="text-panel-text hover:text-foreground p-1 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer"
               >
-                <X size={18} />
+                <X size={16} />
               </button>
             </div>
 
-            {/* Batch Switcher inside Modal */}
-            <div className="px-6 py-2.5 bg-background border-b border-border flex items-center justify-between gap-3 overflow-x-auto shrink-0 custom-scrollbar">
-              <div className="flex items-center gap-1.5 shrink-0">
-                <span className="text-[11px] font-bold text-panel-text uppercase tracking-wider mr-1">
-                  Batch:
-                </span>
+            {/* Batch Switcher inside Modal - Wrapping without horizontal scroll */}
+            <div className="px-5 py-2.5 bg-background/60 border-b border-border flex items-center gap-1.5 flex-wrap shrink-0">
+              <span className="text-[10px] font-bold text-panel-text uppercase tracking-wider mr-1">
+                Target:
+              </span>
+              <button
+                type="button"
+                onClick={() => setSelectedBatchIndex(-1)}
+                className={`px-2.5 py-1 rounded-lg text-[11px] font-medium transition-all cursor-pointer ${
+                  selectedBatchIndex === -1
+                    ? "bg-primary text-white font-semibold shadow-2xs"
+                    : "bg-card border border-border text-panel-text hover:text-foreground hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                }`}
+              >
+                All ({sentences.length})
+              </button>
+              {batches.map((b, idx) => (
                 <button
-                  onClick={() => setSelectedBatchIndex(-1)}
-                  className={`px-3 py-1 rounded-lg text-[11px] font-medium transition-all cursor-pointer ${
-                    selectedBatchIndex === -1
+                  key={idx}
+                  type="button"
+                  onClick={() => setSelectedBatchIndex(idx)}
+                  className={`px-2.5 py-1 rounded-lg text-[11px] font-medium transition-all cursor-pointer ${
+                    selectedBatchIndex === idx
                       ? "bg-primary text-white font-semibold shadow-2xs"
-                      : "bg-card border border-border text-panel-text hover:text-foreground"
+                      : "bg-card border border-border text-panel-text hover:text-foreground hover:bg-zinc-100 dark:hover:bg-zinc-800"
                   }`}
                 >
-                  🌐 All Scenes (1–{sentences.length})
+                  B{idx + 1} ({b.start}–{b.end})
                 </button>
-                {batches.map((b, idx) => (
-                  <button
-                    key={idx}
-                    onClick={() => setSelectedBatchIndex(idx)}
-                    className={`px-3 py-1 rounded-lg text-[11px] font-medium transition-all cursor-pointer ${
-                      selectedBatchIndex === idx
-                        ? "bg-primary text-white font-semibold shadow-2xs"
-                        : "bg-card border border-border text-panel-text hover:text-foreground"
-                    }`}
-                  >
-                    Batch {idx + 1} ({b.start}–{b.end})
-                  </button>
-                ))}
-              </div>
+              ))}
             </div>
 
-            {/* Code Text Body */}
-            <div className="flex-1 overflow-y-auto p-6 bg-zinc-950 text-zinc-100 font-mono text-[12px] leading-relaxed custom-scrollbar whitespace-pre-wrap select-text">
+            {/* Prompt Text Body */}
+            <div className="flex-1 overflow-y-auto p-5 bg-zinc-50 dark:bg-zinc-950 text-zinc-800 dark:text-zinc-200 font-mono text-[12px] leading-relaxed custom-scrollbar whitespace-pre-wrap select-text border-y border-border/80">
               {generatePrompt()}
             </div>
 
             {/* Modal Footer */}
-            <div className="p-4 bg-panel-header border-t border-border flex items-center justify-between shrink-0">
-              <span className="text-[11px] text-panel-text">
-                Currently showing: <strong className="text-foreground">{selectedBatchIndex === -1 ? `All Scenes (1–${sentences.length})` : `Batch ${selectedBatchIndex + 1} (Scenes ${activeBatch?.start}–${activeBatch?.end})`}</strong>
-              </span>
-              <div className="flex items-center gap-2">
+            <div className="p-3 bg-card border-t border-border flex items-center justify-end shrink-0">
+
+              {/* Stepper Copy Button inside Modal */}
+              <div className="flex items-center rounded-lg shadow-2xs overflow-hidden border border-primary/40 bg-primary h-8">
                 <button
-                  onClick={() => setIsPreviewOpen(false)}
-                  className="px-4 py-2 rounded-xl text-[12px] font-medium text-panel-text hover:text-foreground hover:bg-card transition-colors cursor-pointer"
+                  type="button"
+                  onClick={() => {
+                    if (selectedBatchIndex > 0) {
+                      setSelectedBatchIndex(selectedBatchIndex - 1);
+                    } else if (selectedBatchIndex === 0) {
+                      setSelectedBatchIndex(-1);
+                    }
+                  }}
+                  disabled={selectedBatchIndex === -1}
+                  className="h-full px-2.5 bg-primary hover:bg-primary-hover active:bg-primary text-white disabled:opacity-35 disabled:pointer-events-none transition-colors cursor-pointer border-r border-white/20 flex items-center justify-center"
+                  title="Previous batch"
                 >
-                  Close
+                  <ChevronLeft size={13} strokeWidth={2.5} />
                 </button>
+
                 <button
+                  type="button"
                   onClick={handleCopyPrompt}
-                  className={`px-5 py-2 rounded-xl text-[12px] font-semibold transition-all flex items-center gap-2 cursor-pointer ${
-                    isCopied ? "bg-emerald-600 text-white" : "bg-primary hover:bg-primary/90 text-white shadow-xs"
+                  className={`h-full px-4 bg-primary hover:bg-primary-hover active:bg-primary text-white font-semibold text-[11.5px] flex items-center gap-1.5 transition-colors cursor-pointer ${
+                    isCopied ? "bg-emerald-600 hover:bg-emerald-600" : ""
                   }`}
+                  title="Copy prompt for current target"
                 >
-                  {isCopied ? <Check size={15} /> : <Copy size={15} />}
-                  <span>{isCopied ? "Copied to Clipboard!" : "Copy this Prompt"}</span>
+                  {isCopied ? (
+                    <>
+                      <Check size={13} strokeWidth={2.5} />
+                      <span>Copied!</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy size={13} />
+                      <span>Copy {selectedBatchIndex === -1 ? `All (${sentences.length})` : `B${selectedBatchIndex + 1}`}</span>
+                    </>
+                  )}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (selectedBatchIndex === -1) {
+                      setSelectedBatchIndex(0);
+                    } else if (selectedBatchIndex < batches.length - 1) {
+                      setSelectedBatchIndex(selectedBatchIndex + 1);
+                    }
+                  }}
+                  disabled={selectedBatchIndex >= batches.length - 1}
+                  className="h-full px-2.5 bg-primary hover:bg-primary-hover active:bg-primary text-white disabled:opacity-35 disabled:pointer-events-none transition-colors cursor-pointer border-l border-white/20 flex items-center justify-center"
+                  title="Next batch"
+                >
+                  <ChevronRight size={13} strokeWidth={2.5} />
                 </button>
               </div>
             </div>
           </div>
         </div>
       )}
-    </>
+    </div>
   );
 }

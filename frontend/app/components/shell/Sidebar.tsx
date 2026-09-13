@@ -1,9 +1,22 @@
- 
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
 import { useRouter, usePathname } from "next/navigation";
-import { FolderOpen, Sun, Moon, Plus, PanelLeftClose, PanelLeftOpen, Settings, MoreVertical } from "lucide-react";
+import { 
+  Folder, 
+  Sun, 
+  Moon, 
+  Plus, 
+  PanelLeftClose, 
+  PanelLeftOpen, 
+  Settings, 
+  MoreHorizontal, 
+  Pencil, 
+  Copy, 
+  Trash2, 
+  X, 
+  Film 
+} from "lucide-react";
 import { useProjectsListContext, useUIContext } from "../../context/ProjectContext";
 
 export default function Sidebar() {
@@ -89,58 +102,81 @@ export default function Sidebar() {
 
   return (
     <div 
-      className={`relative h-full flex flex-col bg-card border-r border-zinc-200/60 dark:border-zinc-800/40 text-card-foreground transition-all duration-300 ease-in-out z-20 overflow-hidden ${
+      className={`relative h-full flex flex-col bg-card border-r border-border text-card-foreground transition-all duration-200 ease-in-out z-20 overflow-hidden ${
         isCollapsed ? "w-16" : "w-64"
       }`}
     >
       {/* 1. Brand Header Bar */}
-      <div className="h-14 flex items-center shrink-0 border-b border-zinc-200/50 dark:border-zinc-800/50 w-full px-3 justify-between">
-        <span className={`text-lg font-semibold tracking-tight bg-gradient-to-r from-zinc-900 to-zinc-600 dark:from-zinc-100 dark:to-zinc-400 bg-clip-text text-transparent transition-all duration-200 whitespace-nowrap overflow-hidden ${
-          isCollapsed ? "opacity-0 w-0 pointer-events-none" : "opacity-100 w-auto"
-        }`}>
-          Studio
-        </span>
-        <button
-          onClick={toggleCollapse}
-          className="w-10 h-10 flex items-center justify-center text-zinc-500 hover:text-panel-icon dark:text-zinc-400 hover:bg-panel-header transition-colors rounded-xl shrink-0"
-          title={isCollapsed ? "Open sidebar" : "Close sidebar"}
-        >
-          {isCollapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
-        </button>
-      </div>
-
-      {/* 2. Symmetrical New Project Trigger */}
-      <div className="px-3 mt-4 shrink-0 w-full">
-        <button
-          onClick={() => setIsModalOpen(true)}
-          className="w-full h-10 flex items-center rounded-xl text-zinc-700 dark:text-zinc-300 hover:bg-panel-header hover:text-panel-icon transition-all group overflow-hidden px-0 shrink-0"
-          title="New Project"
-        >
-          <div className="w-10 h-10 flex items-center justify-center shrink-0">
-            <div className="w-6 h-6 rounded-full border border-zinc-300 dark:border-zinc-700 flex items-center justify-center text-zinc-500 dark:text-zinc-400 group-hover:border-panel-icon group-hover:text-panel-icon transition-colors">
-              <Plus size={14} />
+      <div className="h-14 flex items-center shrink-0 border-b border-border px-3.5 justify-between">
+        {!isCollapsed ? (
+          <>
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="w-7 h-7 rounded-lg bg-zinc-100 text-zinc-700 border border-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:border-zinc-700 flex items-center justify-center shadow-2xs shrink-0">
+                <Film size={14} strokeWidth={2} />
+              </div>
+              <span className="font-semibold text-[14px] tracking-tight text-foreground truncate">
+                Studio
+              </span>
             </div>
+            <button
+              onClick={toggleCollapse}
+              className="w-7 h-7 flex items-center justify-center text-panel-text hover:text-foreground hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-md transition-colors cursor-pointer shrink-0"
+              title="Collapse sidebar"
+            >
+              <PanelLeftClose size={15} strokeWidth={1.8} />
+            </button>
+          </>
+        ) : (
+          <div className="w-full flex items-center justify-center">
+            <button
+              onClick={toggleCollapse}
+              className="w-8 h-8 flex items-center justify-center text-panel-text hover:text-foreground hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-md transition-colors cursor-pointer"
+              title="Expand sidebar"
+            >
+              <PanelLeftOpen size={16} strokeWidth={1.8} />
+            </button>
           </div>
-          <span className={`text-[14px] font-medium tracking-tight transition-all duration-300 whitespace-nowrap ${
-            isCollapsed ? "opacity-0 translate-x-[-10px] pointer-events-none" : "opacity-100 translate-x-0"
-          }`}>
-            New Project
-          </span>
-        </button>
+        )}
       </div>
 
-      {/* 3. Symmetrical Project Timeline Navigation */}
-      <div className="flex-1 overflow-y-auto px-3 py-2 space-y-0.5 custom-scrollbar overflow-x-hidden w-full flex flex-col">
-        {/* Jitter-Free Header Field */}
-        <h3 className={`text-[11px] font-semibold text-panel-text uppercase tracking-wider px-3 mb-2 mt-4 transition-opacity duration-200 select-none whitespace-nowrap ${
-          isCollapsed ? "opacity-0 pointer-events-none" : "opacity-100 delay-150"
-        }`}>
-          Past Projects
-        </h3>
+      {/* 2. New Project Action Button */}
+      <div className="px-3 pt-3 pb-1 shrink-0 w-full">
+        {!isCollapsed ? (
+          <button
+            onClick={() => setIsModalOpen(true)}
+            className="w-full h-8.5 rounded-lg bg-zinc-100 hover:bg-zinc-200/85 text-zinc-800 hover:text-zinc-950 border border-zinc-200/90 dark:bg-zinc-800/90 dark:hover:bg-zinc-750 dark:text-zinc-200 dark:hover:text-zinc-100 dark:border-zinc-700/80 text-[13px] font-medium flex items-center justify-center gap-2 shadow-2xs transition-colors cursor-pointer"
+            title="Create New Project"
+          >
+            <Plus size={14} strokeWidth={2} />
+            <span>New Project</span>
+          </button>
+        ) : (
+          <div className="flex justify-center">
+            <button
+              onClick={() => setIsModalOpen(true)}
+              className="w-8 h-8 rounded-lg bg-zinc-100 hover:bg-zinc-200/85 text-zinc-800 hover:text-zinc-950 border border-zinc-200/90 dark:bg-zinc-800/90 dark:hover:bg-zinc-750 dark:text-zinc-200 dark:hover:text-zinc-100 dark:border-zinc-700/80 flex items-center justify-center shadow-2xs transition-colors cursor-pointer"
+              title="New Project"
+            >
+              <Plus size={15} strokeWidth={2} />
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* 3. Project Navigation */}
+      <div className="flex-1 overflow-y-auto px-2 py-1.5 space-y-0.5 custom-scrollbar overflow-x-hidden w-full flex flex-col">
+        {!isCollapsed && (
+          <div className="flex items-center justify-between px-2 pt-2.5 pb-1 text-[11px] font-medium text-panel-text/70 uppercase tracking-wider">
+            <span>Projects</span>
+            <span className="font-mono text-[11px] text-panel-text/50 tabular-nums">
+              {projectsList.length}
+            </span>
+          </div>
+        )}
         
         {projectsList.length === 0 ? (
           !isCollapsed && (
-            <p className="text-xs text-zinc-400 dark:text-zinc-500 px-3 py-2 italic animate-in fade-in duration-150">
+            <p className="text-xs text-panel-text/50 px-3 py-4 italic text-center">
               No projects yet
             </p>
           )
@@ -148,80 +184,93 @@ export default function Sidebar() {
           projectsList.map((project) => {
             const isActive = pathname === `/projects/${project.id}` || pathname?.startsWith(`/projects/${project.id}/`);
             return (
-              <div key={project.id} className="relative group shrink-0 w-full flex">
-                <button
-                  onClick={() => router.push(`/projects/${project.id}/brainstorming`)}
-                  className={`w-full h-10 flex items-center rounded-xl transition-all text-left relative overflow-hidden px-0 shrink-0 ${
-                    isActive
-                      ? "bg-panel-header text-panel-icon font-semibold shadow-2xs"
-                      : "text-zinc-600 dark:text-zinc-400 hover:bg-panel-header/50 hover:text-panel-text"
-                  }`}
-                  title={isCollapsed ? (project.title || project.slug || "Untitled") : undefined}
-                >
-                  {/* Perfect Symmetrical Base Grid Anchor */}
-                  <div className={`w-10 h-10 flex items-center justify-center shrink-0 transition-colors ${
-                    isActive ? "text-panel-icon" : "opacity-60 group-hover:opacity-100"
-                  }`}>
-                    <FolderOpen size={16} />
-                  </div>
-                  
-                  {renamingProjectId === project.id ? (
-                    <input
-                      autoFocus
-                      className={`text-[13.5px] flex-1 bg-transparent border-b border-zinc-400 dark:border-zinc-600 outline-none pr-6 ${
-                        isCollapsed ? "opacity-0 translate-x-[-10px] pointer-events-none" : "opacity-100 translate-x-0"
-                      }`}
-                      value={renamingTitle}
-                      onChange={(e) => setRenamingTitle(e.target.value)}
-                      onBlur={async () => {
-                        if (renamingTitle.trim() && renamingTitle !== (project.title || project.slug)) {
-                          await updateProject(project.id, { title: renamingTitle.trim() });
-                        }
-                        setRenamingProjectId(null);
-                      }}
-                      onKeyDown={async (e) => {
-                        if (e.key === "Enter") {
-                          e.stopPropagation();
+              <div key={project.id} className="relative group shrink-0 w-full">
+                {!isCollapsed ? (
+                  <div
+                    onClick={() => router.push(`/projects/${project.id}/brainstorming`)}
+                    className={`w-full h-8 flex items-center rounded-md text-left px-2.5 shrink-0 cursor-pointer transition-colors group ${
+                      isActive
+                        ? "bg-zinc-100 dark:bg-zinc-800/80 text-foreground font-medium"
+                        : "text-panel-text hover:text-foreground hover:bg-zinc-100/70 dark:hover:bg-zinc-800/40"
+                    }`}
+                    title={project.title || project.slug || "Untitled"}
+                  >
+                    <Folder 
+                      size={14} 
+                      strokeWidth={isActive ? 2 : 1.75}
+                      className={`shrink-0 mr-2.5 transition-colors ${
+                        isActive ? "text-foreground" : "opacity-60 group-hover:opacity-90"
+                      }`} 
+                    />
+                    
+                    {renamingProjectId === project.id ? (
+                      <input
+                        autoFocus
+                        className="text-[13px] flex-1 bg-background border border-primary/50 rounded px-1.5 py-0.5 outline-none text-foreground font-normal"
+                        value={renamingTitle}
+                        onChange={(e) => setRenamingTitle(e.target.value)}
+                        onBlur={async () => {
                           if (renamingTitle.trim() && renamingTitle !== (project.title || project.slug)) {
                             await updateProject(project.id, { title: renamingTitle.trim() });
                           }
                           setRenamingProjectId(null);
-                        } else if (e.key === "Escape") {
-                          e.stopPropagation();
-                          setRenamingProjectId(null);
-                        }
-                      }}
-                      onClick={(e) => e.stopPropagation()}
-                    />
-                  ) : (
-                    <span className={`truncate text-[13.5px] flex-1 transition-all duration-300 whitespace-nowrap pr-6 ${
-                      isCollapsed ? "opacity-0 translate-x-[-10px] pointer-events-none" : "opacity-100 translate-x-0"
-                    }`}>
-                      {project.title || project.slug || "Untitled"}
-                    </span>
-                  )}
+                        }}
+                        onKeyDown={async (e) => {
+                          if (e.key === "Enter") {
+                            e.stopPropagation();
+                            if (renamingTitle.trim() && renamingTitle !== (project.title || project.slug)) {
+                              await updateProject(project.id, { title: renamingTitle.trim() });
+                            }
+                            setRenamingProjectId(null);
+                          } else if (e.key === "Escape") {
+                            e.stopPropagation();
+                            setRenamingProjectId(null);
+                          }
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                    ) : (
+                      <span className="truncate text-[13px] flex-1 pr-1">
+                        {project.title || project.slug || "Untitled"}
+                      </span>
+                    )}
 
-                  {!isCollapsed && (
-                    <div 
-                      className="absolute right-2 opacity-0 group-hover:opacity-100 transition-opacity duration-150 p-1 rounded hover:bg-zinc-200 dark:hover:bg-zinc-800"
+                    <button 
+                      type="button"
+                      className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-zinc-200/70 dark:hover:bg-zinc-700/70 text-panel-text hover:text-foreground cursor-pointer shrink-0 ml-auto"
                       onClick={(e) => {
                         e.stopPropagation();
                         setOpenMenuId(openMenuId === project.id ? null : project.id);
                       }}
+                      title="More options"
                     >
-                      <MoreVertical size={14} className="text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 transition-colors" />
-                    </div>
-                  )}
-                </button>
+                      <MoreHorizontal size={14} />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex justify-center">
+                    <button
+                      onClick={() => router.push(`/projects/${project.id}/brainstorming`)}
+                      className={`w-8 h-8 flex items-center justify-center rounded-md transition-colors cursor-pointer ${
+                        isActive
+                          ? "bg-zinc-100 dark:bg-zinc-800/80 text-foreground"
+                          : "text-panel-text hover:text-foreground hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                      }`}
+                      title={project.title || project.slug || "Untitled"}
+                    >
+                      <Folder size={15} strokeWidth={isActive ? 2 : 1.75} />
+                    </button>
+                  </div>
+                )}
 
                 {/* Dropdown Menu Overlay */}
                 {openMenuId === project.id && !isCollapsed && (
                   <div 
                     ref={menuRef}
-                    className="absolute right-3 top-9 z-50 bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl shadow-xl p-1 w-32 text-[13px] animate-in fade-in zoom-in-95 duration-100"
+                    className="absolute right-2 top-8 z-50 bg-card border border-border rounded-lg shadow-xl p-1 w-34 text-[12.5px] animate-in fade-in zoom-in-95 duration-100 backdrop-blur-md"
                   >
-                    <div 
-                      className="hover:bg-zinc-50 dark:hover:bg-zinc-900 rounded-lg px-2.5 py-1.5 cursor-pointer text-zinc-700 dark:text-zinc-300"
+                    <button 
+                      className="w-full text-left hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded px-2.5 py-1.5 cursor-pointer text-foreground flex items-center gap-2 transition-colors"
                       onClick={(e) => {
                         e.stopPropagation();
                         setRenamingProjectId(project.id);
@@ -229,10 +278,11 @@ export default function Sidebar() {
                         setOpenMenuId(null);
                       }}
                     >
-                      Rename
-                    </div>
-                    <div 
-                      className="hover:bg-zinc-50 dark:hover:bg-zinc-900 rounded-lg px-2.5 py-1.5 cursor-pointer text-zinc-700 dark:text-zinc-300"
+                      <Pencil size={13} className="opacity-70" />
+                      <span>Rename</span>
+                    </button>
+                    <button 
+                      className="w-full text-left hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded px-2.5 py-1.5 cursor-pointer text-foreground flex items-center gap-2 transition-colors"
                       onClick={async (e) => {
                         e.stopPropagation();
                         setOpenMenuId(null);
@@ -242,10 +292,12 @@ export default function Sidebar() {
                         }
                       }}
                     >
-                      Duplicate
-                    </div>
-                    <div 
-                      className="text-red-600 hover:bg-red-50/60 dark:hover:bg-red-950/20 rounded-lg px-2.5 py-1.5 cursor-pointer font-medium"
+                      <Copy size={13} className="opacity-70" />
+                      <span>Duplicate</span>
+                    </button>
+                    <div className="my-1 border-t border-border/60" />
+                    <button 
+                      className="w-full text-left text-red-600 dark:text-red-400 hover:bg-red-500/10 rounded px-2.5 py-1.5 cursor-pointer font-medium flex items-center gap-2 transition-colors"
                       onClick={async (e) => {
                         e.stopPropagation();
                         setOpenMenuId(null);
@@ -257,8 +309,9 @@ export default function Sidebar() {
                         }
                       }}
                     >
-                      Delete
-                    </div>
+                      <Trash2 size={13} />
+                      <span>Delete</span>
+                    </button>
                   </div>
                 )}
               </div>
@@ -267,74 +320,121 @@ export default function Sidebar() {
         )}
       </div>
 
-      {/* 4. Symmetrical Footer Actions */}
-      <div className="p-3 border-t border-zinc-200/50 dark:border-zinc-800/50 flex flex-col gap-0.5 shrink-0 w-full">
-        <button
-          onClick={() => setIsSettingsOpen(true)}
-          className="w-full h-10 flex items-center rounded-xl text-[13.5px] text-zinc-600 dark:text-zinc-400 hover:bg-panel-header hover:text-panel-text transition-colors px-0 shrink-0"
-          title="Engine Settings"
-        >
-          <div className="w-10 h-10 flex items-center justify-center shrink-0">
-            <Settings size={16} className="opacity-70" />
+      {/* 4. Footer Actions */}
+      <div className="p-2 border-t border-border flex flex-col gap-1 shrink-0 w-full">
+        {!isCollapsed ? (
+          <>
+            <button
+              onClick={() => setIsSettingsOpen(true)}
+              className="w-full h-8 flex items-center gap-2.5 px-2.5 rounded-md text-[12.5px] font-medium text-panel-text hover:text-foreground hover:bg-zinc-100/80 dark:hover:bg-zinc-800/60 transition-colors cursor-pointer"
+              title="Engine Settings"
+            >
+              <Settings size={14} className="opacity-70 shrink-0" />
+              <span>Engine Settings</span>
+            </button>
+            
+            <div className="w-full h-8 flex items-center justify-between px-2.5 text-[12.5px]">
+              <span className="text-panel-text font-medium text-[12.5px]">Theme</span>
+              <div className="flex items-center p-0.5 bg-zinc-100 dark:bg-zinc-800 rounded-md border border-border/40">
+                <button
+                  type="button"
+                  onClick={() => setTheme("light")}
+                  className={`flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-medium transition-all cursor-pointer ${
+                    theme === "light"
+                      ? "bg-card text-foreground shadow-2xs font-semibold"
+                      : "text-panel-text hover:text-foreground"
+                  }`}
+                  title="Light mode"
+                >
+                  <Sun size={12} />
+                  <span>Light</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTheme("dark")}
+                  className={`flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-medium transition-all cursor-pointer ${
+                    theme === "dark"
+                      ? "bg-card text-foreground shadow-2xs font-semibold"
+                      : "text-panel-text hover:text-foreground"
+                  }`}
+                  title="Dark mode"
+                >
+                  <Moon size={12} />
+                  <span>Dark</span>
+                </button>
+              </div>
+            </div>
+          </>
+        ) : (
+          <div className="flex flex-col items-center gap-1 w-full">
+            <button
+              onClick={() => setIsSettingsOpen(true)}
+              className="w-8 h-8 flex items-center justify-center rounded-md text-panel-text hover:text-foreground hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer"
+              title="Engine Settings"
+            >
+              <Settings size={15} className="opacity-70" />
+            </button>
+            <button
+              onClick={toggleTheme}
+              className="w-8 h-8 flex items-center justify-center rounded-md text-panel-text hover:text-foreground hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer"
+              title={`Switch to ${theme === "dark" ? "Light" : "Dark"} Mode`}
+            >
+              {theme === "dark" ? <Sun size={15} className="text-amber-400" /> : <Moon size={15} />}
+            </button>
           </div>
-          <span className={`transition-all duration-300 whitespace-nowrap ${
-            isCollapsed ? "opacity-0 translate-x-[-10px] pointer-events-none" : "opacity-100 translate-x-0"
-          }`}>
-            Engine Settings
-          </span>
-        </button>
-        
-        <button
-          onClick={toggleTheme}
-          className="w-full h-10 flex items-center rounded-xl text-[13.5px] text-zinc-600 dark:text-zinc-400 hover:bg-panel-header hover:text-panel-text transition-colors px-0 shrink-0"
-          title="Toggle Theme"
-        >
-          <div className="w-10 h-10 flex items-center justify-center shrink-0">
-            {theme === "dark" ? <Sun size={16} className="opacity-70" /> : <Moon size={16} className="opacity-70" />}
-          </div>
-          <span className={`transition-all duration-300 whitespace-nowrap ${
-            isCollapsed ? "opacity-0 translate-x-[-10px] pointer-events-none" : "opacity-100 translate-x-0"
-          }`}>
-            {theme === "dark" ? "Light Mode" : "Dark Mode"}
-          </span>
-        </button>
+        )}
       </div>
 
       {/* New Project Creator Modal */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs">
-          <div className="bg-card border border-zinc-200/80 dark:border-zinc-800/80 p-6 rounded-2xl w-full max-w-md shadow-2xl animate-in fade-in zoom-in-95 duration-150">
-            <h2 className="text-lg font-semibold mb-4 tracking-tight text-card-foreground">Create New Project</h2>
+        <div 
+          onClick={() => setIsModalOpen(false)}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4 cursor-pointer"
+        >
+          <div 
+            onClick={(e) => e.stopPropagation()}
+            className="bg-card border border-border p-5 rounded-xl w-full max-w-md shadow-2xl animate-in fade-in zoom-in-95 duration-150 cursor-default"
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-[15px] font-semibold tracking-tight text-foreground">Create New Project</h2>
+              <button 
+                type="button" 
+                onClick={() => setIsModalOpen(false)}
+                className="text-panel-text hover:text-foreground p-1 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer"
+              >
+                <X size={15} />
+              </button>
+            </div>
             <form onSubmit={handleCreateProject}>
-              <div className="mb-4">
-                <label htmlFor="topic" className="block text-xs font-medium mb-2 text-zinc-500 uppercase tracking-wider">
-                  Topic Name
+              <div className="mb-5">
+                <label htmlFor="topic" className="block text-[11px] font-medium mb-1.5 text-panel-text uppercase tracking-wider">
+                  Project Topic / Title
                 </label>
                 <input
                   type="text"
                   id="topic"
                   value={newProjectTopic}
                   onChange={(e) => setNewProjectTopic(e.target.value)}
-                  className="w-full px-3 py-2 bg-background border border-zinc-200 dark:border-zinc-800 rounded-xl focus:outline-hidden focus:ring-1 focus:ring-primary text-sm text-foreground placeholder:text-zinc-400"
-                  placeholder="e.g., The History of Rome"
+                  className="w-full px-3 py-2 bg-background border border-border rounded-lg focus:outline-none focus:ring-1 focus:ring-zinc-400 dark:focus:ring-zinc-500 text-[13px] text-foreground placeholder:text-panel-text/40"
+                  placeholder="e.g. The History of Rome"
                   autoFocus
                   required
                 />
               </div>
-              <div className="flex justify-end gap-2 mt-6">
+              <div className="flex justify-end gap-2">
                 <button
                   type="button"
                   onClick={() => setIsModalOpen(false)}
-                  className="px-4 py-2 text-sm font-medium hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-xl transition-colors text-zinc-600 dark:text-zinc-400"
+                  className="px-3.5 py-1.5 text-[13px] font-medium border border-border hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg transition-colors text-panel-text hover:text-foreground cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={isCreating || !newProjectTopic.trim()}
-                  className="px-4 py-2 bg-primary text-white hover:bg-primary-hover transition-colors font-medium rounded-xl text-sm disabled:opacity-40"
+                  className="px-3.5 py-1.5 bg-zinc-900 text-zinc-50 hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200 transition-colors font-medium rounded-lg text-[13px] disabled:opacity-40 shadow-xs cursor-pointer"
                 >
-                  {isCreating ? "Creating..." : "Create"}
+                  {isCreating ? "Creating..." : "Create Project"}
                 </button>
               </div>
             </form>
@@ -344,60 +444,149 @@ export default function Sidebar() {
 
       {/* Settings Modal */}
       {isSettingsOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="bg-card border border-border p-6 rounded-xl w-96 text-card-foreground animate-in fade-in zoom-in-95 duration-150 shadow-2xl">
-            <h2 className="text-lg font-semibold mb-4 tracking-tight">Engine Settings</h2>
+        <div 
+          onClick={() => setIsSettingsOpen(false)}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 dark:bg-black/60 backdrop-blur-xs p-4 cursor-pointer"
+        >
+          <div 
+            onClick={(e) => e.stopPropagation()}
+            className="bg-card border border-border p-5 rounded-2xl w-full max-w-md text-foreground animate-in fade-in zoom-in-95 duration-150 shadow-2xl cursor-default flex flex-col gap-4"
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between pb-3 border-b border-border/60">
+              <div className="flex items-center gap-2.5">
+                <div className="w-7 h-7 rounded-lg bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center text-panel-text border border-border/40 shrink-0">
+                  <Settings size={14} strokeWidth={1.8} />
+                </div>
+                <div>
+                  <h2 className="text-[14.5px] font-semibold tracking-tight text-foreground">Engine Settings</h2>
+                  <p className="text-[11px] text-panel-text">Configure inference and image generation engines</p>
+                </div>
+              </div>
+              <button 
+                type="button" 
+                onClick={() => setIsSettingsOpen(false)}
+                className="text-panel-text hover:text-foreground p-1 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer"
+                title="Close"
+              >
+                <X size={15} />
+              </button>
+            </div>
             
-            <div className="space-y-4">
-              <div>
-                <label className="block text-xs font-medium mb-2 text-zinc-500 uppercase tracking-wider">Provider Choice</label>
-                <select 
-                  value={provider}
-                  onChange={(e) => setProvider(e.target.value as "gemini" | "groq")}
-                  className="w-full px-3 py-2 bg-background border border-zinc-200 dark:border-zinc-800 rounded-xl focus:outline-none focus:ring-1 focus:ring-primary text-sm text-foreground"
-                >
-                  <option value="gemini">Google Gemini</option>
-                  <option value="groq">Groq Engine</option>
-                </select>
+            {/* Setting Rows */}
+            <div className="space-y-2.5 py-1">
+              {/* Row 1: LLM Provider */}
+              <div className="flex items-center justify-between gap-3 p-3 rounded-xl bg-background/60 border border-border/50">
+                <div>
+                  <div className="text-[12.5px] font-medium text-foreground">LLM Provider</div>
+                  <div className="text-[11px] text-panel-text">Inference engine for scripts</div>
+                </div>
+                <div className="flex items-center p-0.5 bg-zinc-100 dark:bg-zinc-800/90 rounded-lg border border-border/60 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setProvider("gemini")}
+                    className={`px-3 py-1 rounded-md text-[11.5px] font-medium transition-all cursor-pointer ${
+                      provider === "gemini"
+                        ? "bg-card text-foreground shadow-2xs font-semibold"
+                        : "text-panel-text hover:text-foreground"
+                    }`}
+                  >
+                    Gemini
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setProvider("groq")}
+                    className={`px-3 py-1 rounded-md text-[11.5px] font-medium transition-all cursor-pointer ${
+                      provider === "groq"
+                        ? "bg-card text-foreground shadow-2xs font-semibold"
+                        : "text-panel-text hover:text-foreground"
+                    }`}
+                  >
+                    Groq
+                  </button>
+                </div>
               </div>
 
-              <div>
-                <label className="block text-xs font-medium mb-2 text-zinc-500 uppercase tracking-wider">API Key Slot</label>
-                <select 
-                  value={slot}
-                  onChange={(e) => setSlot(Number(e.target.value) as 1 | 2)}
-                  className="w-full px-3 py-2 bg-background border border-zinc-200 dark:border-zinc-800 rounded-xl focus:outline-none focus:ring-1 focus:ring-primary text-sm text-foreground"
-                >
-                  <option value={1}>Key Slot 1</option>
-                  <option value={2}>Key Slot 2</option>
-                </select>
+              {/* Row 2: API Key Slot */}
+              <div className="flex items-center justify-between gap-3 p-3 rounded-xl bg-background/60 border border-border/50">
+                <div>
+                  <div className="text-[12.5px] font-medium text-foreground">API Key Slot</div>
+                  <div className="text-[11px] text-panel-text">Credential slot</div>
+                </div>
+                <div className="flex items-center p-0.5 bg-zinc-100 dark:bg-zinc-800/90 rounded-lg border border-border/60 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setSlot(1)}
+                    className={`px-3 py-1 rounded-md text-[11.5px] font-medium transition-all cursor-pointer ${
+                      slot === 1
+                        ? "bg-card text-foreground shadow-2xs font-semibold"
+                        : "text-panel-text hover:text-foreground"
+                    }`}
+                  >
+                    Slot 1
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSlot(2)}
+                    className={`px-3 py-1 rounded-md text-[11.5px] font-medium transition-all cursor-pointer ${
+                      slot === 2
+                        ? "bg-card text-foreground shadow-2xs font-semibold"
+                        : "text-panel-text hover:text-foreground"
+                    }`}
+                  >
+                    Slot 2
+                  </button>
+                </div>
               </div>
 
-              <div>
-                <label className="block text-xs font-medium mb-2 text-zinc-500 uppercase tracking-wider">Image Synthesis Engine</label>
-                <select 
-                  value={imageProvider}
-                  onChange={(e) => setImageProvider(e.target.value as "local" | "flow")}
-                  className="w-full px-3 py-2 bg-background border border-zinc-200 dark:border-zinc-800 rounded-xl focus:outline-none focus:ring-1 focus:ring-primary text-sm text-foreground"
-                >
-                  <option value="local">🖥️ Local (Draw Things)</option>
-                  <option value="flow">🌊 Google Flow (MCP)</option>
-                </select>
+              {/* Row 3: Image Synthesis Engine */}
+              <div className="flex items-center justify-between gap-3 p-3 rounded-xl bg-background/60 border border-border/50">
+                <div>
+                  <div className="text-[12.5px] font-medium text-foreground">Image Synthesis</div>
+                  <div className="text-[11px] text-panel-text">Local instance or Google Flow</div>
+                </div>
+                <div className="flex items-center p-0.5 bg-zinc-100 dark:bg-zinc-800/90 rounded-lg border border-border/60 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setImageProvider("local")}
+                    className={`px-2.5 py-1 rounded-md text-[11.5px] font-medium transition-all cursor-pointer ${
+                      imageProvider === "local"
+                        ? "bg-card text-foreground shadow-2xs font-semibold"
+                        : "text-panel-text hover:text-foreground"
+                    }`}
+                  >
+                    Draw Things
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setImageProvider("flow")}
+                    className={`px-2.5 py-1 rounded-md text-[11.5px] font-medium transition-all cursor-pointer ${
+                      imageProvider === "flow"
+                        ? "bg-card text-foreground shadow-2xs font-semibold"
+                        : "text-panel-text hover:text-foreground"
+                    }`}
+                  >
+                    Google Flow
+                  </button>
+                </div>
               </div>
             </div>
 
-            <div className="flex justify-end gap-2 mt-6">
+            {/* Footer */}
+            <div className="flex justify-end gap-2 pt-3 border-t border-border/60">
               <button
+                type="button"
                 onClick={() => setIsSettingsOpen(false)}
-                className="px-4 py-2 text-sm font-medium hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-xl transition-colors text-zinc-600 dark:text-zinc-400"
+                className="px-3.5 py-1.5 text-[12.5px] font-medium text-panel-text hover:text-foreground hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg transition-colors cursor-pointer"
               >
                 Cancel
               </button>
               <button
+                type="button"
                 onClick={handleSaveSettings}
-                className="px-4 py-2 bg-primary text-white hover:bg-primary-hover transition-colors font-medium rounded-xl text-sm"
+                className="px-4 py-1.5 bg-zinc-100 hover:bg-zinc-200/85 text-zinc-800 hover:text-zinc-950 border border-zinc-200/90 dark:bg-zinc-800/90 dark:hover:bg-zinc-750 dark:text-zinc-100 dark:border-zinc-700/80 font-medium rounded-lg text-[12.5px] shadow-2xs transition-colors cursor-pointer"
               >
-                Save Configuration
+                Save Changes
               </button>
             </div>
           </div>
