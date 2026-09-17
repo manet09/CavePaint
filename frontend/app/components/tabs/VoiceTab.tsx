@@ -936,18 +936,6 @@ export default function VoiceTab({ activeProject, refreshProjectData }: VoiceTab
                       </div>
                     </div>
 
-                    {/* Voice Blueprint Summary Pill */}
-                    <div className="p-2 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-between gap-2">
-                      <div className="overflow-hidden flex-1 min-w-0">
-                        <span className="text-[9px] font-bold uppercase tracking-wider text-primary block truncate">
-                          Blueprint: {gender} • {age} • {tone} Tone • {speed} Speed
-                        </span>
-                      </div>
-                      <span className="text-[9px] text-emerald-600 dark:text-emerald-400 font-extrabold px-1.5 py-0.2 rounded-full bg-emerald-500/10 border border-emerald-500/20 shrink-0">
-                        Ready
-                      </span>
-                    </div>
-
                   </div>
                 )}
 
@@ -1045,7 +1033,11 @@ export default function VoiceTab({ activeProject, refreshProjectData }: VoiceTab
                     type="button"
                     onClick={handleSaveCharacter}
                     disabled={isSavingChar || !newCharName.trim() || !hasGeneratedPreview}
-                    className="w-full py-2.5 bg-primary hover:bg-primary-hover text-white text-[11px] font-bold uppercase tracking-wider rounded-lg flex items-center justify-center gap-1.5 transition-colors disabled:bg-zinc-100 dark:disabled:bg-zinc-850 disabled:text-panel-text disabled:border disabled:border-border/50 disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer shadow-2xs"
+                    className={`w-full py-2.5 text-[11px] font-bold uppercase tracking-wider rounded-lg flex items-center justify-center gap-1.5 transition-all ${
+                      isSavingChar || !newCharName.trim() || !hasGeneratedPreview
+                        ? "bg-zinc-900/60 dark:bg-zinc-900/80 text-zinc-500 dark:text-zinc-500 border border-zinc-800/80 dark:border-zinc-800/80 cursor-not-allowed"
+                        : "bg-primary hover:bg-primary-hover text-white cursor-pointer shadow-2xs"
+                    }`}
                   >
                     {isSavingChar ? (
                       <>
