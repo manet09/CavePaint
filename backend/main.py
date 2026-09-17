@@ -138,6 +138,16 @@ class ProjectOut(ProjectBase):
 class SceneRefine(BaseModel):
     user_instruction: str
 
+class FlowAdjustPayload(BaseModel):
+    instruction: str
+    reference_image: Optional[str] = None
+    refine_prompt_text: bool = False
+    generate_image: bool = True
+    model: Optional[str] = "nano2"
+    aspect_ratio: Optional[str] = "16:9"
+    count: Optional[int] = 1
+    image_provider: Optional[str] = "flow"
+
 class GenerateFieldPayload(BaseModel):
     field_name: str
 
@@ -485,6 +495,28 @@ async def delete_project(project_id: int, db: Session = Depends(get_db)):
     return {"status": "success", "message": "Project and associated scenes deleted"}
 
 
+def mirror_canonical_scene_image(project_slug: str, scene_number: int, active_rel_path: Optional[str]):
+    """
+    Maintains a deterministic canonical file workspace/<slug>/scene_XXX.png pointing to the
+    currently active variation, so downstream video editing automation tools can load scenes directly.
+    """
+    proj_dir = os.path.join(workspace_dir, project_slug)
+    canonical_file = os.path.join(proj_dir, f"scene_{scene_number:03d}.png")
+    if active_rel_path:
+        src = os.path.join(workspace_dir, active_rel_path)
+        if os.path.exists(src):
+            try:
+                shutil.copyfile(src, canonical_file)
+            except Exception as e:
+                print(f"Error mirroring canonical scene image: {e}")
+    else:
+        if os.path.exists(canonical_file):
+            try:
+                os.remove(canonical_file)
+            except Exception:
+                pass
+
+
 def sync_project_json(project_id: int, db: Session):
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
@@ -496,7 +528,9 @@ def sync_project_json(project_id: int, db: Session):
             "scene_number": s.scene_number,
             "narration_khmer": s.narration_khmer,
             "image_prompt_english": s.image_prompt_english,
-            "negative_prompt": s.negative_prompt
+            "negative_prompt": s.negative_prompt,
+            "image_path": s.image_path,
+            "audio_path": s.audio_path
         })
     project.structured_json_data = json.dumps(clean_json_array, indent=2)
     db.commit()
@@ -775,6 +809,126 @@ def refine_image_prompt_endpoint(scene_id: int, payload: SceneRefine, db: Sessio
     }
 
 
+@app.post("/api/scenes/{scene_id}/flow-adjust")
+async def flow_adjust_scene_endpoint(scene_id: int, payload: FlowAdjustPayload, db: Session = Depends(get_db)):
+    # 1. Fetch target scene
+    scene = db.query(Scene).filter(Scene.id == scene_id).first()
+    if not scene:
+        raise HTTPException(status_code=404, detail="Target scene structure not found.")
+
+    # 2. Extract parent project context
+    project = db.query(Project).filter(Project.id == scene.project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Parent project context not found.")
+
+    current_positive = scene.image_prompt_english or ""
+    current_narration = scene.narration_khmer or ""
+    current_negative = scene.negative_prompt or ""
+    global_style = project.illustration_style or "Minimalist 2D flat vector stickman doodle illustration, bold black marker outlines, solid flat colors, seamless studio pure white background"
+    video_concept = project.video_concept or ""
+    theme_era = project.theme_era or ""
+    scene_staging = project.scene_staging or "studio"
+
+    # Always persist user refinement instruction
+    scene.user_refinement_prompt = payload.instruction
+    change_summary = f"Flow Scene Adjustment: {payload.instruction}"
+
+    # Only mutate the base visual prompt and Khmer script if explicitly requested (e.g. Refine Text Only)
+    if payload.refine_prompt_text:
+        from .services.llm.orchestrators.refinement import refine_scene_prompt_and_script
+        result = refine_scene_prompt_and_script(
+            db=db,
+            existing_prompt=current_positive,
+            existing_narration=current_narration,
+            existing_negative_prompt=current_negative,
+            user_instruction=payload.instruction,
+            global_style=global_style,
+            video_concept=video_concept,
+            theme_era=theme_era,
+            scene_staging=scene_staging
+        )
+        scene.image_prompt_english = result.get("image_prompt_english", current_positive)
+        scene.narration_khmer = result.get("narration_khmer", current_narration)
+        scene.negative_prompt = result.get("negative_prompt_english", current_negative)
+        change_summary = result.get("change_summary", "Refined prompt and narration text.")
+
+    try:
+        db.commit()
+        db.refresh(scene)
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Database state commitment failure: {str(e)}")
+
+    sync_project_json(scene.project_id, db)
+
+    # 3. Resolve active reference image from clicked variant or scene active frame
+    from .services.flow_engine import find_flow_asset_for_image
+    ref_image_path = payload.reference_image or scene.image_path
+    resolved_refs = None
+    ref_asset_name = None
+
+    if ref_image_path:
+        asset_info = find_flow_asset_for_image(ref_image_path)
+        if asset_info:
+            ref_asset_name = asset_info.get("display_name")
+        
+        # Resolve to absolute local file path for flow.google.com compatibility
+        if os.path.isabs(ref_image_path) and os.path.exists(ref_image_path):
+            resolved_refs = [ref_image_path]
+        else:
+            full_ref = os.path.join(workspace_dir, ref_image_path)
+            if os.path.exists(full_ref):
+                resolved_refs = [full_ref]
+            else:
+                resolved_refs = [ref_image_path]
+
+    # 4. Trigger immediate image generation via Flow MCP / queue
+    generating = False
+    if payload.generate_image:
+        if ref_asset_name:
+            gen_prompt = f"Using reference visual '{ref_asset_name}': {payload.instruction}. Base style: {scene.image_prompt_english}"
+        else:
+            gen_prompt = f"{scene.image_prompt_english}. Change: {payload.instruction}"
+
+        task_payload = {
+            "prompt": gen_prompt,
+            "instruction": payload.instruction,
+            "style": project.illustration_style,
+            "negative_prompt": scene.negative_prompt,
+            "aspect_ratio": payload.aspect_ratio or project.aspect_ratio or "16:9",
+            "guidance_scale": 7.5,
+            "inference_steps": 10,
+            "model": payload.model or "nano2",
+            "count": payload.count or 1,
+            "image_provider": payload.image_provider or "flow",
+            "reference_images": resolved_refs,
+        }
+
+        task = GenerationTask(
+            task_type="image",
+            project_id=scene.project_id,
+            scene_id=scene.id,
+            payload=task_payload
+        )
+        await task_queue.put(task)
+        scene.image_status = "processing"
+        db.commit()
+        generating = True
+
+    return {
+        "status": "success",
+        "scene_id": scene.id,
+        "image_prompt_english": scene.image_prompt_english,
+        "narration_khmer": scene.narration_khmer,
+        "negative_prompt_english": scene.negative_prompt,
+        "reference_image": ref_image_path,
+        "referenced_asset_name": ref_asset_name,
+        "change_summary": change_summary,
+        "generating": generating
+    }
+
+
+
 @app.post("/api/scenes/{scene_id}/generate-image")
 async def generate_scene_image(scene_id: int, payload: ImageGeneratePayload, db: Session = Depends(get_db)):
     scene = db.query(Scene).filter(Scene.id == scene_id).first()
@@ -855,6 +1009,9 @@ async def upload_scene_image(scene_id: int, file: UploadFile = File(...), db: Se
     db.add(generation)
     db.commit()
 
+    mirror_canonical_scene_image(project.slug, scene.scene_number, rel_path)
+    sync_project_json(scene.project_id, db)
+
     return {
         "status": "success",
         "image_path": rel_path,
@@ -866,6 +1023,7 @@ async def set_active_scene_image(scene_id: int, payload: SetActiveImagePayload, 
     scene = db.query(Scene).filter(Scene.id == scene_id).first()
     if not scene:
         raise HTTPException(status_code=404, detail="Scene not found")
+    project = db.query(Project).filter(Project.id == scene.project_id).first()
 
     try:
         current_images = json.loads(scene.images_list) if scene.images_list else []
@@ -880,6 +1038,10 @@ async def set_active_scene_image(scene_id: int, payload: SetActiveImagePayload, 
     scene.image_status = "completed"
     db.commit()
 
+    if project:
+        mirror_canonical_scene_image(project.slug, scene.scene_number, scene.image_path)
+        sync_project_json(scene.project_id, db)
+
     return {
         "status": "success",
         "image_path": scene.image_path,
@@ -891,6 +1053,7 @@ async def delete_scene_image_variant(scene_id: int, image_path: str, db: Session
     scene = db.query(Scene).filter(Scene.id == scene_id).first()
     if not scene:
         raise HTTPException(status_code=404, detail="Scene not found")
+    project = db.query(Project).filter(Project.id == scene.project_id).first()
 
     full_path = os.path.join(workspace_dir, image_path)
     if os.path.exists(full_path):
@@ -914,6 +1077,11 @@ async def delete_scene_image_variant(scene_id: int, image_path: str, db: Session
             scene.image_status = "idle"
 
     db.commit()
+
+    if project:
+        mirror_canonical_scene_image(project.slug, scene.scene_number, scene.image_path)
+        sync_project_json(scene.project_id, db)
+
     return {
         "status": "success",
         "image_path": scene.image_path,

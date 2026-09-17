@@ -45,9 +45,12 @@ flowchart TD
     end
 
     subgraph ProductionPipeline ["4. Production Engine (Tabs 2-4)"]
-        SceneBuilder --> ImagesTab["Images Tab (Draw Things & Google Flow MCP)"]
+        SceneBuilder --> ImagesTab["Images Tab (Scene Director & Flow Studio)"]
         SceneBuilder --> VoiceTab["Voice Tab (VoxCPM2 Khmer Audio)"]
-        ImagesTab --> OutputTab["Output Tab (Final Timeline Review)"]
+        ImagesTab <-->|Two-Way Reactive Sync: Prompts & Khmer Scripts| BrainstormingStudio["Brainstorming Tab (Storyboard Deck)"]
+        ImagesTab -->|Talk Directly to Flow: LLM Refinement + Flow MCP| FlowRender["Google Flow MCP (:8765)"]
+        FlowRender -->|New Variation + Canonical Mirror: scene_XXX.png| ImagesTab
+        ImagesTab --> OutputTab["Output Tab (Final Timeline & Video Automation Manifest)"]
         VoiceTab --> OutputTab
     end
 ```
@@ -117,8 +120,9 @@ Represents an individual slice/shot in the video timeline.
 * `image_prompt_english` (`Text`): Positive Stable Diffusion prompt in English.
 * `negative_prompt` (`Text`): Negative Stable Diffusion prompt constraints.
 * `user_refinement_prompt` (`Text`): Natural language prompt edit history.
-* `image_path` (`String`): Relative path to active rendered image (e.g., `<slug>/scene_001.png`).
-* `images_list` (`Text`, Nullable): JSON-stringified array of relative paths for all generated or uploaded variants (e.g., `["slug/scene_001.png", "slug/scene_001_v2.png"]`).
+* `image_path` (`String`): Relative path to the currently selected active rendered image (e.g., `<slug>/scene_001_v01_1741912345.png`).
+* `images_list` (`Text`, Nullable): JSON-stringified array of relative paths for all generated variations or uploaded assets (e.g., `["<slug>/scene_001_v01_1741912345.png", "<slug>/scene_001_v02_1741912450.png"]`).
+* **Canonical Video Editing Mirror**: To ensure downstream video editing tools (Remotion, FFmpeg, CapCut automation) can deterministically bind timeline shots without parsing variant timestamps, the backend automatically copies/mirrors the active variation to `workspace/<slug>/scene_{scene_number:03d}.png` whenever an image is generated, uploaded, or set active.
 * `reference_images` (`Text`, Nullable): JSON-stringified array of relative paths for reference images attached to this scene for conditioning.
 * `image_status` (`String`): `idle`, `processing`, `completed`, or `failed`.
 * `audio_path` (`String`): Relative path to scene audio (e.g., `<slug>/scene_001.wav`).
@@ -223,6 +227,39 @@ flowchart TD
 * **Model Selection**: Supports `nano2` (Nano Banana 2) and `nano-pro` (Nano Banana Pro).
 * **Manual Uploads & Variant Management**: Users can directly upload `.png`, `.jpg`, or `.webp` files, promote any variant to the active canvas, or promote any variant to a reference image.
 
+#### 5.3.3 Talk Directly to Flow (Scene Copilot) & Prompt Change Architecture
+To balance fast manual tweaks with creative AI direction, CavePaint implements two distinct operational modes for prompt and script changes:
+
+1. **Direct Manual Mode (Zero LLM / Direct DB Sync)**:
+   * Next.js does **not** call any LLM or rephrase text when you edit text fields directly.
+   * Modifying **Voiceover (Khmer)**, **Stickman Visual Prompt (English)**, or **Exclusions** in either the Images tab or Brainstorming tab auto-saves directly to SQLite via `PUT /api/scenes/{id}`.
+   * `ProjectDataContext` maintains real-time state in memory, guaranteeing **instant two-way synchronization** between the Brainstorming tab and the Images tab without page reloads.
+
+2. **Conversational Copilot Mode ("Talk Directly to Flow")**:
+   * Designed for iterative scene adjustments (e.g. *"Make the mammoth friendly, put a stickman rider on top holding a torch, and update the voiceover to match"*).
+   * **Execution Pipeline**:
+     1. The user inputs natural language instructions into the Scene Copilot bar.
+     2. Next.js dispatches `POST /api/scenes/{id}/flow-adjust` to the FastAPI backend (no client-side LLM calls).
+     3. The backend orchestrator (`backend/services/llm/orchestrators/refinement.py`) queries the active provider (Gemini 2.5 Flash or Groq) with:
+        * Current positive prompt (`image_prompt_english`)
+        * Current Khmer narration (`narration_khmer`)
+        * Current negative constraints (`negative_prompt`)
+        * Global project parameters (Video concept, Era, Staging mode, Aspect ratio)
+        * User's adjustment instruction
+     4. The LLM produces a structured JSON output:
+        * Refined stickman visual prompt adhering to 2D flat vector rules.
+        * Harmonized Khmer voiceover matching the new action.
+        * Updated negative constraints.
+        * A 1-sentence plain English change summary.
+     5. The backend commits these updates to `Scene` and parent `structured_json_data`, instantly broadcasting updates to both tabs.
+     6. If `generate_image=True`, the backend immediately drops an image generation task into `queue_worker.py`, instructing Google Flow MCP to render a new variation using the refined prompt.
+     7. The resulting file is saved as `scene_{scene_number:03d}_v{var:02d}_{ts}.png`, registered in `images_list`, set as `scene.image_path`, and mirrored to the canonical `scene_{scene_number:03d}.png`.
+
+3. **Video Editing Automation Architecture**:
+   * **Standardized Variations**: Every generation or upload is stored as `scene_{scene_number:03d}_v{var_num:02d}_{ts}.png` to prevent browser caching collisions and preserve timeline history.
+   * **Canonical File Mirroring**: The currently selected active variation is automatically copied to `workspace/<slug>/scene_{scene_number:03d}.png`. Automated video editing tools (Remotion, FFmpeg, CapCut) can unconditionally load `scene_001.png`, `scene_002.png`, etc. without requiring timestamp parsing.
+   * **Timeline Manifest (`structured_json_data`)**: The project JSON includes `scene_number`, `narration_khmer`, `image_prompt_english`, `negative_prompt`, `image_path`, and `audio_path` for seamless downstream timeline rendering.
+
 ### 5.4 Local Khmer Voice Engine (`backend/services/voice_engine.py`)
 * Uses `ravuthz/VoxCPM2-khmer` with automatic 60-second idle VRAM unloading (`torch.mps.empty_cache()` / `torch.cuda.empty_cache()`).
 * Injects sentence punctuation (`។`) and an acoustic silence cushion (0.20s).
@@ -250,12 +287,13 @@ flowchart TD
 | `POST` | `/api/projects/{id}/reset-voice` | Clear all generated audio files and reset voice seed for project. |
 | `PUT` | `/api/scenes/{id}` | Update scene prompts, narration, or notes. |
 | `POST` | `/api/scenes/{id}/refine` | AI-rewrite image positive & negative prompts with user instructions. |
+| `POST` | `/api/scenes/{id}/flow-adjust` | Scene Copilot: Refines English stickman prompt, adjusts Khmer voiceover via backend LLM, commits to SQLite (syncing Brainstorming tab), and enqueues Google Flow MCP generation. |
 | `POST` | `/api/scenes/{id}/generate-image` | Enqueue image generation task (accepts optional `?model=nano2&count=1`). |
 | `POST` | `/api/scenes/{id}/stop` | Interrupt active image generation. |
 | `DELETE` | `/api/scenes/{id}/image` | Delete active scene image file and reset scene status. |
-| `POST` | `/api/scenes/{id}/upload-image` | Direct manual image file upload (PNG/JPG/WEBP); adds to variants and sets active. |
-| `PUT` | `/api/scenes/{id}/set-active-image` | Promote a specific image variant to become the primary `image_path`. |
-| `DELETE` | `/api/scenes/{id}/image-variant` | Delete a specific variant file from disk and remove from `images_list`. |
+| `POST` | `/api/scenes/{id}/upload-image` | Direct manual image file upload (PNG/JPG/WEBP); adds to variants, mirrors to `scene_XXX.png`, and sets active. |
+| `PUT` | `/api/scenes/{id}/set-active-image` | Promote a specific image variant to become primary `image_path` and mirror to canonical `scene_XXX.png`. |
+| `DELETE` | `/api/scenes/{id}/image-variant` | Delete a specific variant file from disk, update `images_list`, and re-mirror active variant to `scene_XXX.png`. |
 | `POST` | `/api/scenes/{id}/reference-image` | Upload a reference conditioning image for image-to-image synthesis. |
 | `DELETE` | `/api/scenes/{id}/reference-image` | Remove a reference image from scene conditioning tray. |
 | `POST` | `/api/scenes/{id}/generate-audio` | Enqueue single scene audio generation task. |
@@ -284,7 +322,7 @@ flowchart TD
 * **`ProjectContext`**: Unified facade hook combining all contexts.
 
 ### 7.2 Studio Production Tabs
-1. **Brainstorming Tab (`OverviewTab.tsx` / Brainstorming)**:
+1. **Brainstorming Tab (`BrainstormingTab.tsx`)**:
    * **Left Panel (Script & Theme Studio)**:
      * Khmer narrative script input textarea with live sentence counter.
      * Selectable Era chips (Ancient, Medieval, 90s, Modern, Sci-Fi, Dystopian).
@@ -297,17 +335,20 @@ flowchart TD
      * **Import Mode Toggle**: `[ Append ]` vs `[ Replace All ]`.
      * **"📥 Ingest into Timeline" Button**.
      * Live Storyboard Scene Cards showing Scene #, Khmer Line, and English Stickman Prompt with direct editing capabilities.
-2. **Images Tab (`ImagesTab.tsx`)**:
-   * **Engine Toggle**: Instant hot-swap button between `🖥️ Local (Draw Things)` and `🌊 Google Flow (MCP)` in the top toolbar.
-   * **Flow Controls**: Model dropdown (`Nano Banana 2`, `Nano Banana Pro`), batch count chips (`1`, `2`, `3`, `4`), and live daemon health indicator (`Ready` / `Offline`).
-   * **Viewfinder Canvas**: Direct file upload button, drag-and-drop file target directly onto the canvas, aspect ratio controls, and Lightbox inspection.
-   * **Multi-Image Variant Strip**: Horizontal gallery below the canvas displaying all rendered and uploaded variants for the active scene.
-     * **Active Badge**: Highlights current active frame.
-     * **Click to Activate**: Promote any variant to primary active canvas image.
-     * **"📌 Ref" Button**: One-click promotion of any variant into the reference conditioning tray.
-     * **Trash Button**: Permanently delete unneeded variants.
-   * **Multi-Reference Conditioning Tray**: Horizontal shelf showing active reference images with quick remove chips and an **"+ Add Reference"** file uploader.
-   * **Prompt Studio**: Positive and negative prompt editors, plus the AI natural language refinement assistant.
+2. **Images Tab (`ImagesTab.tsx` — Unboxed 2-Column Architecture)**:
+   * **Design Philosophy**: Replaces the cramped 3-column "boxes-in-boxes" layout with a clean, breathable 2-column workspace matching the visual language of the Brainstorming tab.
+   * **Left Column: Scene Director & Copilot**:
+     * **Scene Navigator Bar**: `< Scene #01 / 10 >` with status indicator (`✓` when rendered) and a horizontal strip of quick scene jump pills (`#01 ✓`, `#02 ✓`, `#03`...).
+     * **Voiceover (Khmer)**: Unboxed auto-resizing textarea for the Khmer voiceover sentence. Auto-saves directly to SQLite and syncs to Brainstorming tab instantly.
+     * **Stickman Visual Prompt (English)**: Unboxed monospace auto-resizing textarea for positive prompt. Auto-saves directly to SQLite and syncs to Brainstorming tab instantly.
+     * **Exclusions (Negative Constraints)**: Collapsible accordion matching Brainstorming tab exclusions.
+     * **Reference Images Shelf**: Inline tags with `+ Add Ref` uploader.
+     * **"Talk Directly to Flow" (Scene Copilot)**: Dedicated natural language adjustment interface. Users type ideas (e.g. *"Add a torch to stickman, make mammoth friendly, and tweak voiceover"*); backend Gemini refines the prompt and Khmer script, updates both tabs, and instructs Google Flow MCP to render a new variation. Features `Adjust & Generate (Flow)` and `Refine Text Only` actions.
+   * **Right Column: Render Studio & Variations**:
+     * **Top Control Strip**: Sleek pill selectors matching Brainstorming tab (Aspect Ratio, Flow Model, Batch Count 1-4, Flow Daemon Online & Auth status, Engine switcher).
+     * **Render Output Frame**: Clean viewport displaying the active scene frame with Lightbox zoom modal, drag-and-drop file upload, and animated generation progress.
+     * **Variations Strip**: Horizontal gallery displaying all rendered and uploaded variants (`V1`, `V2`, `V3`...) for the active scene. Features an active checkmark ring, click-to-activate (which also mirrors to canonical `scene_XXX.png`), delete variant button, and pin-as-reference button.
+     * **Action Footer**: Primary `Generate Frame (Flow)` and `Clear Frames` actions.
 3. **Voice Tab (`VoiceTab.tsx`)**:
    * Character profile library and Voice Factory (Audition generator & Clone uploader).
    * Timeline audio speaker mapping and batch voice generation.

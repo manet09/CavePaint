@@ -1,6 +1,7 @@
 import os
 import json
 import asyncio
+import shutil
 from dataclasses import dataclass
 from typing import Optional
 from .database import SessionLocal, Scene, Project, Character, Setting, Generation
@@ -48,6 +49,7 @@ async def process_task(task: GenerationTask):
                 if image_provider == "flow":
                     model = task.payload.get("model", "nano2")
                     count = int(task.payload.get("count", 1))
+                    instructions = task.payload.get("instruction") or task.payload.get("instructions")
 
                     # Resolve reference images
                     refs = []
@@ -69,7 +71,8 @@ async def process_task(task: GenerationTask):
                             model=model,
                             count=count,
                             reference_images=refs,
-                            flow_project_id=project.flow_project_id
+                            flow_project_id=project.flow_project_id,
+                            instructions=instructions
                         )
                     )
 
@@ -115,6 +118,16 @@ async def process_task(task: GenerationTask):
                     )
                     db.add(gen_entry)
                     db.commit()
+
+                    # Mirror canonical scene file for downstream video automation
+                    try:
+                        proj_dir = os.path.join(workspace_dir, project.slug)
+                        canonical_file = os.path.join(proj_dir, f"scene_{scene.scene_number:03d}.png")
+                        src_file = os.path.join(workspace_dir, scene.image_path)
+                        if os.path.exists(src_file):
+                            shutil.copyfile(src_file, canonical_file)
+                    except Exception as m_err:
+                        print(f"Error mirroring canonical scene image: {m_err}")
 
                 else:
                     # Local Draw Things Render
@@ -180,6 +193,16 @@ async def process_task(task: GenerationTask):
                     )
                     db.add(gen_entry)
                     db.commit()
+
+                    # Mirror canonical scene file for downstream video automation
+                    try:
+                        proj_dir = os.path.join(workspace_dir, project.slug)
+                        canonical_file = os.path.join(proj_dir, f"scene_{scene.scene_number:03d}.png")
+                        src_file = os.path.join(workspace_dir, scene.image_path)
+                        if os.path.exists(src_file):
+                            shutil.copyfile(src_file, canonical_file)
+                    except Exception as m_err:
+                        print(f"Error mirroring canonical scene image: {m_err}")
 
             except Exception as img_err:
                 print(f"Error during {image_provider} image generation: {img_err}")

@@ -4,11 +4,93 @@ import time
 import shutil
 import subprocess
 import requests
+import sqlite3
+import re
+from datetime import datetime
 from typing import List, Optional, Dict, Any
 
 GFLOW_BIN = os.getenv("GFLOW_BIN", "gflow")
 DEFAULT_PROFILE = os.getenv("GFLOW_PROFILE", "cavepaint")
 DEFAULT_DAEMON_HOST = os.getenv("GFLOW_DAEMON_HOST", "http://127.0.0.1:8765")
+
+def find_flow_asset_for_image(img_rel_path: str, profile: str = DEFAULT_PROFILE) -> Optional[Dict[str, str]]:
+    """
+    Given a relative image path (e.g. 'test3/scene_001_v01_1789480370.png'),
+    resolve its Flow media UUID and display_name from either:
+    1. studio.db generations audit table
+    2. gflow.db local assets catalog
+    """
+    if not img_rel_path:
+        return None
+
+    filename = os.path.basename(img_rel_path)
+    media_id = None
+    display_name = None
+
+    # 1. Look in studio.db generations
+    workspace_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "workspace"))
+    studio_db = os.path.join(workspace_dir, "studio.db")
+    if os.path.exists(studio_db):
+        try:
+            conn = sqlite3.connect(studio_db)
+            c = conn.cursor()
+            c.execute(
+                "SELECT flow_media_ids FROM generations WHERE output_paths LIKE ? ORDER BY id DESC LIMIT 1",
+                (f"%{filename}%",)
+            )
+            row = c.fetchone()
+            conn.close()
+            if row and row[0]:
+                ids = json.loads(row[0])
+                if ids and isinstance(ids, list) and ids[0]:
+                    media_id = ids[0]
+        except Exception:
+            pass
+
+    # 2. Look in gflow.db assets for metadata display_name
+    home_dir = os.path.expanduser("~")
+    gflow_db = os.path.join(home_dir, "Library", "Application Support", "gflow-cli", "gflow.db")
+    if os.path.exists(gflow_db):
+        try:
+            conn = sqlite3.connect(gflow_db)
+            c = conn.cursor()
+            if media_id:
+                c.execute("SELECT metadata_json FROM assets WHERE flow_media_id = ? LIMIT 1", (media_id,))
+                row = c.fetchone()
+                if row and row[0]:
+                    try:
+                        meta = json.loads(row[0])
+                        display_name = meta.get("display_name")
+                    except Exception:
+                        pass
+
+            if not display_name:
+                m = re.search(r'(\d{10})', filename)
+                if m:
+                    ts = int(m.group(1))
+                    c.execute(
+                        "SELECT flow_media_id, created_at, metadata_json FROM assets WHERE profile_name=? ORDER BY created_at DESC LIMIT 50",
+                        (profile,)
+                    )
+                    for f_id, created_at, meta_json in c.fetchall():
+                        try:
+                            dt = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+                            row_ts = int(dt.timestamp())
+                            if abs(row_ts - ts) <= 10:
+                                meta = json.loads(meta_json) if meta_json else {}
+                                media_id = f_id
+                                display_name = meta.get("display_name")
+                                break
+                        except Exception:
+                            pass
+            conn.close()
+        except Exception:
+            pass
+
+    if media_id or display_name:
+        return {"media_id": media_id, "display_name": display_name}
+
+    return None
 
 def check_flow_status(profile: str = DEFAULT_PROFILE, daemon_host: str = DEFAULT_DAEMON_HOST) -> Dict[str, Any]:
     """Check connectivity to gflow-cli and the background daemon."""
@@ -65,23 +147,33 @@ def trigger_flow_render(
     if aspect_ratio not in valid_aspects:
         aspect_ratio = "16:9"
 
+    # Clean up prompt & instructions: remove '@' prefix to prevent gflow-cli from
+    # attempting mention index lookups (which fail with 401 on migrated flow.google.com accounts)
+    if prompt:
+        prompt = prompt.replace("@", "")
+    if instructions:
+        instructions = instructions.replace("@", "")
+
     count = max(1, min(int(count), 4))
     if model not in ["nano2", "nano-pro", "image4"]:
         model = "nano2"
 
-    # Resolve reference image paths
+    # Resolve reference image paths: flow.google.com requires local files for image references.
     resolved_refs = []
     if reference_images:
         for ref in reference_images:
+            if not ref:
+                continue
+            # 1. Prefer existing local file (absolute or workspace-relative)
             if os.path.isabs(ref) and os.path.exists(ref):
                 resolved_refs.append(ref)
-            else:
-                rel_candidate = os.path.join(workspace_dir, ref)
-                if os.path.exists(rel_candidate):
-                    resolved_refs.append(rel_candidate)
-                else:
-                    # Treat as Flow media UUID or string identifier
-                    resolved_refs.append(ref)
+                continue
+            rel_candidate = os.path.join(workspace_dir, ref)
+            if os.path.exists(rel_candidate):
+                resolved_refs.append(os.path.abspath(rel_candidate))
+                continue
+            # 2. Fallback: if not found on disk, check if it's a UUID
+            resolved_refs.append(ref)
 
     # Fallback for migrated flow.google.com accounts where createProject TRPC is unsupported
     if not flow_project_id:
@@ -188,6 +280,8 @@ def trigger_flow_render(
                             if files:
                                 generated_files = files
                                 returned_flow_project_id = tool_data.get("project") or flow_project_id
+                                if tool_data.get("flow_media_id"):
+                                    flow_media_ids = [tool_data["flow_media_id"]]
                                 mcp_success = True
                         elif tool_data.get("status") in ["failed", "error"]:
                             err_info = tool_data.get("error", {})
@@ -237,9 +331,6 @@ def trigger_flow_render(
         else:
             cmd.extend(["--project-name", f"CavePaint_{project_slug}"])
 
-        if instructions:
-            cmd.extend(["--instruction", instructions])
-
         print(f"Executing gflow command: {' '.join(cmd)}")
         proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=300)
 
@@ -268,22 +359,27 @@ def trigger_flow_render(
                     parsed = json.loads(line)
                     if "files" in parsed:
                         generated_files = parsed.get("files", [])
-                    if "project" in parsed:
+                    elif "images" in parsed:
+                        generated_files = [img.get("local_path") for img in parsed.get("images", []) if img.get("local_path")]
+                        flow_media_ids = [img.get("media_name") for img in parsed.get("images", []) if img.get("media_name")]
+                    if "project_id" in parsed:
+                        returned_flow_project_id = parsed.get("project_id")
+                    elif "project" in parsed:
                         returned_flow_project_id = parsed.get("project")
                     break
         except Exception as json_err:
             print(f"Could not parse JSON stdout: {json_err}. Scanning output directory...")
 
-        # If files list not captured via JSON, scan temp_out_dir for newly created PNGs
+        # If files list not captured via JSON, scan temp_out_dir for newly created images (.png, .jpg, .jpeg, .webp)
         if not generated_files and os.path.exists(temp_out_dir):
             for f in sorted(os.listdir(temp_out_dir)):
-                if f.lower().endswith(".png"):
+                if f.lower().endswith((".png", ".jpg", ".jpeg", ".webp")):
                     generated_files.append(os.path.join(temp_out_dir, f))
 
     if not generated_files:
         raise Exception("No image files produced by Google Flow generation.")
 
-    # Move generated files into project workspace with clean filenames
+    # Move generated files into project workspace with clean filenames (standardize on PNG)
     final_paths = []
     ts = int(time.time())
     for idx, filepath in enumerate(generated_files):
@@ -291,7 +387,22 @@ def trigger_flow_render(
             continue
         dest_filename = f"scene_{scene_number:03d}_v{idx+1:02d}_{ts}.png"
         dest_path = os.path.join(project_dir, dest_filename)
-        shutil.move(filepath, dest_path)
+        
+        ext = os.path.splitext(filepath)[1].lower()
+        if ext in [".jpg", ".jpeg", ".webp"]:
+            try:
+                from PIL import Image
+                with Image.open(filepath) as im:
+                    im.convert("RGB").save(dest_path, "PNG")
+                try:
+                    os.remove(filepath)
+                except Exception:
+                    pass
+            except Exception:
+                shutil.move(filepath, dest_path)
+        else:
+            shutil.move(filepath, dest_path)
+
         final_paths.append(f"{project_slug}/{dest_filename}")
 
     # Cleanup temp folder
