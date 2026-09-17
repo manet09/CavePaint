@@ -1,4 +1,5 @@
 import os
+import json
 from sqlalchemy import create_engine, Column, Integer, String, Text, ForeignKey
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship
 
@@ -216,3 +217,23 @@ def get_db():
         yield db
     finally:
         db.close()
+
+def sync_project_json(project_id: int, db):
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        return
+    scenes = db.query(Scene).filter(Scene.project_id == project.id).order_by(Scene.scene_number).all()
+    clean_json_array = []
+    for s in scenes:
+        clean_json_array.append({
+            "scene_number": s.scene_number,
+            "narration_khmer": s.narration_khmer,
+            "image_prompt_english": s.image_prompt_english,
+            "negative_prompt": s.negative_prompt,
+            "image_path": s.image_path,
+            "audio_path": s.audio_path,
+            "character_id": s.character_id,
+            "character_name": s.character_name
+        })
+    project.structured_json_data = json.dumps(clean_json_array, indent=2)
+    db.commit()

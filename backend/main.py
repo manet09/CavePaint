@@ -20,7 +20,7 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 import shutil
 
-from .database import get_db, Project, Scene, Character, Setting, Generation, SHARED_CHARACTERS_DIR
+from .database import get_db, Project, Scene, Character, Setting, Generation, SHARED_CHARACTERS_DIR, sync_project_json
 from .queue_worker import start_queue_worker, task_queue, GenerationTask
 from .services import voice_engine, flow_engine
 
@@ -44,6 +44,9 @@ class SceneUpdate(BaseModel):
     image_prompt_english: Optional[str] = None
     negative_prompt: Optional[str] = None
     user_refinement_prompt: Optional[str] = None
+    character_id: Optional[int] = None
+    character_name: Optional[str] = None
+    audio_status: Optional[str] = None
 
 class SceneOut(SceneBase):
     id: int
@@ -427,6 +430,14 @@ async def reset_voice(project_id: int, db: Session = Depends(get_db)):
             
     project.master_audio_path = None
     project.voice_profile_tag = None
+
+    for ext in ["wav", "mp3"]:
+        master_file = os.path.join(proj_workspace_dir, f"master_voiceover.{ext}")
+        if os.path.exists(master_file):
+            try:
+                os.remove(master_file)
+            except OSError:
+                pass
     
     for scene in project.scenes:
         if scene.audio_path:
@@ -440,6 +451,7 @@ async def reset_voice(project_id: int, db: Session = Depends(get_db)):
         scene.audio_status = "idle"
         
     db.commit()
+    sync_project_json(project.id, db)
     return {"status": "success", "message": "Voice profile and audio scenes reset"}
 
 @app.put("/api/projects/{project_id}", response_model=ProjectOut)
@@ -517,24 +529,6 @@ def mirror_canonical_scene_image(project_slug: str, scene_number: int, active_re
                 pass
 
 
-def sync_project_json(project_id: int, db: Session):
-    project = db.query(Project).filter(Project.id == project_id).first()
-    if not project:
-        return
-    scenes = db.query(Scene).filter(Scene.project_id == project.id).order_by(Scene.scene_number).all()
-    clean_json_array = []
-    for s in scenes:
-        clean_json_array.append({
-            "scene_number": s.scene_number,
-            "narration_khmer": s.narration_khmer,
-            "image_prompt_english": s.image_prompt_english,
-            "negative_prompt": s.negative_prompt,
-            "image_path": s.image_path,
-            "audio_path": s.audio_path
-        })
-    project.structured_json_data = json.dumps(clean_json_array, indent=2)
-    db.commit()
-
 # Scene CRUD
 @app.put("/api/scenes/{scene_id}", response_model=SceneOut)
 async def update_scene(scene_id: int, payload: SceneUpdate, db: Session = Depends(get_db)):
@@ -543,6 +537,25 @@ async def update_scene(scene_id: int, payload: SceneUpdate, db: Session = Depend
         raise HTTPException(status_code=404, detail="Scene not found")
         
     update_data = payload.model_dump(exclude_unset=True)
+
+    # Invalidate audio if narration changed and audio was completed
+    if "narration_khmer" in update_data and update_data["narration_khmer"] != scene.narration_khmer:
+        if scene.audio_status == "completed":
+            scene.audio_status = "outdated"
+
+    # Resolve character name if character_id changed
+    if "character_id" in update_data:
+        char_id = update_data["character_id"]
+        if char_id is not None:
+            char = db.query(Character).filter(Character.id == char_id).first()
+            scene.character_id = char_id
+            scene.character_name = char.name if char else None
+        else:
+            scene.character_id = None
+            scene.character_name = None
+        update_data.pop("character_id", None)
+        update_data.pop("character_name", None)
+
     for key, value in update_data.items():
         setattr(scene, key, value)
         
@@ -1182,6 +1195,41 @@ async def delete_scene_image(scene_id: int, db: Session = Depends(get_db)):
     
     return {"status": "success"}
 
+@app.delete("/api/scenes/{scene_id}/audio")
+async def delete_scene_audio(scene_id: int, db: Session = Depends(get_db)):
+    scene = db.query(Scene).filter(Scene.id == scene_id).first()
+    if not scene:
+        raise HTTPException(status_code=404, detail="Scene not found")
+        
+    project = db.query(Project).filter(Project.id == scene.project_id).first()
+    
+    if scene.audio_path:
+        full_path = os.path.join(workspace_dir, scene.audio_path)
+        if os.path.exists(full_path):
+            try:
+                os.remove(full_path)
+            except OSError as e:
+                print(f"Error removing audio file {full_path}: {e}")
+            
+    scene.audio_path = None
+    scene.audio_status = "idle"
+    
+    # Also invalidate master voiceover since a scene was removed
+    if project and project.master_audio_path:
+        full_master = os.path.join(workspace_dir, project.master_audio_path)
+        if os.path.exists(full_master):
+            try:
+                os.remove(full_master)
+            except OSError:
+                pass
+        project.master_audio_path = None
+        
+    db.commit()
+    if project:
+        sync_project_json(project.id, db)
+    
+    return {"status": "success"}
+
 @app.post("/api/scenes/{scene_id}/generate-audio")
 async def generate_scene_audio_single(scene_id: int, character_id: Optional[int] = None, db: Session = Depends(get_db)):
     scene = db.query(Scene).filter(Scene.id == scene_id).first()
@@ -1236,7 +1284,7 @@ async def delete_character_preview():
 @app.post("/api/characters/preview-clone")
 async def create_clone_preview(
     reference_text: str = Form(...),
-    text_to_speak: str = Form("ភ្នំពេញគឺជាទីក្រុងធំនៃប្រទេសកម្ពុជា។"),
+    text_to_speak: str = Form("កាលពី ១ម៉ឺនឆ្នាំមុន មនុស្សសម័យបុរេប្រវត្តិ បានរកឃើញអាថ៌កំបាំងមួយយ៉ាងអស្ចារ្យ។"),
     audio_file: UploadFile = File(...)
 ):
     from .services.voice_engine import generate_clone_preview
@@ -1339,6 +1387,27 @@ async def delete_character(character_id: int, db: Session = Depends(get_db)):
     db.commit()
     return {"status": "success", "message": "Character deleted"}
 
+@app.post("/api/projects/{project_id}/assign-character")
+async def assign_project_character(project_id: int, character_id: Optional[int] = None, db: Session = Depends(get_db)):
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+        
+    char_name = None
+    if character_id is not None:
+        char = db.query(Character).filter(Character.id == character_id).first()
+        if not char:
+            raise HTTPException(status_code=404, detail="Character not found")
+        char_name = char.name
+
+    for scene in project.scenes:
+        scene.character_id = character_id
+        scene.character_name = char_name
+
+    db.commit()
+    sync_project_json(project.id, db)
+    return {"status": "success", "character_id": character_id, "character_name": char_name}
+
 # Tab 3 & 4 routes
 @app.post("/api/projects/{project_id}/generate-voice")
 async def generate_project_voice(project_id: int, character_id: Optional[int] = None, db: Session = Depends(get_db)):
@@ -1352,11 +1421,12 @@ async def generate_project_voice(project_id: int, character_id: Optional[int] = 
     for scene in scenes:
         if scene.narration_khmer:
             payload = {"text": scene.narration_khmer}
-            if character_id:
-                payload["character_id"] = character_id
+            target_char_id = character_id or scene.character_id
+            if target_char_id:
+                payload["character_id"] = target_char_id
                 
             task = GenerationTask(
-                task_type="audio_single" if character_id else "audio",
+                task_type="audio_single" if target_char_id else "audio",
                 project_id=project.id,
                 scene_id=scene.id,
                 payload=payload

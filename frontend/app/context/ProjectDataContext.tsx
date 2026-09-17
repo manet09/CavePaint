@@ -111,6 +111,10 @@ export const ProjectDataProvider = ({ children }: { children: ReactNode }) => {
         narration_khmer: scene.narration_khmer,
         image_prompt_english: scene.image_prompt_english,
         negative_prompt: scene.negative_prompt,
+        image_path: scene.image_path,
+        audio_path: scene.audio_path,
+        character_id: scene.character_id,
+        character_name: scene.character_name,
       }));
 
       return {

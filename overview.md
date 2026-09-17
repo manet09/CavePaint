@@ -349,9 +349,22 @@ To balance fast manual tweaks with creative AI direction, CavePaint implements t
      * **Render Output Frame**: Clean viewport displaying the active scene frame with Lightbox zoom modal, drag-and-drop file upload, and animated generation progress.
      * **Variations Strip**: Horizontal gallery displaying all rendered and uploaded variants (`V1`, `V2`, `V3`...) for the active scene. Features an active checkmark ring, click-to-activate (which also mirrors to canonical `scene_XXX.png`), delete variant button, and pin-as-reference button.
      * **Action Footer**: Primary `Generate Frame (Flow)` and `Clear Frames` actions.
-3. **Voice Tab (`VoiceTab.tsx`)**:
-   * Character profile library and Voice Factory (Audition generator & Clone uploader).
-   * Timeline audio speaker mapping and batch voice generation.
+3. **Voice Tab (`VoiceTab.tsx` — Unboxed 2-Column Architecture)**:
+   * **Design Philosophy**: Replaces legacy grid and nested boxes with a viewport-locked 2-column layout matching the visual language and reactive standards of the Brainstorming and Images tabs.
+   * **Left Column: Voice & Character Studio (~390px)**:
+     * **Segmented Tabs**: `Voice Factory`, `Character Library`, and `Full Script`.
+     * **Voice Factory**: Features `AI Voice Design` (with chip grids for Gender, Age, Tone, Speed and auto-compiled seed directive) and `Custom Clone` (with drag-and-drop `.wav` upload and byte checking). Includes live audition sample generator with interactive waveform player and save-to-library flow.
+     * **Character Library**: Filterable voice profile directory by gender, with inline audition play/pause, delete profile, and a 1-click **"Apply to All Scenes"** batch narrator assignment.
+     * **Full Script**: Auto-resizing view/edit of narrative script in Khmer with live counter and scene sync.
+   * **Right Column: Audio Timeline & Scene Director (Flex-1)**:
+     * **Top Control Strip**: Audio readiness counter (`X/Y Audio Ready`), filter pills (`All`, `Ready`, `Pending`, `Outdated`), audio format toggle (`WAV` / `MP3`), VoxCPM2 engine status badge with 1-click load/unload toggle, and batch actions (`Generate All Lines`, `Stop`, `Clear All Audio`).
+     * **Vertical Scene Timeline**: Chronological shot list with scene number, speaker badge with character assignment popover, status pills (`Ready`, `Synthesizing...`, `Outdated`, `Idle`), single-scene regeneration (`↻`), single-scene audio deletion (`DELETE /api/scenes/{id}/audio`), and auto-resizing Khmer narration with two-way reactive sync to Brainstorming and Images tabs.
+     * **Inline Audio Players**: Native dark-mode sleek player with interactive seekbar, elapsed/duration time display, and mute controls.
+     * **Master Timeline Output Footer**: Dedicated master audio player with full scrub bar, status indication, and direct export download button (`master_voiceover.wav` / `master_voiceover.mp3`).
+   * **Automated Video Editing File Synchronization**:
+     * Deterministic 1-to-1 canonical pairing: `workspace/<slug>/scene_XXX.png` <-> `workspace/<slug>/scene_XXX.wav` (or `.mp3`).
+     * Automatic SQLite manifest synchronization (`structured_json_data`) on every audio chunk and master compilation.
+     * Automatic change invalidation: modifying narration in any tab flags the corresponding scene audio as `outdated`.
 4. **Output Tab (`OutputTab.tsx`)**:
    * Vertical production timeline matching rendered `.png` image frames with the synthesized `.wav`/`.mp3` audio tracks.
 

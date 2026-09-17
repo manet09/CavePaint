@@ -4,7 +4,7 @@ import asyncio
 import shutil
 from dataclasses import dataclass
 from typing import Optional
-from .database import SessionLocal, Scene, Project, Character, Setting, Generation
+from .database import SessionLocal, Scene, Project, Character, Setting, Generation, sync_project_json
 from .services import draw_things, voice_engine, flow_engine
 
 @dataclass
@@ -129,6 +129,8 @@ async def process_task(task: GenerationTask):
                     except Exception as m_err:
                         print(f"Error mirroring canonical scene image: {m_err}")
 
+                    sync_project_json(project.id, db)
+
                 else:
                     # Local Draw Things Render
                     guidance_scale = float(task.payload.get("guidance_scale", 7.5))
@@ -204,6 +206,8 @@ async def process_task(task: GenerationTask):
                     except Exception as m_err:
                         print(f"Error mirroring canonical scene image: {m_err}")
 
+                    sync_project_json(project.id, db)
+
             except Exception as img_err:
                 print(f"Error during {image_provider} image generation: {img_err}")
                 db.refresh(scene)
@@ -242,6 +246,8 @@ async def process_task(task: GenerationTask):
             except Exception as compile_err:
                 print(f"Failed to compile master voiceover: {compile_err}")
                 db.rollback()
+
+            sync_project_json(project.id, db)
                 
         elif task.task_type == "audio_single":
             if scene.audio_status != "processing":
@@ -291,6 +297,8 @@ async def process_task(task: GenerationTask):
             except Exception as compile_err:
                 print(f"Failed to compile master voiceover: {compile_err}")
                 db.rollback()
+
+            sync_project_json(project.id, db)
             
     except Exception as e:
         print(f"Error processing task: {e}")

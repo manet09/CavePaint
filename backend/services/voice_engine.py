@@ -93,7 +93,7 @@ def generate_scene_audio_chunk(text: str, project_slug: str, profile_tag: str, s
     os.makedirs(project_dir, exist_ok=True)
     
     seed_path = os.path.join(project_dir, "voice_profile_seed.wav")
-    seed_text = "ភ្នំពេញគឺជាទីក្រុងធំនៃប្រទេសកម្ពុជា។"
+    seed_text = "កាលពី ១ម៉ឺនឆ្នាំមុន មនុស្សសម័យបុរេប្រវត្តិ បានរកឃើញអាថ៌កំបាំងមួយយ៉ាងអស្ចារ្យ។"
     
     sample_rate = _VOXCPM_MODEL.tts_model.sample_rate if hasattr(_VOXCPM_MODEL, 'tts_model') and hasattr(_VOXCPM_MODEL.tts_model, 'sample_rate') else 22050
     
@@ -191,7 +191,7 @@ def generate_single_scene_audio(text: str, project_slug: str, scene_number: int,
         seed_text = reference_text
     else:
         seed_path = os.path.join(project_dir, "voice_profile_seed.wav")
-        seed_text = "ភ្នំពេញគឺជាទីក្រុងធំនៃប្រទេសកម្ពុជា។"
+        seed_text = "កាលពី ១ម៉ឺនឆ្នាំមុន មនុស្សសម័យបុរេប្រវត្តិ បានរកឃើញអាថ៌កំបាំងមួយយ៉ាងអស្ចារ្យ។"
         if not os.path.exists(seed_path):
             raise FileNotFoundError(f"Strict Consistency Lock Failed: {seed_path} is missing.")
     
@@ -332,7 +332,7 @@ def generate_character_preview(personality_tag: str, reference_text: str) -> str
     
     return "shared_characters/temp_preview.wav"
 
-def generate_clone_preview(reference_audio_path: str, reference_text: str, text_to_speak: str = "ភ្នំពេញគឺជាទីក្រុងធំនៃប្រទេសកម្ពុជា។") -> str:
+def generate_clone_preview(reference_audio_path: str, reference_text: str, text_to_speak: str = "កាលពី ១ម៉ឺនឆ្នាំមុន មនុស្សសម័យបុរេប្រវត្តិ បានរកឃើញអាថ៌កំបាំងមួយយ៉ាងអស្ចារ្យ។") -> str:
     global _MODEL_STATE, _LAST_ACTIVITY_TIME, _VOXCPM_MODEL
     
     if _MODEL_STATE != "loaded":
