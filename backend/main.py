@@ -1568,3 +1568,26 @@ async def get_video_render_status(project_id: int):
     })
     return job
 
+@app.delete("/api/projects/{project_id}/render")
+async def delete_project_render(project_id: int, db: Session = Depends(get_db)):
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    slug = project.slug or f"project-{project.id}"
+    video_path = os.path.join(render_engine.WORKSPACE_DIR, slug, "final_output.mp4")
+    if os.path.exists(video_path):
+        try:
+            os.remove(video_path)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to delete video: {str(e)}")
+            
+    render_engine.RENDER_JOBS[project_id] = {
+        "status": "idle",
+        "progress": 0,
+        "output_path": None,
+        "error": None
+    }
+    return {"status": "deleted"}
+
+

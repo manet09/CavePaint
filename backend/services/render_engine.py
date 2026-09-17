@@ -276,34 +276,66 @@ async def render_project_video(project_id: int, db) -> Dict[str, Any]:
 
         RENDER_JOBS[project_id]["progress"] = 60
 
-        # Step 4: Prepare background music if available
-        bgm_file_rel = bgm_config.get("relative_path")
-        bgm_full_path = os.path.join(WORKSPACE_DIR, bgm_file_rel) if bgm_file_rel else None
-        has_bgm = bgm_full_path and os.path.exists(bgm_full_path)
+        # Step 4: Prepare background music if available (supports multi-clip BGM)
+        bgm_clips = timeline_data.get("bgm_clips", [])
+        if not bgm_clips and timeline_data.get("bgm"):
+            bgm_clips = [timeline_data.get("bgm")]
 
-        total_speech_dur = sum(item["duration"] for item in coupled_items)
+        valid_bgm_clips = []
+        for clip in bgm_clips:
+            rel = clip.get("relative_path")
+            fpath = os.path.join(WORKSPACE_DIR, rel) if rel else None
+            if fpath and os.path.exists(fpath):
+                valid_bgm_clips.append({
+                    "path": fpath,
+                    "start_time": max(0.0, float(clip.get("start_time", 0.0))),
+                    "duration": max(0.0, float(clip.get("duration", 0.0))),
+                    "media_offset": max(0.0, float(clip.get("media_offset", 0.0))),
+                    "volume": max(0.0, float(clip.get("volume", 1.0))),
+                })
 
         mixed_audio_path = os.path.join(temp_dir, "mixed_audio.wav")
-        if has_bgm:
-            bgm_offset = float(bgm_config.get("start_time", 0.0))
-            bgm_vol = master_bgm_vol
-            if ducking_enabled:
-                bgm_vol = master_bgm_vol * 0.4
+        if valid_bgm_clips:
+            cmd_mix = [ffmpeg_exe, "-y", "-i", master_voice_rendered]
+            for clip in valid_bgm_clips:
+                cmd_mix.extend(["-i", clip["path"]])
 
-            delay_ms = int(bgm_offset * 1000)
-            filter_complex = (
-                f"[0:a]volume=1.0[voice];"
-                f"[1:a]adelay={delay_ms}|{delay_ms},volume={bgm_vol:.2f},aloop=loop=-1:size=2e+09[bgm];"
-                f"[voice][bgm]amix=inputs=2:duration=first:dropout_transition=2[aout]"
-            )
-            cmd_mix = [
-                ffmpeg_exe, "-y",
-                "-i", master_voice_rendered,
-                "-i", bgm_full_path,
+            filter_parts = ["[0:a]volume=1.0[voice];"]
+            bgm_out_labels = []
+
+            for idx, clip in enumerate(valid_bgm_clips):
+                input_idx = idx + 1
+                clip_vol = master_bgm_vol * clip["volume"]
+                if ducking_enabled:
+                    clip_vol *= 0.4
+
+                delay_ms = int(clip["start_time"] * 1000)
+                dur = clip["duration"]
+                offset = clip["media_offset"]
+
+                trim_filter = ""
+                if dur > 0:
+                    trim_filter = f"atrim={offset:.3f}:{offset + dur:.3f},asetpts=PTS-STARTPTS,"
+                elif offset > 0:
+                    trim_filter = f"atrim=start={offset:.3f},asetpts=PTS-STARTPTS,"
+
+                filter_parts.append(
+                    f"[{input_idx}:a]{trim_filter}volume={clip_vol:.2f},adelay={delay_ms}|{delay_ms}[bgm{idx}];"
+                )
+                bgm_out_labels.append(f"[bgm{idx}]")
+
+            if len(bgm_out_labels) == 1:
+                filter_parts.append(f"[voice]{bgm_out_labels[0]}amix=inputs=2:duration=first:dropout_transition=2[aout]")
+            else:
+                filter_parts.append(f"{''.join(bgm_out_labels)}amix=inputs={len(bgm_out_labels)}:dropout_transition=2[bgm_mix];")
+                filter_parts.append(f"[voice][bgm_mix]amix=inputs=2:duration=first:dropout_transition=2[aout]")
+
+            filter_complex = "".join(filter_parts)
+            cmd_mix.extend([
                 "-filter_complex", filter_complex,
                 "-map", "[aout]",
                 mixed_audio_path
-            ]
+            ])
             subprocess.run(cmd_mix, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         else:
             mixed_audio_path = master_voice_rendered

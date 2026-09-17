@@ -25,15 +25,12 @@ import {
   Sparkles, 
   Sliders, 
   Loader2,
-  ExternalLink,
   ChevronRight,
   Move,
   ZoomIn,
   ZoomOut,
-  Maximize2,
-  Settings2,
-  Layers,
-  FileAudio
+  FileAudio,
+  X
 } from "lucide-react";
 import Link from "next/link";
 
@@ -77,16 +74,19 @@ interface TextOverlayItem {
   duration: number;
 }
 
-interface BgmTrackConfig {
+interface BgmClip {
+  id: string;
   relative_path: string;
   filename: string;
   start_time: number;
   duration: number;
-  volume: number;
+  media_offset?: number;
+  volume?: number;
 }
 
 interface TimelineState {
-  bgm: BgmTrackConfig | null;
+  bgm: BgmClip | null;
+  bgm_clips: BgmClip[];
   text_overlays: TextOverlayItem[];
   scene_volumes: Record<string, number>;
   master_bgm_volume: number;
@@ -121,6 +121,7 @@ export default function AssemblyTab({ activeProject }: AssemblyTabProps) {
   const [totalDuration, setTotalDuration] = useState<number>(0);
   const [coupledCount, setCoupledCount] = useState<number>(0);
   const [hasFinalVideo, setHasFinalVideo] = useState<boolean>(false);
+  const [isDismissedRenderBanner, setIsDismissedRenderBanner] = useState<boolean>(false);
   const [filterMode, setFilterMode] = useState<"all" | "ready" | "incomplete">("all");
   const [isLoadingStatus, setIsLoadingStatus] = useState<boolean>(true);
   const [isUploadingBgm, setIsUploadingBgm] = useState<boolean>(false);
@@ -131,15 +132,23 @@ export default function AssemblyTab({ activeProject }: AssemblyTabProps) {
   // Timeline configuration
   const [timeline, setTimeline] = useState<TimelineState>({
     bgm: null,
+    bgm_clips: [],
     text_overlays: [],
     scene_volumes: {},
-    master_bgm_volume: 0.3,
+    master_bgm_volume: 0.35,
     ducking: true,
   });
 
   // Selected elements for timeline editing
   const [selectedTextId, setSelectedTextId] = useState<string | null>(null);
-  const [isBgmSelected, setIsBgmSelected] = useState<boolean>(false);
+  const [selectedBgmId, setSelectedBgmId] = useState<string | null>(null);
+  const isBgmSelected = !!selectedBgmId;
+
+  // Draggable Playhead Scrubber state
+  const [isDraggingPlayhead, setIsDraggingPlayhead] = useState<boolean>(false);
+
+  // Right-click context menu for BGM
+  const [bgmContextMenu, setBgmContextMenu] = useState<{ visible: boolean; x: number; y: number; clipId?: string } | null>(null);
 
   // Dragging states
   const [isDraggingCanvasText, setIsDraggingCanvasText] = useState<boolean>(false);
@@ -147,11 +156,12 @@ export default function AssemblyTab({ activeProject }: AssemblyTabProps) {
   
   // Timeline clip dragging
   const [timelineDrag, setTimelineDrag] = useState<{
-    type: "text_move" | "text_trim_left" | "text_trim_right" | "bgm_move" | "bgm_trim_right";
+    type: "text_move" | "text_trim_left" | "text_trim_right" | "bgm_move" | "bgm_trim_left" | "bgm_trim_right";
     id?: string;
     startMouseX: number;
     initialStartTime: number;
     initialDuration: number;
+    initialMediaOffset?: number;
   } | null>(null);
 
   // Render job status
@@ -214,11 +224,36 @@ export default function AssemblyTab({ activeProject }: AssemblyTabProps) {
             y_percent: t.y_percent ?? (t.position === "top" ? 15 : t.position === "center" ? 50 : 85),
           }));
 
+          let rawClips: BgmClip[] = [];
+          if (Array.isArray(data.timeline_data.bgm_clips) && data.timeline_data.bgm_clips.length > 0) {
+            rawClips = data.timeline_data.bgm_clips.map((c: any, i: number) => ({
+              id: c.id || `bgm_${Date.now()}_${i}`,
+              relative_path: c.relative_path,
+              filename: c.filename,
+              start_time: Math.max(0, c.start_time ?? 0),
+              duration: Math.max(0.5, c.duration ?? 30),
+              media_offset: Math.max(0, c.media_offset ?? 0),
+              volume: c.volume ?? 1.0,
+            }));
+          } else if (data.timeline_data.bgm) {
+            const rawBgm = data.timeline_data.bgm;
+            rawClips = [{
+              id: `bgm_${Date.now()}`,
+              relative_path: rawBgm.relative_path,
+              filename: rawBgm.filename,
+              start_time: Math.max(0, rawBgm.start_time ?? 0),
+              duration: Math.max(0.5, rawBgm.duration ?? 30),
+              media_offset: Math.max(0, rawBgm.media_offset ?? 0),
+              volume: rawBgm.volume ?? 1.0,
+            }];
+          }
+
           setTimeline({
-            bgm: data.timeline_data.bgm || null,
+            bgm: rawClips[0] || null,
+            bgm_clips: rawClips,
             text_overlays: normalizedOverlays,
             scene_volumes: data.timeline_data.scene_volumes || {},
-            master_bgm_volume: data.timeline_data.master_bgm_volume ?? 0.3,
+            master_bgm_volume: data.timeline_data.master_bgm_volume ?? 0.35,
             ducking: data.timeline_data.ducking ?? true,
           });
         }
@@ -245,6 +280,7 @@ export default function AssemblyTab({ activeProject }: AssemblyTabProps) {
           setRenderJob(job);
           if (job.status === "completed") {
             setHasFinalVideo(true);
+            setIsDismissedRenderBanner(false);
             clearInterval(interval);
           } else if (job.status === "failed") {
             clearInterval(interval);
@@ -257,19 +293,36 @@ export default function AssemblyTab({ activeProject }: AssemblyTabProps) {
     return () => clearInterval(interval);
   }, [renderJob.status, activeProject.id]);
 
-  // Save timeline configuration to backend
-  const saveTimelineState = async (newTimeline: TimelineState) => {
-    setTimeline(newTimeline);
+  // Always keep a ref to the latest timeline state to eliminate stale closures
+  const timelineRef = useRef<TimelineState>(timeline);
+  timelineRef.current = timeline;
+
+  // Persist timeline configuration to backend
+  const persistTimelineState = async (stateToSave: TimelineState) => {
     try {
       await fetch(`http://localhost:8000/api/projects/${activeProject.id}/timeline`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(newTimeline),
+        body: JSON.stringify(stateToSave),
       });
     } catch (err) {
       console.error("Failed to save timeline:", err);
     }
   };
+
+  // Immediate state update and persistence for non-drag actions
+  const saveTimelineState = (newTimeline: TimelineState) => {
+    timelineRef.current = newTimeline;
+    setTimeline(newTimeline);
+    persistTimelineState(newTimeline);
+  };
+
+  // Close context menu on any global click
+  useEffect(() => {
+    const handleGlobalClick = () => setBgmContextMenu(null);
+    window.addEventListener("click", handleGlobalClick);
+    return () => window.removeEventListener("click", handleGlobalClick);
+  }, []);
 
   // Computes accumulated start times for each coupled scene
   const sceneTimelineMap = useMemo(() => {
@@ -287,17 +340,17 @@ export default function AssemblyTab({ activeProject }: AssemblyTabProps) {
     });
   }, [scenesData]);
 
-  // Max timeline duration considering scenes, text, and bgm
+  // TIMELINE DURATION CLAMPING:
+  // Strictly capped to ~10s headroom above video speech duration, with minimum 30s!
+  // It will NOT stretch to 3 minutes just because an uploaded mp3 is 3 minutes long.
+  // And as new scenes are added/coupled, the timeline dynamically and smoothly expands with them!
   const maxTimelineDuration = useMemo(() => {
-    let maxT = totalDuration > 0 ? totalDuration : 20.0;
-    if (timeline.bgm) {
-      maxT = Math.max(maxT, timeline.bgm.start_time + timeline.bgm.duration);
-    }
-    timeline.text_overlays.forEach(t => {
-      maxT = Math.max(maxT, t.start_time + t.duration);
-    });
-    return Math.max(maxT, 10.0);
-  }, [totalDuration, timeline.bgm, timeline.text_overlays]);
+    const videoSceneDur = totalDuration > 0 ? totalDuration : 20.0;
+    const maxBgmEnd = timeline.bgm_clips.reduce((max, c) => Math.max(max, c.start_time + c.duration), 0);
+    const maxTextEnd = timeline.text_overlays.reduce((max, t) => Math.max(max, t.start_time + t.duration), 0);
+    const maxContent = Math.max(videoSceneDur, maxBgmEnd, maxTextEnd);
+    return Math.max(30.0, Math.ceil(maxContent + 10.0));
+  }, [totalDuration, timeline.bgm_clips, timeline.text_overlays]);
 
   // Current active scene at playhead
   const currentSceneAtPlayhead = useMemo(() => {
@@ -319,11 +372,14 @@ export default function AssemblyTab({ activeProject }: AssemblyTabProps) {
     return timeline.text_overlays.find(t => t.id === selectedTextId) || null;
   }, [timeline.text_overlays, selectedTextId]);
 
-  // -------------------------------------------------------------
-  // AUDIO SYNCHRONIZATION ENGINE (Voiceover + BGM)
-  // -------------------------------------------------------------
+  // Selected BGM item object
+  const selectedBgmItem = useMemo(() => {
+    return timeline.bgm_clips.find(c => c.id === selectedBgmId) || null;
+  }, [timeline.bgm_clips, selectedBgmId]);
 
-  // Sync voiceover and BGM on every frame or state change
+  // -------------------------------------------------------------
+  // AUDIO SYNCHRONIZATION ENGINE (Voiceover + Multi-Clip BGM Preview)
+  // -------------------------------------------------------------
   useEffect(() => {
     const currentScene = currentSceneAtPlayhead;
     const voiceAudio = voiceAudioRef.current;
@@ -337,7 +393,6 @@ export default function AssemblyTab({ activeProject }: AssemblyTabProps) {
         const sceneVolume = timeline.scene_volumes[String(currentScene.scene_number)] ?? 1.0;
         voiceAudio.volume = Math.min(1.0, Math.max(0.0, sceneVolume));
 
-        // If source changed, load new scene audio
         if (voiceAudio.src !== sceneAudioUrl) {
           voiceAudio.src = sceneAudioUrl;
           voiceAudio.currentTime = expectedSceneTime;
@@ -345,7 +400,6 @@ export default function AssemblyTab({ activeProject }: AssemblyTabProps) {
             voiceAudio.play().catch(() => {});
           }
         } else {
-          // Check drift
           if (Math.abs(voiceAudio.currentTime - expectedSceneTime) > 0.3) {
             voiceAudio.currentTime = expectedSceneTime;
           }
@@ -360,18 +414,31 @@ export default function AssemblyTab({ activeProject }: AssemblyTabProps) {
       }
     }
 
-    // 2. BACKGROUND MUSIC SYNCHRONIZATION
-    if (bgmAudio && timeline.bgm) {
-      const hasSpeech = currentScene && currentScene.audio_exists;
-      const duckFactor = (timeline.ducking && hasSpeech) ? 0.35 : 1.0;
-      bgmAudio.volume = Math.min(1.0, Math.max(0.0, timeline.master_bgm_volume * duckFactor));
+    // 2. BACKGROUND MUSIC SYNCHRONIZATION (Multi-Clip Support)
+    if (bgmAudio) {
+      const activeClip = timeline.bgm_clips.find(
+        c => currentTime >= c.start_time && currentTime < (c.start_time + c.duration)
+      );
 
-      const isInsideBgm = currentTime >= timeline.bgm.start_time && currentTime < (timeline.bgm.start_time + timeline.bgm.duration);
-      if (isInsideBgm) {
-        const expectedBgmTime = currentTime - timeline.bgm.start_time;
+      if (activeClip && activeClip.relative_path) {
+        const bgmUrl = getAssetUrl(activeClip.relative_path);
+        if (bgmAudio.src !== bgmUrl) {
+          bgmAudio.src = bgmUrl;
+          bgmAudio.load();
+        }
+
+        const hasSpeech = currentScene && currentScene.audio_exists;
+        const duckFactor = (timeline.ducking && hasSpeech) ? 0.35 : 1.0;
+        const clipVol = activeClip.volume ?? 1.0;
+        bgmAudio.volume = Math.min(1.0, Math.max(0.0, timeline.master_bgm_volume * clipVol * duckFactor));
+
+        const offsetWithinClip = currentTime - activeClip.start_time;
+        const expectedBgmTime = (activeClip.media_offset || 0) + offsetWithinClip;
+
         if (Math.abs(bgmAudio.currentTime - expectedBgmTime) > 0.35) {
           bgmAudio.currentTime = expectedBgmTime;
         }
+
         if (isPlaying && bgmAudio.paused) {
           bgmAudio.play().catch(() => {});
         } else if (!isPlaying && !bgmAudio.paused) {
@@ -380,10 +447,8 @@ export default function AssemblyTab({ activeProject }: AssemblyTabProps) {
       } else {
         if (!bgmAudio.paused) bgmAudio.pause();
       }
-    } else if (bgmAudio && !timeline.bgm) {
-      if (!bgmAudio.paused) bgmAudio.pause();
     }
-  }, [currentTime, isPlaying, currentSceneAtPlayhead, timeline.bgm, timeline.master_bgm_volume, timeline.ducking, timeline.scene_volumes]);
+  }, [currentTime, isPlaying, currentSceneAtPlayhead, timeline.bgm_clips, timeline.master_bgm_volume, timeline.ducking, timeline.scene_volumes]);
 
   // Master Play / Pause toggler
   const togglePlay = () => {
@@ -424,7 +489,6 @@ export default function AssemblyTab({ activeProject }: AssemblyTabProps) {
     const clamped = Math.max(0, Math.min(maxTimelineDuration, time));
     setCurrentTime(clamped);
     if (isPlaying) {
-      // Re-anchor startTimestamp
       if (playheadIntervalRef.current) clearInterval(playheadIntervalRef.current);
       const startTimestamp = performance.now() - (clamped * 1000);
       playheadIntervalRef.current = setInterval(() => {
@@ -489,7 +553,7 @@ export default function AssemblyTab({ activeProject }: AssemblyTabProps) {
     if (!activeOverlayAtPlayhead) return;
     e.stopPropagation();
     setSelectedTextId(activeOverlayAtPlayhead.id);
-    setIsBgmSelected(false);
+    setSelectedBgmId(null);
     setIsDraggingCanvasText(true);
     setCanvasDragStart({
       mouseX: e.clientX,
@@ -524,21 +588,57 @@ export default function AssemblyTab({ activeProject }: AssemblyTabProps) {
   };
 
   // -------------------------------------------------------------
+  // DRAGGABLE PLAYHEAD SCRUBBER ENGINE
+  // -------------------------------------------------------------
+  const updatePlayheadFromPointer = (clientX: number) => {
+    if (!timelineLanesRef.current) return;
+    const rect = timelineLanesRef.current.getBoundingClientRect();
+    const scrollLeft = timelineLanesRef.current.scrollLeft || 0;
+    const xPos = clientX - rect.left + scrollLeft;
+    const targetTime = Math.max(0, Math.min(maxTimelineDuration, xPos / zoomPxPerSec));
+    handleSeek(Math.round(targetTime * 10) / 10);
+  };
+
+  const handlePlayheadPointerDown = (e: React.PointerEvent) => {
+    e.stopPropagation();
+    setIsDraggingPlayhead(true);
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    updatePlayheadFromPointer(e.clientX);
+  };
+
+  const handlePlayheadPointerMove = (e: React.PointerEvent) => {
+    if (!isDraggingPlayhead) return;
+    e.stopPropagation();
+    updatePlayheadFromPointer(e.clientX);
+  };
+
+  const handlePlayheadPointerUp = (e: React.PointerEvent) => {
+    if (isDraggingPlayhead) {
+      setIsDraggingPlayhead(false);
+      try {
+        (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+      } catch {}
+    }
+  };
+
+  // -------------------------------------------------------------
+  // -------------------------------------------------------------
   // CAPCUT-STYLE TIMELINE DRAG & RESIZE ENGINE
   // -------------------------------------------------------------
   const handleTimelineClipPointerDown = (
     e: React.PointerEvent, 
-    type: "text_move" | "text_trim_left" | "text_trim_right" | "bgm_move" | "bgm_trim_right", 
+    type: "text_move" | "text_trim_left" | "text_trim_right" | "bgm_move" | "bgm_trim_left" | "bgm_trim_right", 
     id?: string,
     initialStartTime: number = 0,
-    initialDuration: number = 3
+    initialDuration: number = 3,
+    initialMediaOffset: number = 0
   ) => {
     e.stopPropagation();
     if (type.startsWith("text")) {
       if (id) setSelectedTextId(id);
-      setIsBgmSelected(false);
+      setSelectedBgmId(null);
     } else {
-      setIsBgmSelected(true);
+      if (id) setSelectedBgmId(id);
       setSelectedTextId(null);
     }
 
@@ -548,77 +648,144 @@ export default function AssemblyTab({ activeProject }: AssemblyTabProps) {
       startMouseX: e.clientX,
       initialStartTime,
       initialDuration,
+      initialMediaOffset,
     });
-    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
   };
 
   const handleTimelineClipPointerMove = (e: React.PointerEvent) => {
     if (!timelineDrag) return;
+    e.stopPropagation();
     const deltaPx = e.clientX - timelineDrag.startMouseX;
     const deltaTime = deltaPx / zoomPxPerSec;
 
     if (timelineDrag.type === "text_move" && timelineDrag.id) {
       const newStart = Math.max(0, Math.round((timelineDrag.initialStartTime + deltaTime) * 10) / 10);
-      handleUpdateText(timelineDrag.id, { start_time: newStart });
+      const updated = timelineRef.current.text_overlays.map(t => t.id === timelineDrag.id ? { ...t, start_time: newStart } : t);
+      const next = { ...timelineRef.current, text_overlays: updated };
+      timelineRef.current = next;
+      setTimeline(next);
     } else if (timelineDrag.type === "text_trim_right" && timelineDrag.id) {
       const newDur = Math.max(0.5, Math.round((timelineDrag.initialDuration + deltaTime) * 10) / 10);
-      handleUpdateText(timelineDrag.id, { duration: newDur });
+      const updated = timelineRef.current.text_overlays.map(t => t.id === timelineDrag.id ? { ...t, duration: newDur } : t);
+      const next = { ...timelineRef.current, text_overlays: updated };
+      timelineRef.current = next;
+      setTimeline(next);
     } else if (timelineDrag.type === "text_trim_left" && timelineDrag.id) {
+      const maxDelta = timelineDrag.initialDuration - 0.5;
+      const minDelta = -timelineDrag.initialStartTime;
+      const clampedDelta = Math.min(maxDelta, Math.max(minDelta, deltaTime));
+      const newStart = Math.max(0, Math.round((timelineDrag.initialStartTime + clampedDelta) * 10) / 10);
+      const newDur = Math.max(0.5, Math.round((timelineDrag.initialDuration - clampedDelta) * 10) / 10);
+      const updated = timelineRef.current.text_overlays.map(t => t.id === timelineDrag.id ? { ...t, start_time: newStart, duration: newDur } : t);
+      const next = { ...timelineRef.current, text_overlays: updated };
+      timelineRef.current = next;
+      setTimeline(next);
+    } else if (timelineDrag.type === "bgm_move" && timelineDrag.id) {
       const newStart = Math.max(0, Math.round((timelineDrag.initialStartTime + deltaTime) * 10) / 10);
-      const newDur = Math.max(0.5, Math.round((timelineDrag.initialDuration - deltaTime) * 10) / 10);
-      handleUpdateText(timelineDrag.id, { start_time: newStart, duration: newDur });
-    } else if (timelineDrag.type === "bgm_move" && timeline.bgm) {
-      const newStart = Math.max(0, Math.round((timelineDrag.initialStartTime + deltaTime) * 10) / 10);
-      saveTimelineState({
-        ...timeline,
-        bgm: { ...timeline.bgm, start_time: newStart },
-      });
-    } else if (timelineDrag.type === "bgm_trim_right" && timeline.bgm) {
-      const newDur = Math.max(1.0, Math.round((timelineDrag.initialDuration + deltaTime) * 10) / 10);
-      saveTimelineState({
-        ...timeline,
-        bgm: { ...timeline.bgm, duration: newDur },
-      });
+      const updated = timelineRef.current.bgm_clips.map(c => c.id === timelineDrag.id ? { ...c, start_time: newStart } : c);
+      const next = { ...timelineRef.current, bgm_clips: updated, bgm: updated[0] || null };
+      timelineRef.current = next;
+      setTimeline(next);
+    } else if (timelineDrag.type === "bgm_trim_right" && timelineDrag.id) {
+      const newDur = Math.max(0.5, Math.round((timelineDrag.initialDuration + deltaTime) * 10) / 10);
+      const updated = timelineRef.current.bgm_clips.map(c => c.id === timelineDrag.id ? { ...c, duration: newDur } : c);
+      const next = { ...timelineRef.current, bgm_clips: updated, bgm: updated[0] || null };
+      timelineRef.current = next;
+      setTimeline(next);
+    } else if (timelineDrag.type === "bgm_trim_left" && timelineDrag.id) {
+      const maxDelta = timelineDrag.initialDuration - 0.5;
+      const minDeltaByTimeline = -timelineDrag.initialStartTime;
+      const minDeltaByOffset = -(timelineDrag.initialMediaOffset || 0);
+      const minDelta = Math.max(minDeltaByTimeline, minDeltaByOffset);
+      const clampedDelta = Math.min(maxDelta, Math.max(minDelta, deltaTime));
+
+      const newStart = Math.max(0, Math.round((timelineDrag.initialStartTime + clampedDelta) * 10) / 10);
+      const newDur = Math.max(0.5, Math.round((timelineDrag.initialDuration - clampedDelta) * 10) / 10);
+      const newOffset = Math.max(0, Math.round(((timelineDrag.initialMediaOffset || 0) + clampedDelta) * 10) / 10);
+
+      const updated = timelineRef.current.bgm_clips.map(c => c.id === timelineDrag.id ? { ...c, start_time: newStart, duration: newDur, media_offset: newOffset } : c);
+      const next = { ...timelineRef.current, bgm_clips: updated, bgm: updated[0] || null };
+      timelineRef.current = next;
+      setTimeline(next);
     }
   };
 
   const handleTimelineClipPointerUp = (e: React.PointerEvent) => {
     if (timelineDrag) {
+      e.stopPropagation();
+      try {
+        (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+      } catch {}
       setTimelineDrag(null);
-      (e.target as HTMLElement).releasePointerCapture(e.pointerId);
+      persistTimelineState(timelineRef.current);
     }
   };
 
   // Split tool at playhead
   const handleSplitAtPlayhead = () => {
+    const currentTimeline = timelineRef.current;
     if (selectedTextId) {
-      const item = timeline.text_overlays.find(t => t.id === selectedTextId);
+      const item = currentTimeline.text_overlays.find(t => t.id === selectedTextId);
       if (item && currentTime > item.start_time && currentTime < item.start_time + item.duration) {
-        const firstDur = Math.round((currentTime - item.start_time) * 10) / 10;
-        const secondDur = Math.round((item.duration - firstDur) * 10) / 10;
+        const firstDur = Math.max(0.5, Math.round((currentTime - item.start_time) * 10) / 10);
+        const secondDur = Math.max(0.5, Math.round((item.duration - firstDur) * 10) / 10);
         
         const secondItem: TextOverlayItem = {
           ...item,
           id: `text_${Date.now()}`,
           start_time: Math.round(currentTime * 10) / 10,
-          duration: Math.max(0.5, secondDur),
+          duration: secondDur,
         };
 
-        const updatedOverlays = timeline.text_overlays.map(t => 
-          t.id === item.id ? { ...t, duration: Math.max(0.5, firstDur) } : t
+        const updatedOverlays = currentTimeline.text_overlays.map(t => 
+          t.id === item.id ? { ...t, duration: firstDur } : t
         );
         updatedOverlays.push(secondItem);
 
-        saveTimelineState({ ...timeline, text_overlays: updatedOverlays });
+        saveTimelineState({ ...currentTimeline, text_overlays: updatedOverlays });
         setSelectedTextId(secondItem.id);
+        setSelectedBgmId(null);
       }
-    } else if (isBgmSelected && timeline.bgm) {
-      if (currentTime > timeline.bgm.start_time && currentTime < timeline.bgm.start_time + timeline.bgm.duration) {
-        const firstDur = Math.round((currentTime - timeline.bgm.start_time) * 10) / 10;
-        saveTimelineState({
-          ...timeline,
-          bgm: { ...timeline.bgm, duration: Math.max(1.0, firstDur) },
+    } else {
+      // Look for BGM clip to split (either selected or clip under playhead)
+      const targetClip = currentTimeline.bgm_clips.find(c => 
+        (c.id === selectedBgmId && currentTime > c.start_time && currentTime < c.start_time + c.duration) ||
+        (currentTime > c.start_time && currentTime < c.start_time + c.duration)
+      );
+
+      if (targetClip) {
+        const splitOffset = Math.round((currentTime - targetClip.start_time) * 10) / 10;
+        const firstDur = Math.max(0.5, splitOffset);
+        const secondDur = Math.max(0.5, Math.round((targetClip.duration - splitOffset) * 10) / 10);
+        
+        const newSecondId = `bgm_${Date.now()}`;
+        const secondClip: BgmClip = {
+          ...targetClip,
+          id: newSecondId,
+          start_time: Math.round(currentTime * 10) / 10,
+          duration: secondDur,
+          media_offset: (targetClip.media_offset || 0) + splitOffset,
+          volume: targetClip.volume ?? 1.0,
+        };
+
+        const updatedClips = currentTimeline.bgm_clips.flatMap(c => {
+          if (c.id === targetClip.id) {
+            return [
+              { ...c, duration: firstDur },
+              secondClip,
+            ];
+          }
+          return [c];
         });
+
+        saveTimelineState({
+          ...currentTimeline,
+          bgm_clips: updatedClips,
+          bgm: updatedClips[0] || null,
+        });
+        setSelectedBgmId(newSecondId);
+        setSelectedTextId(null);
       }
     }
   };
@@ -642,7 +809,7 @@ export default function AssemblyTab({ activeProject }: AssemblyTabProps) {
       text_overlays: [...timeline.text_overlays, newText],
     };
     setSelectedTextId(newText.id);
-    setIsBgmSelected(false);
+    setSelectedBgmId(null);
     saveTimelineState(updated);
   };
 
@@ -652,39 +819,66 @@ export default function AssemblyTab({ activeProject }: AssemblyTabProps) {
     saveTimelineState({ ...timeline, text_overlays: updatedOverlays });
   };
 
-  // Duplicate text overlay
+  // Duplicate selected item (Clones BGM clip and places immediately after the first one!)
   const handleDuplicateSelected = () => {
+    const currentTimeline = timelineRef.current;
     if (selectedTextId) {
-      const item = timeline.text_overlays.find(t => t.id === selectedTextId);
+      const item = currentTimeline.text_overlays.find(t => t.id === selectedTextId);
       if (!item) return;
       const cloned: TextOverlayItem = {
         ...item,
         id: `text_${Date.now()}`,
         start_time: Math.round((item.start_time + item.duration + 0.2) * 10) / 10,
+        duration: item.duration,
       };
       saveTimelineState({
-        ...timeline,
-        text_overlays: [...timeline.text_overlays, cloned],
+        ...currentTimeline,
+        text_overlays: [...currentTimeline.text_overlays, cloned],
       });
       setSelectedTextId(cloned.id);
-    } else if (isBgmSelected && timeline.bgm) {
-      const newStart = Math.round((timeline.bgm.start_time + timeline.bgm.duration) * 10) / 10;
+      setSelectedBgmId(null);
+    } else if (selectedBgmId || currentTimeline.bgm_clips.length > 0) {
+      const targetClip = currentTimeline.bgm_clips.find(c => c.id === selectedBgmId) || currentTimeline.bgm_clips[currentTimeline.bgm_clips.length - 1];
+      if (!targetClip) return;
+
+      // DUPLICATE BGM: Clone the clip and place it immediately after the first one
+      // It keeps the EXACT trimmed duration of targetClip!
+      const newId = `bgm_${Date.now()}`;
+      const clonedClip: BgmClip = {
+        ...targetClip,
+        id: newId,
+        start_time: Math.round((targetClip.start_time + targetClip.duration) * 10) / 10,
+        duration: targetClip.duration, // EXACT trimmed duration!
+        media_offset: targetClip.media_offset ?? 0,
+        volume: targetClip.volume ?? 1.0,
+      };
+
+      const updatedClips = [...currentTimeline.bgm_clips, clonedClip];
       saveTimelineState({
-        ...timeline,
-        bgm: { ...timeline.bgm, start_time: newStart },
+        ...currentTimeline,
+        bgm_clips: updatedClips,
+        bgm: updatedClips[0] || null,
       });
+      setSelectedBgmId(newId);
+      setSelectedTextId(null);
     }
   };
 
   // Delete selected clip
   const handleDeleteSelected = () => {
+    const currentTimeline = timelineRef.current;
     if (selectedTextId) {
-      const updated = timeline.text_overlays.filter(t => t.id !== selectedTextId);
+      const updated = currentTimeline.text_overlays.filter(t => t.id !== selectedTextId);
       setSelectedTextId(null);
-      saveTimelineState({ ...timeline, text_overlays: updated });
-    } else if (isBgmSelected && timeline.bgm) {
-      setIsBgmSelected(false);
-      saveTimelineState({ ...timeline, bgm: null });
+      saveTimelineState({ ...currentTimeline, text_overlays: updated });
+    } else if (selectedBgmId) {
+      const updated = currentTimeline.bgm_clips.filter(c => c.id !== selectedBgmId);
+      setSelectedBgmId(null);
+      saveTimelineState({
+        ...currentTimeline,
+        bgm_clips: updated,
+        bgm: updated[0] || null,
+      });
     }
   };
 
@@ -713,24 +907,46 @@ export default function AssemblyTab({ activeProject }: AssemblyTabProps) {
         const uploadedFile: BgmFile = result.file;
         setBgmFiles(prev => [...prev.filter(f => f.filename !== uploadedFile.filename), uploadedFile]);
         
-        const updatedTimeline: TimelineState = {
-          ...timeline,
-          bgm: {
-            relative_path: uploadedFile.relative_path,
-            filename: uploadedFile.filename,
-            start_time: 0.0,
-            duration: uploadedFile.duration,
-            volume: timeline.master_bgm_volume,
-          }
+        // Auto-append or set BGM clip, clamped to maxTimelineDuration
+        const newClip: BgmClip = {
+          id: `bgm_${Date.now()}`,
+          relative_path: uploadedFile.relative_path,
+          filename: uploadedFile.filename,
+          start_time: 0.0,
+          duration: Math.min(uploadedFile.duration, maxTimelineDuration),
+          media_offset: 0,
+          volume: 1.0,
         };
-        saveTimelineState(updatedTimeline);
-        setIsBgmSelected(true);
+        const updatedClips = [...timeline.bgm_clips, newClip];
+        saveTimelineState({
+          ...timeline,
+          bgm_clips: updatedClips,
+          bgm: updatedClips[0] || null,
+        });
+        setSelectedBgmId(newClip.id);
+        setSelectedTextId(null);
       }
     } catch (err) {
       console.error("Upload BGM failed:", err);
     } finally {
       setIsUploadingBgm(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
+  // Delete rendered video file from disk & state
+  const handleDeleteRenderedVideo = async () => {
+    try {
+      const res = await fetch(`http://localhost:8000/api/projects/${activeProject.id}/render`, {
+        method: "DELETE",
+      });
+      if (res.ok) {
+        setHasFinalVideo(false);
+        setIsDismissedRenderBanner(true);
+        setRenderJob({ status: "idle", progress: 0, output_path: null, error: null });
+      }
+    } catch (err) {
+      console.error("Failed to delete rendered video:", err);
     }
   };
 
@@ -766,123 +982,56 @@ export default function AssemblyTab({ activeProject }: AssemblyTabProps) {
     return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}.${ms}`;
   };
 
+  // Ruler tick interval calculation (Prevents overlapping text on time ruler)
+  const rulerTickInterval = useMemo(() => {
+    if (zoomPxPerSec <= 25) return 10;
+    if (zoomPxPerSec <= 45) return 5;
+    if (zoomPxPerSec <= 70) return 2;
+    return 1;
+  }, [zoomPxPerSec]);
+
   return (
-    <div className="flex flex-col gap-4 pb-16 animate-in fade-in slide-in-from-bottom-3 duration-500 max-w-[1780px] mx-auto select-none">
+    <div className="flex flex-col gap-3 pb-12 animate-in fade-in slide-in-from-bottom-2 duration-300 max-w-[1880px] mx-auto select-none">
       
       {/* Hidden Audio Elements */}
       <audio ref={voiceAudioRef} preload="auto" />
-      <audio ref={bgmAudioRef} preload="auto" />
+      <audio 
+        ref={bgmAudioRef} 
+        src={timeline.bgm?.relative_path ? getAssetUrl(timeline.bgm.relative_path) : undefined} 
+        preload="auto" 
+      />
       <audio ref={singleAuditionAudioRef} preload="auto" />
 
-      {/* Top Banner: File Location & Coupling Readiness */}
-      <div className="bg-card border border-border rounded-xl px-4 py-3 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center text-primary shrink-0">
-            <Film size={18} />
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h2 className="font-bold text-sm text-foreground tracking-tight">Timeline Assembly & Mastering</h2>
-              <span className="text-[11px] px-2 py-0.2 rounded-full bg-primary/10 text-primary font-mono font-medium">
-                {aspectRatio}
-              </span>
-              <span className="text-xs text-foreground/40">•</span>
-              <span className="text-xs text-foreground/60 font-medium">
-                {totalDuration > 0 ? `${formatTime(totalDuration)} video runtime` : "No ready audio"}
-              </span>
-            </div>
-            <p className="text-[11px] text-foreground/50 font-mono flex items-center gap-1.5 mt-0.5">
-              <FolderCheck size={12} className="text-primary/70 shrink-0" />
-              ~/Code/video_studio/workspace/{slug}/
-            </p>
-          </div>
-        </div>
-
-        {/* Readiness Pill & Quick Actions */}
-        <div className="flex items-center gap-4 w-full md:w-auto justify-between md:justify-end">
-          <div className="flex flex-col items-end">
-            <div className="flex items-center gap-2">
-              <span className="text-[11px] font-semibold text-foreground/70">
-                Coupled Scenes:
-              </span>
-              <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${
-                coupledCount === scenesData.length && scenesData.length > 0
-                  ? "bg-emerald-500/10 text-emerald-500 border border-emerald-500/20"
-                  : "bg-amber-500/10 text-amber-500 border border-amber-500/20"
-              }`}>
-                {coupledCount} / {scenesData.length} Ready ({scenesData.length ? Math.round((coupledCount / scenesData.length) * 100) : 0}%)
-              </span>
-            </div>
-            {/* Progress bar */}
-            <div className="w-44 h-1.5 bg-border rounded-full mt-1 overflow-hidden">
-              <div 
-                className="h-full bg-primary transition-all duration-300"
-                style={{ width: `${scenesData.length ? (coupledCount / scenesData.length) * 100 : 0}%` }}
-              />
-            </div>
-          </div>
-
-          <button
-            onClick={handleTriggerRender}
-            disabled={coupledCount === 0 || renderJob.status === "rendering"}
-            className="flex items-center gap-2 px-3.5 py-1.5 rounded-lg bg-primary hover:bg-primary/90 text-primary-foreground text-xs font-semibold shadow-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
-          >
-            {renderJob.status === "rendering" ? (
-              <>
-                <Loader2 size={13} className="animate-spin" />
-                <span>Exporting {renderJob.progress}%...</span>
-              </>
-            ) : (
-              <>
-                <Sparkles size={13} />
-                <span>Export Video (MP4)</span>
-              </>
-            )}
-          </button>
-        </div>
-      </div>
-
-      {/* Render Alert / Progress Bar */}
+      {/* RENDER PROGRESS BANNER (When rendering) */}
       {renderJob.status === "rendering" && (
-        <div className="bg-primary/5 border border-primary/20 rounded-xl p-3 flex items-center justify-between gap-4">
-          <div className="flex items-center gap-2.5 text-xs text-primary font-medium">
-            <Loader2 size={15} className="animate-spin" />
+        <div className="bg-primary/5 border border-primary/20 rounded-xl px-4 py-2 flex items-center justify-between gap-4">
+          <div className="flex items-center gap-2 text-xs text-primary font-medium">
+            <Loader2 size={13} className="animate-spin" />
             <span>Assembling frames, dialogue voice tracks, BGM, and burned subtitles into {aspectRatio} MP4...</span>
           </div>
           <span className="text-xs font-mono font-bold text-primary">{renderJob.progress}%</span>
         </div>
       )}
 
-      {hasFinalVideo && (
-        <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-2.5 flex items-center justify-between gap-4">
-          <div className="flex items-center gap-2 text-xs text-emerald-500 font-medium">
-            <CheckCircle2 size={15} />
-            <span>Final video rendered successfully: <code className="font-mono">{slug}/final_output.mp4</code></span>
-          </div>
-          <a
-            href={getAssetUrl(`${slug}/final_output.mp4`)}
-            download="final_output.mp4"
-            className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-emerald-500 text-white text-xs font-semibold hover:bg-emerald-600 transition-colors shadow-sm"
-          >
-            <Download size={13} />
-            <span>Download MP4</span>
-          </a>
-        </div>
-      )}
-
-      {/* TOP SECTION: Split View (Scene List on Left, Video Monitor + Text Style on Right) */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
+      {/* ------------------------------------------------------------- */}
+      {/* 3-COLUMN STUDIO TOP ROW                                        */}
+      {/* Col 1: Voice Lines (~380px) | Col 2: Video Monitor (Flex-1)    */}
+      {/* Col 3: Compact Mastering Panel (~250px, no boxes-in-boxes!)    */}
+      {/* ------------------------------------------------------------- */}
+      <div className="flex flex-col lg:flex-row gap-3.5 items-start">
         
-        {/* Left Column: Scene Coupling & Voice Audition Deck (4 cols) */}
-        <div className="lg:col-span-4 flex flex-col gap-2.5">
-          <div className="flex items-center justify-between px-1">
+        {/* ======================================================== */}
+        {/* COLUMN 1: Scene Voice Lines Deck (Expanded Back ~380px)   */}
+        {/* ======================================================== */}
+        <div className="w-full lg:w-[380px] shrink-0 flex flex-col gap-2 bg-card border border-border rounded-xl p-3.5 shadow-sm h-[480px]">
+          <div className="flex items-center justify-between pb-1.5 border-b border-border/40">
             <div>
-              <h3 className="text-xs font-bold text-foreground uppercase tracking-wider">Scene Voice Lines</h3>
-              <p className="text-[10px] text-foreground/50">Audition voiceover & adjust individual gain</p>
+              <h3 className="text-xs font-bold text-foreground uppercase tracking-wider">Voice Lines</h3>
+              <p className="text-[10px] text-foreground/50">Audition & individual speech gain</p>
             </div>
             
             {/* Filter pills */}
-            <div className="flex items-center bg-card border border-border rounded-lg p-0.5 text-[10px]">
+            <div className="flex items-center bg-background border border-border rounded-lg p-0.5 text-[10px]">
               <button
                 onClick={() => setFilterMode("all")}
                 className={`px-2 py-0.5 rounded transition-colors ${filterMode === "all" ? "bg-primary text-primary-foreground font-semibold" : "text-foreground/60 hover:text-foreground"}`}
@@ -904,10 +1053,10 @@ export default function AssemblyTab({ activeProject }: AssemblyTabProps) {
             </div>
           </div>
 
-          {/* Scenes List */}
-          <div className="space-y-2 max-h-[460px] overflow-y-auto pr-1">
+          {/* Scrollable Scenes List */}
+          <div className="space-y-2 overflow-y-auto flex-1 pr-1">
             {filteredScenes.length === 0 ? (
-              <div className="p-6 border border-dashed border-border rounded-xl text-center text-xs text-foreground/40">
+              <div className="p-8 border border-dashed border-border rounded-xl text-center text-xs text-foreground/40">
                 No scenes found matching the filter.
               </div>
             ) : (
@@ -921,15 +1070,15 @@ export default function AssemblyTab({ activeProject }: AssemblyTabProps) {
                   <div
                     key={scene.id}
                     onClick={() => handleSeek(sceneTimelineMap.find(s => s.scene_number === scene.scene_number)?.timeline_start || 0)}
-                    className={`bg-card border rounded-xl p-2.5 transition-all cursor-pointer ${
+                    className={`bg-background border rounded-lg p-2.5 transition-all cursor-pointer ${
                       isSelected 
                         ? "border-primary ring-1 ring-primary/40 shadow-sm" 
                         : "border-border hover:border-border/80"
                     }`}
                   >
                     <div className="flex gap-2.5">
-                      {/* Image Thumbnail */}
-                      <div className="w-16 h-20 bg-black/40 rounded-lg overflow-hidden shrink-0 relative flex items-center justify-center border border-border/50">
+                      {/* Mini Thumbnail */}
+                      <div className="w-14 h-18 bg-black/40 rounded overflow-hidden shrink-0 relative flex items-center justify-center border border-border/50">
                         {scene.image_exists && scene.image_path ? (
                           <img
                             src={getAssetUrl(scene.image_path)}
@@ -937,95 +1086,53 @@ export default function AssemblyTab({ activeProject }: AssemblyTabProps) {
                             className="w-full h-full object-cover"
                           />
                         ) : (
-                          <div className="flex flex-col items-center justify-center text-foreground/30 p-1 text-center">
-                            <ImageIcon size={14} className="mb-0.5" />
-                            <span className="text-[8px] font-semibold uppercase">No Frame</span>
+                          <div className="flex flex-col items-center justify-center text-foreground/30 text-center">
+                            <ImageIcon size={14} />
                           </div>
                         )}
-                        <span className="absolute top-1 left-1 bg-black/75 backdrop-blur-sm text-white text-[9px] font-mono px-1 py-0.2 rounded">
+                        <span className="absolute top-0.5 left-0.5 bg-black/75 text-white text-[8px] font-mono px-1 py-0.2 rounded">
                           #{String(scene.scene_number).padStart(2, "0")}
                         </span>
                       </div>
 
-                      {/* Content & Audio Controls */}
+                      {/* Content & Gain */}
                       <div className="flex flex-col justify-between flex-1 min-w-0">
                         <div>
                           <div className="flex items-center justify-between gap-1 mb-1">
-                            <div className="flex items-center gap-1.5">
-                              <span className={`text-[9px] font-bold uppercase px-1.5 py-0.2 rounded ${
-                                isCoupled 
-                                  ? "bg-emerald-500/15 text-emerald-500 border border-emerald-500/20" 
-                                  : scene.coupling_status === "missing_audio"
-                                  ? "bg-amber-500/15 text-amber-500 border border-amber-500/20"
-                                  : scene.coupling_status === "missing_image"
-                                  ? "bg-blue-500/15 text-blue-500 border border-blue-500/20"
-                                  : "bg-rose-500/15 text-rose-500 border border-rose-500/20"
-                              }`}>
-                                {isCoupled ? "Coupled" : scene.coupling_status.replace("_", " ")}
-                              </span>
+                            <span className={`text-[9px] font-bold uppercase px-1.5 py-0.2 rounded ${
+                              isCoupled 
+                                ? "bg-emerald-500/15 text-emerald-500" 
+                                : "bg-amber-500/15 text-amber-500"
+                            }`}>
+                              {isCoupled ? `${scene.duration.toFixed(1)}s` : "Missing"}
+                            </span>
 
-                              {isCoupled && (
-                                <span className="text-[9px] font-mono text-foreground/60 bg-foreground/5 px-1.5 py-0.2 rounded">
-                                  {scene.duration.toFixed(1)}s
-                                </span>
-                              )}
-                            </div>
-
-                            {/* Audition Single Scene Voice Button */}
+                            {/* Audition Button */}
                             {scene.audio_exists && (
                               <button
                                 onClick={(e) => handleAuditionSingleScene(scene, e)}
                                 title={isAuditioning ? "Pause voice line" : "Audition voice line isolated"}
-                                className={`flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold transition-colors ${
+                                className={`flex items-center gap-1 px-2 py-0.5 rounded text-[9px] font-semibold transition-colors ${
                                   isAuditioning 
                                     ? "bg-primary text-primary-foreground animate-pulse" 
                                     : "bg-foreground/5 hover:bg-foreground/10 text-foreground/70"
                                 }`}
                               >
-                                {isAuditioning ? <Pause size={10} /> : <Play size={10} />}
-                                <span>{isAuditioning ? "Playing" : "Audition"}</span>
+                                {isAuditioning ? <Pause size={9} /> : <Play size={9} />}
+                                <span>{isAuditioning ? "Stop" : "Audition"}</span>
                               </button>
-                            )}
-
-                            {/* Jump to Tab links */}
-                            {!isCoupled && (
-                              <div className="flex items-center gap-1">
-                                {!scene.image_exists && (
-                                  <Link
-                                    href={`/projects/${activeProject.id}/images`}
-                                    onClick={(e) => e.stopPropagation()}
-                                    className="text-[9px] text-blue-400 hover:underline flex items-center gap-0.5"
-                                  >
-                                    <span>Images</span>
-                                    <ChevronRight size={9} />
-                                  </Link>
-                                )}
-                                {!scene.audio_exists && (
-                                  <Link
-                                    href={`/projects/${activeProject.id}/voice`}
-                                    onClick={(e) => e.stopPropagation()}
-                                    className="text-[9px] text-amber-400 hover:underline flex items-center gap-0.5"
-                                  >
-                                    <span>Voice</span>
-                                    <ChevronRight size={9} />
-                                  </Link>
-                                )}
-                              </div>
                             )}
                           </div>
 
-                          <p className="text-xs text-foreground/90 font-medium line-clamp-2 leading-relaxed">
-                            {scene.narration_khmer || scene.image_prompt_english || "No narration text"}
+                          <p className="text-xs text-foreground/90 font-medium line-clamp-2 leading-tight">
+                            {scene.narration_khmer || scene.image_prompt_english || "No line"}
                           </p>
                         </div>
 
-                        {/* Individual Scene Voice Volume Slider */}
-                        <div className="flex items-center justify-between gap-2 mt-1.5 pt-1.5 border-t border-border/40" onClick={(e) => e.stopPropagation()}>
+                        {/* Individual Scene Voice Volume */}
+                        <div className="flex items-center justify-between gap-2 mt-1 pt-1 border-t border-border/30" onClick={(e) => e.stopPropagation()}>
                           <div className="flex items-center gap-1.5 flex-1">
                             <Volume2 size={11} className="text-foreground/40 shrink-0" />
-                            <span className="text-[9px] text-foreground/50 font-medium w-14">
-                              Vol: {Math.round(volumeVal * 100)}%
-                            </span>
                             <input
                               type="range"
                               min="0"
@@ -1033,16 +1140,13 @@ export default function AssemblyTab({ activeProject }: AssemblyTabProps) {
                               step="0.05"
                               value={volumeVal}
                               onChange={(e) => handleSceneVolumeChange(scene.scene_number, parseFloat(e.target.value))}
-                              className="w-full h-1 bg-border rounded-lg appearance-none cursor-pointer accent-primary"
+                              className="w-full h-1 bg-border rounded appearance-none cursor-pointer accent-primary"
+                              title={`Voice Volume: ${Math.round(volumeVal * 100)}%`}
                             />
                           </div>
-                          <button
-                            onClick={() => handleSceneVolumeChange(scene.scene_number, 1.0)}
-                            title="Reset volume to 100%"
-                            className="text-[9px] text-foreground/40 hover:text-foreground transition-colors"
-                          >
-                            Reset
-                          </button>
+                          <span className="text-[10px] font-mono text-foreground/50 w-8 text-right">
+                            {Math.round(volumeVal * 100)}%
+                          </span>
                         </div>
                       </div>
                     </div>
@@ -1053,13 +1157,15 @@ export default function AssemblyTab({ activeProject }: AssemblyTabProps) {
           </div>
         </div>
 
-        {/* Right Column: Interactive Video Monitor with Freeform Draggable Text (8 cols) */}
-        <div className="lg:col-span-8 flex flex-col gap-2.5">
+        {/* ======================================================== */}
+        {/* COLUMN 2: Video Viewport + TEXT SETTINGS BELOW VIDEO     */}
+        {/* ======================================================== */}
+        <div className="flex-1 min-w-0 flex flex-col gap-2 h-[480px]">
           
-          {/* Video Viewport Frame */}
+          {/* Viewport Frame */}
           <div 
             ref={videoViewportRef}
-            className="w-full bg-black rounded-xl border border-border relative flex items-center justify-center overflow-hidden h-[380px] shadow-sm select-none"
+            className="w-full bg-black rounded-xl border border-border relative flex items-center justify-center overflow-hidden flex-1 shadow-inner select-none"
           >
             {currentSceneAtPlayhead?.image_exists && currentSceneAtPlayhead.image_path ? (
               <img
@@ -1069,13 +1175,13 @@ export default function AssemblyTab({ activeProject }: AssemblyTabProps) {
               />
             ) : (
               <div className="flex flex-col items-center justify-center text-foreground/30 p-8 text-center pointer-events-none">
-                <ImageIcon size={36} className="mb-2 opacity-50" />
-                <p className="text-xs font-semibold">Frame not yet generated for Scene #{currentSceneAtPlayhead?.scene_number}</p>
-                <p className="text-[11px] text-foreground/40 mt-1">Render image in Images Tab to preview</p>
+                <ImageIcon size={34} className="mb-2 opacity-40" />
+                <p className="text-xs font-semibold">Frame not yet rendered for Scene #{currentSceneAtPlayhead?.scene_number}</p>
+                <p className="text-[10px] text-foreground/40 mt-0.5">Render image in Images Tab</p>
               </div>
             )}
 
-            {/* FREEFORM DRAGGABLE TEXT OVERLAY */}
+            {/* FREEFORM DRAGGABLE TEXT OVERLAY ON SCREEN */}
             {activeOverlayAtPlayhead && (
               <div
                 onPointerDown={handleCanvasTextPointerDown}
@@ -1091,7 +1197,7 @@ export default function AssemblyTab({ activeProject }: AssemblyTabProps) {
                   color: activeOverlayAtPlayhead.color,
                   backgroundColor: activeOverlayAtPlayhead.bg_color,
                 }}
-                className={`px-4 py-1.5 rounded-lg text-center font-semibold shadow-lg max-w-[85%] leading-snug break-words cursor-move group transition-shadow ${
+                className={`px-3 py-1 rounded text-center font-semibold shadow-lg max-w-[85%] leading-snug break-words cursor-move group transition-shadow ${
                   selectedTextId === activeOverlayAtPlayhead.id 
                     ? "ring-2 ring-primary ring-offset-2 ring-offset-black/50 shadow-2xl" 
                     : "hover:ring-1 hover:ring-white/50"
@@ -1101,25 +1207,26 @@ export default function AssemblyTab({ activeProject }: AssemblyTabProps) {
                 <span>{activeOverlayAtPlayhead.text}</span>
                 
                 {/* Drag Indicator Badge */}
-                <span className="absolute -top-5 left-1/2 -translate-x-1/2 bg-black/80 backdrop-blur-sm text-white text-[9px] font-mono px-1.5 py-0.2 rounded border border-white/20 opacity-0 group-hover:opacity-100 flex items-center gap-1 pointer-events-none transition-opacity">
+                <span className="absolute -top-4 left-1/2 -translate-x-1/2 bg-black/85 backdrop-blur-sm text-white text-[8px] font-mono px-1 py-0.2 rounded border border-white/20 opacity-0 group-hover:opacity-100 flex items-center gap-0.5 pointer-events-none transition-opacity whitespace-nowrap">
                   <Move size={8} /> Drag to position
                 </span>
               </div>
             )}
 
-            {/* Top Right Timecode Badge */}
-            <div className="absolute top-3 right-3 bg-black/80 backdrop-blur-sm text-white font-mono text-xs px-2.5 py-1 rounded-md border border-white/10 shadow flex items-center gap-2">
-              <span className="text-primary font-bold">Scene #{currentSceneAtPlayhead?.scene_number || 1}</span>
+            {/* Top Right Scene & Time Badge */}
+            <div className="absolute top-2.5 right-2.5 bg-black/80 backdrop-blur-sm text-white font-mono text-[11px] px-2 py-0.5 rounded border border-white/10 shadow flex items-center gap-2">
+              <span className="text-primary font-bold">#{currentSceneAtPlayhead?.scene_number || 1}</span>
               <span className="text-white/40">|</span>
               <span>{formatTime(currentTime)} / {formatTime(maxTimelineDuration)}</span>
             </div>
           </div>
 
-          {/* Text Style Bar (Visible when text overlay is selected or active) */}
+          {/* TEXT SETTINGS TOOLBAR DIRECTLY BELOW VIDEO (RESTORED AS REQUESTED!) */}
           {selectedTextItem ? (
-            <div className="bg-card border border-border rounded-xl p-3 flex flex-wrap items-center justify-between gap-3 text-xs shadow-sm">
-              <div className="flex items-center gap-2 flex-1 min-w-[240px]">
-                <Type size={14} className="text-primary shrink-0" />
+            <div className="bg-card border border-border rounded-xl px-3 py-2 flex flex-wrap items-center justify-between gap-2.5 text-xs shadow-sm">
+              {/* Text Input */}
+              <div className="flex items-center gap-1.5 flex-1 min-w-[200px]">
+                <Type size={13} className="text-primary shrink-0" />
                 <input
                   type="text"
                   value={selectedTextItem.text}
@@ -1130,12 +1237,12 @@ export default function AssemblyTab({ activeProject }: AssemblyTabProps) {
               </div>
 
               {/* Font Family */}
-              <div className="flex items-center gap-1.5">
+              <div className="flex items-center gap-1">
                 <span className="text-[10px] text-foreground/50 font-semibold uppercase">Font:</span>
                 <select
                   value={selectedTextItem.font_family}
                   onChange={(e) => handleUpdateText(selectedTextItem.id, { font_family: e.target.value })}
-                  className="bg-background border border-border rounded px-2 py-1 text-[11px] text-foreground outline-none"
+                  className="bg-background border border-border rounded px-1.5 py-1 text-[10px] text-foreground outline-none"
                 >
                   {FONT_OPTIONS.map(f => (
                     <option key={f.id} value={f.id}>{f.label}</option>
@@ -1144,17 +1251,17 @@ export default function AssemblyTab({ activeProject }: AssemblyTabProps) {
               </div>
 
               {/* Font Size */}
-              <div className="flex items-center gap-1.5">
+              <div className="flex items-center gap-1">
                 <span className="text-[10px] text-foreground/50 font-semibold uppercase">Size:</span>
                 <input
                   type="range"
-                  min="20"
+                  min="18"
                   max="64"
                   value={selectedTextItem.font_size}
                   onChange={(e) => handleUpdateText(selectedTextItem.id, { font_size: parseInt(e.target.value) })}
-                  className="w-16 h-1 bg-border rounded appearance-none cursor-pointer accent-primary"
+                  className="w-14 h-1 bg-border rounded appearance-none cursor-pointer accent-primary"
                 />
-                <span className="text-[10px] font-mono text-foreground/60">{selectedTextItem.font_size}px</span>
+                <span className="text-[10px] font-mono text-foreground/60 w-6">{selectedTextItem.font_size}</span>
               </div>
 
               {/* Text Color Chips */}
@@ -1165,14 +1272,13 @@ export default function AssemblyTab({ activeProject }: AssemblyTabProps) {
                     onClick={() => handleUpdateText(selectedTextItem.id, { color: c.value })}
                     style={{ backgroundColor: c.value }}
                     title={c.label}
-                    className={`w-4 h-4 rounded-full border ${selectedTextItem.color === c.value ? "border-primary ring-2 ring-primary/40" : "border-border/60"}`}
+                    className={`w-3.5 h-3.5 rounded-full border ${selectedTextItem.color === c.value ? "border-primary ring-2 ring-primary/40" : "border-border/60"}`}
                   />
                 ))}
               </div>
 
               {/* Background pill selector */}
-              <div className="flex items-center gap-1.5">
-                <span className="text-[10px] text-foreground/50 font-semibold uppercase">Box:</span>
+              <div className="flex items-center gap-1">
                 <select
                   value={selectedTextItem.bg_color}
                   onChange={(e) => handleUpdateText(selectedTextItem.id, { bg_color: e.target.value })}
@@ -1207,29 +1313,129 @@ export default function AssemblyTab({ activeProject }: AssemblyTabProps) {
               </div>
             </div>
           ) : (
-            <div className="bg-card/50 border border-dashed border-border rounded-xl px-4 py-2 text-xs text-foreground/40 flex items-center justify-between">
-              <span>Click any text overlay clip in the timeline below to customize font, color, and drag position freely.</span>
+            <div className="bg-card/60 border border-dashed border-border rounded-xl px-3 py-2 text-xs text-foreground/40 flex items-center justify-between">
+              <span>Click text on screen or in the timeline to customize font, color, and drag position.</span>
               <button
                 onClick={handleAddText}
-                className="flex items-center gap-1 px-2.5 py-1 rounded bg-primary/10 hover:bg-primary/20 text-primary text-[11px] font-semibold transition-colors"
+                className="flex items-center gap-1 text-primary hover:underline font-semibold"
               >
-                <Plus size={12} />
-                <span>Add Text Clip</span>
+                <Plus size={11} />
+                <span>Add Caption</span>
               </button>
             </div>
           )}
 
         </div>
 
+        {/* ======================================================== */}
+        {/* COLUMN 3: Compact Mastering Panel (~250px, NO BOXES!)    */}
+        {/* ======================================================== */}
+        <div className="w-full lg:w-[250px] shrink-0 bg-card border border-border rounded-xl p-3.5 shadow-sm flex flex-col justify-between h-[480px]">
+          <div className="flex flex-col gap-3">
+            {/* Project Title & Aspect Ratio */}
+            <div className="flex items-center justify-between pb-2 border-b border-border/40">
+              <div className="flex items-center gap-1.5 min-w-0">
+                <Film size={14} className="text-primary shrink-0" />
+                <span className="text-xs font-bold text-foreground truncate">{activeProject.title || "Assembly"}</span>
+              </div>
+              <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-primary/10 text-primary font-mono font-medium shrink-0">
+                {aspectRatio}
+              </span>
+            </div>
+
+            {/* Coupling Stats */}
+            <div className="flex flex-col gap-1.5">
+              <div className="flex justify-between text-[11px]">
+                <span className="text-foreground/60">Coupled Scenes:</span>
+                <span className="font-bold text-foreground">
+                  {coupledCount} / {scenesData.length}
+                </span>
+              </div>
+              <div className="w-full h-1.5 bg-border rounded-full overflow-hidden">
+                <div 
+                  className="h-full bg-primary transition-all duration-300"
+                  style={{ width: `${scenesData.length ? (coupledCount / scenesData.length) * 100 : 0}%` }}
+                />
+              </div>
+              <div className="flex justify-between text-[10px] text-foreground/40 font-mono mt-0.5">
+                <span>{scenesData.length ? Math.round((coupledCount / scenesData.length) * 100) : 0}% Ready</span>
+                <span>{formatTime(totalDuration)}</span>
+              </div>
+            </div>
+
+            {/* Export MP4 Button */}
+            <button
+              onClick={handleTriggerRender}
+              disabled={coupledCount === 0 || renderJob.status === "rendering"}
+              className="w-full flex items-center justify-center gap-1.5 py-2 rounded-lg bg-primary hover:bg-primary/90 text-primary-foreground text-xs font-semibold shadow-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed mt-1"
+            >
+              {renderJob.status === "rendering" ? (
+                <>
+                  <Loader2 size={13} className="animate-spin" />
+                  <span>Exporting {renderJob.progress}%...</span>
+                </>
+              ) : (
+                <>
+                  <Sparkles size={13} />
+                  <span>Export MP4</span>
+                </>
+              )}
+            </button>
+
+            {/* Rendered Video Download & Delete Card (Compact, Dismissable) */}
+            {hasFinalVideo && !isDismissedRenderBanner && (
+              <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-lg p-2.5 flex flex-col gap-2 mt-1">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1 text-[11px] text-emerald-500 font-semibold">
+                    <CheckCircle2 size={12} />
+                    <span>Video Ready</span>
+                  </div>
+                  <button
+                    onClick={() => setIsDismissedRenderBanner(true)}
+                    title="Dismiss notice"
+                    className="text-foreground/40 hover:text-foreground transition-colors p-0.5"
+                  >
+                    <X size={12} />
+                  </button>
+                </div>
+
+                <div className="flex items-center gap-1.5">
+                  <a
+                    href={getAssetUrl(`${slug}/final_output.mp4`)}
+                    download="final_output.mp4"
+                    className="flex-1 flex items-center justify-center gap-1 py-1.5 rounded bg-emerald-500 hover:bg-emerald-600 text-white text-[11px] font-semibold transition-colors shadow-sm"
+                  >
+                    <Download size={11} />
+                    <span>Download</span>
+                  </a>
+                  <button
+                    onClick={handleDeleteRenderedVideo}
+                    title="Delete rendered video from disk"
+                    className="px-2 py-1.5 rounded bg-rose-500/10 hover:bg-rose-500/20 text-rose-500 text-[11px] font-semibold transition-colors border border-rose-500/20"
+                  >
+                    <Trash2 size={11} />
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Clean Disk Folder Path in Footer */}
+          <div className="text-[10px] text-foreground/40 font-mono flex items-center gap-1 border-t border-border/30 pt-2">
+            <FolderCheck size={11} className="text-primary/70 shrink-0" />
+            <span className="truncate">~/{slug}/</span>
+          </div>
+        </div>
+
       </div>
 
       {/* ------------------------------------------------------------- */}
-      {/* CAPCUT-STYLE MULTI-TRACK HORIZONTAL TIMELINE                   */}
+      {/* CAPCUT-STYLE FULL-WIDTH HORIZONTAL TIMELINE                   */}
       {/* ------------------------------------------------------------- */}
-      <div className="bg-card border border-border rounded-xl shadow-sm overflow-hidden flex flex-col mt-1">
+      <div className="bg-card border border-border rounded-xl shadow-sm overflow-hidden flex flex-col mt-0.5">
         
         {/* Timeline Transport Toolbar */}
-        <div className="bg-card border-b border-border px-4 py-2.5 flex items-center justify-between gap-4">
+        <div className="bg-card border-b border-border px-4 py-2 flex items-center justify-between gap-4">
           
           {/* Transport Controls */}
           <div className="flex items-center gap-2">
@@ -1256,21 +1462,21 @@ export default function AssemblyTab({ activeProject }: AssemblyTabProps) {
             </div>
           </div>
 
-          {/* Edit Tools (Split, Duplicate, Delete) */}
+          {/* Edit Tools (Split, Duplicate, Delete, Add) */}
           <div className="flex items-center gap-1.5">
             <button
               onClick={handleSplitAtPlayhead}
-              disabled={!selectedTextId && !isBgmSelected}
+              disabled={!selectedTextId && !selectedBgmId}
               className="flex items-center gap-1 px-2.5 py-1 rounded-md border border-border bg-foreground/5 hover:bg-foreground/10 text-foreground/80 text-[11px] font-semibold transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-              title="Split selected clip at current playhead position"
+              title="Split selected clip at playhead"
             >
               <Scissors size={12} />
-              <span>Split Clip</span>
+              <span>Split</span>
             </button>
 
             <button
               onClick={handleDuplicateSelected}
-              disabled={!selectedTextId && !isBgmSelected}
+              disabled={!selectedTextId && !selectedBgmId && timeline.bgm_clips.length === 0}
               className="flex items-center gap-1 px-2.5 py-1 rounded-md border border-border bg-foreground/5 hover:bg-foreground/10 text-foreground/80 text-[11px] font-semibold transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
               title="Duplicate selected clip"
             >
@@ -1280,7 +1486,7 @@ export default function AssemblyTab({ activeProject }: AssemblyTabProps) {
 
             <button
               onClick={handleDeleteSelected}
-              disabled={!selectedTextId && !isBgmSelected}
+              disabled={!selectedTextId && !selectedBgmId}
               className="flex items-center gap-1 px-2.5 py-1 rounded-md border border-rose-500/20 bg-rose-500/10 hover:bg-rose-500/20 text-rose-500 text-[11px] font-semibold transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
               title="Delete selected clip"
             >
@@ -1294,13 +1500,13 @@ export default function AssemblyTab({ activeProject }: AssemblyTabProps) {
               onClick={handleAddText}
               className="flex items-center gap-1 px-2.5 py-1 rounded-md bg-foreground/5 hover:bg-foreground/10 text-foreground/80 text-[11px] font-semibold transition-colors border border-border"
             >
-              <Type size={12} className="text-primary" />
+              <Type size={12} className="text-purple-400" />
               <span>+ Text</span>
             </button>
 
             <label className="flex items-center gap-1 px-2.5 py-1 rounded-md bg-foreground/5 hover:bg-foreground/10 text-foreground/80 text-[11px] font-semibold transition-colors border border-border cursor-pointer">
-              <Music size={12} className="text-primary" />
-              <span>{isUploadingBgm ? "Uploading..." : "+ Music"}</span>
+              <Music size={12} className="text-cyan-400" />
+              <span>{isUploadingBgm ? "..." : "+ Music"}</span>
               <input
                 ref={fileInputRef}
                 type="file"
@@ -1328,14 +1534,14 @@ export default function AssemblyTab({ activeProject }: AssemblyTabProps) {
           </div>
         </div>
 
-        {/* Tracks Area: Left Track Headers (Fixed) + Right Lanes (Horizontally Scrollable) */}
-        <div className="flex border-b border-border bg-background relative overflow-hidden min-h-[260px]">
+        {/* Tracks Area: Fixed Left Headers + Scrollable Right Lanes */}
+        <div className="flex border-b border-border bg-background relative overflow-hidden min-h-[250px]">
           
-          {/* Left Track Headers (~110px) */}
+          {/* Left Track Headers (112px fixed) */}
           <div className="w-28 shrink-0 bg-card border-r border-border flex flex-col z-20 shadow-sm text-xs font-semibold text-foreground/70">
             {/* Ruler header */}
             <div className="h-7 border-b border-border flex items-center px-3 text-[10px] text-foreground/40 uppercase tracking-wider font-mono">
-              Timecode
+              Time
             </div>
 
             {/* Video Track Header */}
@@ -1356,20 +1562,18 @@ export default function AssemblyTab({ activeProject }: AssemblyTabProps) {
               <span className="text-[11px]">Text</span>
             </div>
 
-            {/* Music Track Header */}
+            {/* Music Track Header with Inline Volume & Ducking */}
             <div className="h-14 flex items-center justify-between px-3">
               <div className="flex items-center gap-1.5">
                 <Music size={13} className="text-cyan-400" />
                 <span className="text-[11px]">Music</span>
               </div>
-              {timeline.bgm && (
-                <button
-                  onClick={() => saveTimelineState({ ...timeline, ducking: !timeline.ducking })}
-                  title={timeline.ducking ? "Ducking ON (-12dB)" : "Ducking OFF"}
-                  className={`text-[8px] px-1 py-0.2 rounded font-mono ${timeline.ducking ? "bg-emerald-500/20 text-emerald-400" : "bg-foreground/10 text-foreground/40"}`}
-                >
-                  Duck
-                </button>
+              {timeline.bgm_clips.length > 0 && (
+                <div className="flex items-center gap-1">
+                  <span className="text-[9px] font-mono text-cyan-300">
+                    {Math.round(timeline.master_bgm_volume * 100)}%
+                  </span>
+                </div>
               )}
             </div>
           </div>
@@ -1386,24 +1590,44 @@ export default function AssemblyTab({ activeProject }: AssemblyTabProps) {
               handleSeek(targetTime);
             }}
           >
-            {/* Scrollable Container sizing based on maxTimelineDuration */}
+            {/* Sizing container strictly locked to maxTimelineDuration */}
             <div 
-              style={{ width: `${Math.max(1200, (maxTimelineDuration + 5) * zoomPxPerSec)}px` }}
+              style={{ width: `${Math.max(1000, maxTimelineDuration * zoomPxPerSec)}px` }}
               className="relative flex flex-col h-full"
             >
               
-              {/* 1. Time Ruler Lane (h-7) */}
-              <div className="h-7 border-b border-border/60 bg-card/60 relative cursor-pointer font-mono text-[9px] text-foreground/40">
-                {Array.from({ length: Math.ceil(maxTimelineDuration + 5) }).map((_, sec) => {
-                  if (sec % 2 !== 0 && zoomPxPerSec < 30) return null;
+              {/* 1. Time Ruler Lane (Draggable Scrubber + Clean tick intervals) */}
+              <div 
+                className="h-7 border-b border-border/60 bg-card/60 relative cursor-pointer select-none font-mono text-[9px] text-foreground/40"
+                onPointerDown={(e) => {
+                  e.stopPropagation();
+                  setIsDraggingPlayhead(true);
+                  (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+                  updatePlayheadFromPointer(e.clientX);
+                }}
+                onPointerMove={(e) => {
+                  if (!isDraggingPlayhead) return;
+                  e.stopPropagation();
+                  updatePlayheadFromPointer(e.clientX);
+                }}
+                onPointerUp={(e) => {
+                  if (isDraggingPlayhead) {
+                    setIsDraggingPlayhead(false);
+                    try { (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId); } catch {}
+                  }
+                }}
+              >
+                {Array.from({ length: Math.ceil(maxTimelineDuration / rulerTickInterval) + 1 }).map((_, idx) => {
+                  const sec = idx * rulerTickInterval;
+                  if (sec > maxTimelineDuration) return null;
                   return (
                     <div
                       key={sec}
                       style={{ left: `${sec * zoomPxPerSec}px` }}
-                      className="absolute top-0 bottom-0 flex flex-col justify-between border-l border-border/40 pl-1 pointer-events-none"
+                      className="absolute top-0 bottom-0 flex flex-col justify-between border-l border-border/60 pl-1 pointer-events-none"
                     >
-                      <span>{formatTime(sec)}</span>
-                      <div className="h-1.5 w-px bg-border/80" />
+                      <span className="font-mono">{formatTime(sec)}</span>
+                      <div className="h-1.5 w-px bg-border" />
                     </div>
                   );
                 })}
@@ -1522,14 +1746,21 @@ export default function AssemblyTab({ activeProject }: AssemblyTabProps) {
                           e.stopPropagation();
                           handleTimelineClipPointerDown(e, "text_trim_left", item.id, item.start_time, item.duration);
                         }}
-                        className="w-1.5 h-full -ml-1 cursor-ew-resize opacity-0 group-hover:opacity-100 bg-white/40 rounded-l hover:bg-white"
+                        onPointerMove={handleTimelineClipPointerMove}
+                        onPointerUp={handleTimelineClipPointerUp}
+                        className="w-2.5 h-full -ml-1.5 cursor-ew-resize opacity-40 hover:opacity-100 group-hover:opacity-80 bg-white/40 hover:bg-white rounded-l transition-opacity flex items-center justify-center z-10"
                         title="Drag to trim start"
-                      />
+                      >
+                        <div className="w-0.5 h-3 bg-black/40 rounded" />
+                      </div>
 
                       <div className="flex items-center gap-1 min-w-0 flex-1 px-1">
                         <Type size={11} className="text-purple-300 shrink-0" />
                         <span className="text-[10px] font-medium text-purple-100 truncate">
                           {item.text}
+                        </span>
+                        <span className="text-[9px] text-purple-200/60 font-mono">
+                          {item.duration.toFixed(1)}s
                         </span>
                       </div>
 
@@ -1539,59 +1770,122 @@ export default function AssemblyTab({ activeProject }: AssemblyTabProps) {
                           e.stopPropagation();
                           handleTimelineClipPointerDown(e, "text_trim_right", item.id, item.start_time, item.duration);
                         }}
-                        className="w-1.5 h-full -mr-1 cursor-ew-resize opacity-0 group-hover:opacity-100 bg-white/40 rounded-r hover:bg-white"
+                        onPointerMove={handleTimelineClipPointerMove}
+                        onPointerUp={handleTimelineClipPointerUp}
+                        className="w-2.5 h-full -mr-1.5 cursor-ew-resize opacity-40 hover:opacity-100 group-hover:opacity-80 bg-white/40 hover:bg-white rounded-r transition-opacity flex items-center justify-center z-10"
                         title="Drag to trim duration"
-                      />
+                      >
+                        <div className="w-0.5 h-3 bg-black/40 rounded" />
+                      </div>
                     </div>
                   );
                 })}
               </div>
 
-              {/* 5. Track 4: Background Music Track (h-14) */}
+              {/* 5. Track 4: Background Music Track (h-14) (Multi-Clip CapCut-style) */}
               <div className="h-14 relative flex items-center bg-card/10">
-                {timeline.bgm && (
-                  <div
-                    onPointerDown={(e) => handleTimelineClipPointerDown(e, "bgm_move", undefined, timeline.bgm!.start_time, timeline.bgm!.duration)}
-                    onPointerMove={handleTimelineClipPointerMove}
-                    onPointerUp={handleTimelineClipPointerUp}
-                    style={{
-                      position: "absolute",
-                      left: `${timeline.bgm.start_time * zoomPxPerSec}px`,
-                      width: `${Math.max(40, timeline.bgm.duration * zoomPxPerSec)}px`,
-                    }}
-                    className={`h-10 rounded-md border flex items-center justify-between px-2 transition-all cursor-move group select-none ${
-                      isBgmSelected 
-                        ? "border-cyan-400 bg-cyan-600/35 ring-1 ring-cyan-300 shadow-md" 
-                        : "border-cyan-500/40 bg-cyan-600/20 hover:border-cyan-400"
-                    }`}
-                  >
-                    <div className="flex items-center gap-2 min-w-0 flex-1">
-                      <Music size={12} className="text-cyan-300 shrink-0" />
-                      <span className="text-[10px] font-semibold text-cyan-100 truncate max-w-[200px]">
-                        {timeline.bgm.filename} ({timeline.bgm.duration.toFixed(1)}s)
-                      </span>
-                    </div>
-
-                    {/* Right Trim Handle */}
+                {timeline.bgm_clips.map((clip) => {
+                  const blockWidth = clip.duration * zoomPxPerSec;
+                  const isSelected = selectedBgmId === clip.id;
+                  return (
                     <div
-                      onPointerDown={(e) => {
+                      key={clip.id}
+                      onPointerDown={(e) => handleTimelineClipPointerDown(e, "bgm_move", clip.id, clip.start_time, clip.duration, clip.media_offset ?? 0)}
+                      onPointerMove={handleTimelineClipPointerMove}
+                      onPointerUp={handleTimelineClipPointerUp}
+                      onClick={(e) => {
                         e.stopPropagation();
-                        handleTimelineClipPointerDown(e, "bgm_trim_right", undefined, timeline.bgm!.start_time, timeline.bgm!.duration);
+                        setSelectedBgmId(clip.id);
+                        setSelectedTextId(null);
                       }}
-                      className="w-2 h-full -mr-2 cursor-ew-resize opacity-0 group-hover:opacity-100 bg-white/40 rounded-r hover:bg-white"
-                      title="Drag to trim music length"
-                    />
-                  </div>
-                )}
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setSelectedBgmId(clip.id);
+                        setSelectedTextId(null);
+                        setBgmContextMenu({ visible: true, x: e.clientX, y: e.clientY, clipId: clip.id });
+                      }}
+                      style={{
+                        position: "absolute",
+                        left: `${clip.start_time * zoomPxPerSec}px`,
+                        width: `${Math.max(30, blockWidth)}px`,
+                      }}
+                      className={`h-10 rounded-md border flex items-center justify-between px-2 transition-all cursor-move group select-none ${
+                        isSelected 
+                          ? "border-cyan-400 bg-cyan-600/35 ring-1 ring-cyan-300 shadow-md" 
+                          : "border-cyan-500/40 bg-cyan-600/20 hover:border-cyan-400"
+                      }`}
+                      title={`${clip.filename} (${clip.duration.toFixed(1)}s) - Click to select, right-click for menu`}
+                    >
+                      {/* Left Trim Handle */}
+                      <div
+                        onPointerDown={(e) => {
+                          e.stopPropagation();
+                          handleTimelineClipPointerDown(e, "bgm_trim_left", clip.id, clip.start_time, clip.duration, clip.media_offset ?? 0);
+                        }}
+                        onPointerMove={handleTimelineClipPointerMove}
+                        onPointerUp={handleTimelineClipPointerUp}
+                        className="w-2.5 h-full -ml-2 cursor-ew-resize opacity-40 hover:opacity-100 group-hover:opacity-80 bg-cyan-200/50 hover:bg-cyan-200 rounded-l transition-opacity flex items-center justify-center z-10"
+                        title="Drag to trim music start"
+                      >
+                        <div className="w-0.5 h-3 bg-cyan-900/60 rounded" />
+                      </div>
+
+                      <div className="flex items-center gap-1.5 min-w-0 flex-1 px-1">
+                        <Music size={12} className="text-cyan-300 shrink-0" />
+                        <span className="text-[10px] font-semibold text-cyan-100 truncate">
+                          {clip.filename}
+                        </span>
+                        <span className="text-[9px] text-cyan-300/80 font-mono">
+                          {clip.duration.toFixed(1)}s
+                        </span>
+                        {clip.volume !== undefined && clip.volume !== 1.0 && (
+                          <span className="text-[9px] text-cyan-300/60 font-mono">
+                            vol:{Math.round(clip.volume * 100)}%
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Right Trim Handle */}
+                      <div
+                        onPointerDown={(e) => {
+                          e.stopPropagation();
+                          handleTimelineClipPointerDown(e, "bgm_trim_right", clip.id, clip.start_time, clip.duration, clip.media_offset ?? 0);
+                        }}
+                        onPointerMove={handleTimelineClipPointerMove}
+                        onPointerUp={handleTimelineClipPointerUp}
+                        className="w-2.5 h-full -mr-2 cursor-ew-resize opacity-40 hover:opacity-100 group-hover:opacity-80 bg-cyan-200/50 hover:bg-cyan-200 rounded-r transition-opacity flex items-center justify-center z-10"
+                        title="Drag to trim music duration"
+                      >
+                        <div className="w-0.5 h-3 bg-cyan-900/60 rounded" />
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
 
-              {/* VERTICAL RED PLAYHEAD SCRUBBER */}
+              {/* VERTICAL RED PLAYHEAD SCRUBBER (Draggable Cursor) */}
               <div
                 style={{ left: `${currentTime * zoomPxPerSec}px` }}
-                className="absolute top-0 bottom-0 w-0.5 bg-rose-500 z-30 pointer-events-none transition-none shadow-[0_0_8px_rgba(244,63,94,0.8)]"
+                className="absolute top-0 bottom-0 z-40 transition-none select-none"
+                onPointerDown={handlePlayheadPointerDown}
+                onPointerMove={handlePlayheadPointerMove}
+                onPointerUp={handlePlayheadPointerUp}
               >
-                {/* Scrubber Diamond Head */}
-                <div className="w-3.5 h-3.5 bg-rose-500 -ml-[6px] -top-1 absolute rotate-45 rounded-xs shadow-md" />
+                {/* Visual line with glow */}
+                <div className="absolute top-0 bottom-0 left-0 w-0.5 bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.9)] pointer-events-none" />
+
+                {/* Wide invisible hit-box along entire vertical height for smooth grabbing */}
+                <div 
+                  className="absolute top-0 bottom-0 -left-2 w-4 cursor-ew-resize bg-transparent hover:bg-rose-500/10 active:bg-rose-500/20 transition-colors" 
+                  title="Drag playhead cursor"
+                />
+
+                {/* Top Diamond Scrubber Head Handle */}
+                <div 
+                  className="w-4 h-4 bg-rose-500 -ml-[7px] -top-1 absolute rotate-45 rounded-xs shadow-md border border-rose-300 cursor-ew-resize hover:scale-125 transition-transform" 
+                  title="Drag playhead cursor"
+                />
               </div>
 
             </div>
@@ -1600,6 +1894,120 @@ export default function AssemblyTab({ activeProject }: AssemblyTabProps) {
         </div>
 
       </div>
+
+      {/* FLOATING RIGHT-CLICK CONTEXT MENU FOR BACKGROUND MUSIC */}
+      {bgmContextMenu && timeline.bgm_clips.length > 0 && (() => {
+        const targetClip = timeline.bgm_clips.find(c => c.id === bgmContextMenu.clipId) || timeline.bgm_clips[0];
+        if (!targetClip) return null;
+
+        return (
+          <div
+            style={{ top: `${bgmContextMenu.y}px`, left: `${bgmContextMenu.x}px` }}
+            onClick={(e) => e.stopPropagation()}
+            className="fixed z-50 bg-card border border-border rounded-xl shadow-2xl p-3 flex flex-col gap-2.5 w-64 animate-in fade-in zoom-in-95 duration-150"
+          >
+            <div className="flex items-center justify-between pb-1.5 border-b border-border/40">
+              <span className="text-xs font-bold text-foreground truncate max-w-[140px]">{targetClip.filename}</span>
+              <span className="text-[10px] text-cyan-400 font-mono">BGM Clip</span>
+            </div>
+
+            {/* Master Volume Slider */}
+            <div className="flex flex-col gap-1">
+              <div className="flex justify-between text-[11px] text-foreground/70">
+                <span className="flex items-center gap-1"><Volume2 size={12} /> Master Volume</span>
+                <span className="font-mono font-bold text-foreground">{Math.round(timeline.master_bgm_volume * 100)}%</span>
+              </div>
+              <input
+                type="range"
+                min="0"
+                max="1"
+                step="0.05"
+                value={timeline.master_bgm_volume}
+                onChange={(e) => {
+                  const val = parseFloat(e.target.value);
+                  saveTimelineState({
+                    ...timeline,
+                    master_bgm_volume: val,
+                  });
+                }}
+                className="w-full h-1.5 bg-border rounded appearance-none cursor-pointer accent-primary"
+              />
+            </div>
+
+            {/* Ducking Toggle */}
+            <button
+              onClick={() => saveTimelineState({ ...timeline, ducking: !timeline.ducking })}
+              className="flex items-center justify-between px-2 py-1.5 rounded-lg bg-foreground/5 hover:bg-foreground/10 text-xs text-foreground transition-colors"
+            >
+              <span>Voice Auto-Ducking</span>
+              <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded ${timeline.ducking ? "bg-emerald-500/20 text-emerald-400" : "bg-foreground/10 text-foreground/50"}`}>
+                {timeline.ducking ? "Enabled (-12dB)" : "Off"}
+              </span>
+            </button>
+
+            {/* Split at Playhead */}
+            <button
+              onClick={() => {
+                setSelectedBgmId(targetClip.id);
+                handleSplitAtPlayhead();
+                setBgmContextMenu(null);
+              }}
+              className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-foreground/5 text-xs text-foreground/80 hover:text-foreground transition-colors"
+            >
+              <Scissors size={13} className="text-amber-400" />
+              <span>Split at Playhead</span>
+            </button>
+
+            {/* Duplicate Clip */}
+            <button
+              onClick={() => {
+                const currentTimeline = timelineRef.current;
+                const clipToClone = currentTimeline.bgm_clips.find(c => c.id === bgmContextMenu.clipId) || targetClip;
+                const newId = `bgm_${Date.now()}`;
+                const clonedClip: BgmClip = {
+                  ...clipToClone,
+                  id: newId,
+                  start_time: Math.round((clipToClone.start_time + clipToClone.duration) * 10) / 10,
+                  duration: clipToClone.duration,
+                  media_offset: clipToClone.media_offset ?? 0,
+                  volume: clipToClone.volume ?? 1.0,
+                };
+                const updatedClips = [...currentTimeline.bgm_clips, clonedClip];
+                saveTimelineState({
+                  ...currentTimeline,
+                  bgm_clips: updatedClips,
+                  bgm: updatedClips[0] || null,
+                });
+                setSelectedBgmId(newId);
+                setBgmContextMenu(null);
+              }}
+              className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-foreground/5 text-xs text-foreground/80 hover:text-foreground transition-colors"
+            >
+              <Copy size={13} className="text-cyan-400" />
+              <span>Duplicate Clip (Clone After)</span>
+            </button>
+
+            {/* Delete Clip */}
+            <button
+              onClick={() => {
+                const currentTimeline = timelineRef.current;
+                const updated = currentTimeline.bgm_clips.filter(c => c.id !== targetClip.id);
+                saveTimelineState({
+                  ...currentTimeline,
+                  bgm_clips: updated,
+                  bgm: updated[0] || null,
+                });
+                if (selectedBgmId === targetClip.id) setSelectedBgmId(null);
+                setBgmContextMenu(null);
+              }}
+              className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-rose-500/10 text-xs text-rose-500 transition-colors border-t border-border/40 pt-2"
+            >
+              <Trash2 size={13} />
+              <span>Delete Clip</span>
+            </button>
+          </div>
+        );
+      })()}
 
     </div>
   );
