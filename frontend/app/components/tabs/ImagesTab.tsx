@@ -4,27 +4,23 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { useProjectContext } from "../../context/ProjectContext";
 import { 
-  CornerDownLeft, 
   Image as ImageIcon, 
   Wand2, 
-  Sparkles,
+  Sparkles, 
   Trash2, 
   Loader2, 
   Check, 
   Maximize2, 
   X, 
-  CheckCircle2, 
   Upload, 
   Cpu, 
   Cloud, 
   Pin, 
   Plus, 
   Paperclip, 
-  Layers,
-  ChevronLeft,
-  ChevronRight,
-  SlidersHorizontal,
-  RotateCcw,
+  Layers, 
+  ChevronLeft, 
+  ChevronRight, 
   Volume2
 } from "lucide-react";
 
@@ -53,7 +49,7 @@ function AspectRatioGraphic({ ratio, className = "" }: { ratio: string; classNam
   }
 }
 
-// Clean auto-resizing textarea with no internal scrollbars (matches Brainstorming tab)
+// Clean auto-resizing textarea with auto-save on blur
 function AutoResizeTextarea({
   defaultValue,
   onBlur,
@@ -181,7 +177,7 @@ export default function ImagesTab(props: ImagesTabProps) {
     }
   }, [copilotInput]);
 
-  // Derived variants list
+  // Derived variants list for active scene
   const imagesList: string[] = useMemo(() => {
     if (!activeScene?.images_list) {
       return activeScene?.image_path ? [activeScene.image_path] : [];
@@ -208,6 +204,11 @@ export default function ImagesTab(props: ImagesTabProps) {
       return [];
     }
   }, [activeScene?.reference_images]);
+
+  // Generated scene count calculation
+  const generatedScenesCount = useMemo(() => {
+    return scenes.filter((s: any) => !!s.image_path).length;
+  }, [scenes]);
 
   // Generation status polling
   useEffect(() => {
@@ -279,10 +280,10 @@ export default function ImagesTab(props: ImagesTabProps) {
         }
 
         const refNote = data.referenced_asset_name
-          ? ` (referencing @${data.referenced_asset_name})`
-          : (refToUse ? ` (referencing ${refToUse.split("/").pop()})` : "");
+          ? ` (ref: @${data.referenced_asset_name})`
+          : (refToUse ? ` (ref: ${refToUse.split("/").pop()})` : "");
 
-        setCopilotSummary((data.change_summary || "Flow adjustment queued.") + refNote);
+        setCopilotSummary((data.change_summary || "Flow adjustment applied.") + refNote);
         setCopilotInput("");
         if (data.generating) {
           setIsGenerating(true);
@@ -377,8 +378,8 @@ export default function ImagesTab(props: ImagesTabProps) {
   };
 
   // Delete Individual Variant
-  const handleDeleteVariant = async (variantPath: string, e: React.MouseEvent) => {
-    e.stopPropagation();
+  const handleDeleteVariant = async (variantPath: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
     if (!activeScene) return;
     try {
       const res = await fetch(`http://localhost:8000/api/scenes/${activeScene.id}/image-variant?image_path=${encodeURIComponent(variantPath)}`, {
@@ -417,8 +418,8 @@ export default function ImagesTab(props: ImagesTabProps) {
   };
 
   // Pin variant as reference
-  const handlePinVariantAsRef = async (variantPath: string, e: React.MouseEvent) => {
-    e.stopPropagation();
+  const handlePinVariantAsRef = async (variantPath: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
     if (!activeScene) return;
     try {
       const formData = new FormData();
@@ -494,139 +495,228 @@ export default function ImagesTab(props: ImagesTabProps) {
 
   if (!activeProject) return null;
 
+  const activeVariantIdx = activeScene?.image_path ? imagesList.findIndex((p: string) => p === activeScene.image_path) : -1;
+  const effectiveRef = selectedRefImage !== undefined ? selectedRefImage : (activeScene?.image_path || null);
+  const effectiveRefVIdx = effectiveRef ? imagesList.findIndex((p: string) => p === effectiveRef) : -1;
+  const refFilename = effectiveRef ? effectiveRef.split("/").pop() : "";
+
   return (
     <div className="flex flex-col h-[calc(100vh-56px-48px)] max-h-[calc(100vh-56px-48px)] animate-in fade-in duration-200 select-none">
       
       {/* ========================================================= */}
-      {/* MAIN 2-COLUMN WORKSPACE (NO BOXES-IN-BOXES)               */}
+      {/* 3-COLUMN WORKSPACE: SCENES | EDITOR & COPILOT | RENDER     */}
       {/* ========================================================= */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 w-full flex-1 min-h-0 pt-1">
+      <div className="flex gap-4 w-full flex-1 min-h-0 pt-0.5 overflow-hidden">
         
         {/* ======================================================= */}
-        {/* LEFT COLUMN: SCENE DIRECTOR & COPILOT (lg:col-span-6)    */}
+        {/* COLUMN 1: VERTICAL SCENE NAVIGATOR (~260px)              */}
         {/* ======================================================= */}
-        <div className="lg:col-span-6 flex flex-col h-full pr-1 min-h-0">
+        <div className="w-60 xl:w-68 shrink-0 flex flex-col h-full bg-card rounded-xl border border-border/70 shadow-2xs overflow-hidden">
           
-          {/* Header Bar: Scene Navigator & Quick Jump Pills */}
-          <div className="h-8 shrink-0 flex items-center justify-between gap-3 mb-2">
-            
-            {/* Prev / Next & Active Scene Dropdown */}
-            <div className="flex items-center gap-1.5">
-              <button
-                type="button"
-                disabled={activeSceneIndex <= 0}
-                onClick={() => setActiveSceneIndex(prev => Math.max(0, prev - 1))}
-                className="p-1 rounded-md border border-border/60 hover:bg-card text-panel-text hover:text-foreground disabled:opacity-30 disabled:pointer-events-none transition-colors cursor-pointer"
-                title="Previous scene"
-              >
-                <ChevronLeft size={13} />
-              </button>
-
-              <div className="flex items-center gap-1.5 px-2.5 py-1 bg-card border border-border/70 rounded-lg shadow-2xs">
-                <span className="text-[11.5px] font-bold text-primary tracking-wide">
-                  Scene #{String(activeScene?.scene_number || activeSceneIndex + 1).padStart(2, "0")}
-                </span>
-                <span className="text-[10px] text-panel-text font-mono">
-                  / {scenes.length}
-                </span>
-                {activeScene?.image_path ? (
-                  <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0 ml-0.5" title="Frame rendered" />
-                ) : (
-                  <span className="w-2 h-2 rounded-full bg-zinc-300 dark:bg-zinc-700 shrink-0 ml-0.5" title="No frame yet" />
-                )}
-              </div>
-
-              <button
-                type="button"
-                disabled={activeSceneIndex >= scenes.length - 1}
-                onClick={() => setActiveSceneIndex(prev => Math.min(scenes.length - 1, prev + 1))}
-                className="p-1 rounded-md border border-border/60 hover:bg-card text-panel-text hover:text-foreground disabled:opacity-30 disabled:pointer-events-none transition-colors cursor-pointer"
-                title="Next scene"
-              >
-                <ChevronRight size={13} />
-              </button>
+          {/* Navigator Header */}
+          <div className="h-10 px-3.5 border-b border-border/70 flex items-center justify-between shrink-0 bg-panel-header/60">
+            <div className="flex items-center gap-2">
+              <Layers size={13} className="text-panel-icon" />
+              <span className="text-[11px] font-bold uppercase tracking-wider text-foreground">
+                Scenes
+              </span>
+              <span className="text-[10px] font-mono text-panel-text">
+                ({scenes.length})
+              </span>
             </div>
 
-            {/* Horizontal Quick Scene Jump Pills */}
-            <div className="flex items-center gap-1 overflow-x-auto custom-scrollbar max-w-[280px] py-0.5">
-              {scenes.map((s: any, idx: number) => {
+            {/* Generated Status Counter */}
+            <div className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[9.5px] font-medium bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+              <Check size={9} strokeWidth={2.5} />
+              <span>{generatedScenesCount}/{scenes.length} Ready</span>
+            </div>
+          </div>
+
+          {/* Vertical Scene List */}
+          <div className="flex-1 overflow-y-auto custom-scrollbar p-2 space-y-1.5 min-h-0">
+            {scenes.length === 0 ? (
+              <div className="h-full flex flex-col items-center justify-center p-4 text-center text-panel-text/60">
+                <ImageIcon size={24} className="opacity-30 mb-2" />
+                <p className="text-xs">No scenes found.</p>
+              </div>
+            ) : (
+              scenes.map((s: any, idx: number) => {
                 const isSelected = activeSceneIndex === idx;
                 const hasImage = !!s.image_path;
+                const isProcessing = s.image_status === "processing";
+                
+                // Count variants for this scene
+                let vCount = hasImage ? 1 : 0;
+                if (s.images_list) {
+                  try {
+                    const parsed = typeof s.images_list === "string" ? JSON.parse(s.images_list) : s.images_list;
+                    if (Array.isArray(parsed) && parsed.length > 0) vCount = parsed.length;
+                  } catch {}
+                }
+
                 return (
                   <button
                     key={s.id || idx}
                     type="button"
                     onClick={() => setActiveSceneIndex(idx)}
-                    className={`px-2 py-0.5 rounded-md text-[10px] font-mono font-medium transition-all shrink-0 cursor-pointer ${
-                      isSelected 
-                        ? "bg-primary text-white shadow-2xs" 
+                    className={`w-full text-left p-2 rounded-lg border transition-all cursor-pointer flex flex-col gap-1.5 ${
+                      isSelected
+                        ? "bg-primary/10 border-primary text-foreground ring-1 ring-primary/30 shadow-2xs"
                         : hasImage
-                          ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/20"
-                          : "bg-card border border-border/60 text-panel-text hover:text-foreground hover:border-border"
+                          ? "bg-card hover:bg-zinc-100/70 dark:hover:bg-zinc-800/60 border-border/70 text-foreground"
+                          : "bg-card/40 hover:bg-zinc-100/50 dark:hover:bg-zinc-850/40 border-border/40 text-panel-text"
                     }`}
-                    title={`Scene #${idx + 1}${hasImage ? " (Rendered)" : ""}`}
                   >
-                    #{idx + 1}
+                    {/* Scene Top: Number & Status Badge */}
+                    <div className="flex items-center justify-between gap-1 w-full">
+                      <div className="flex items-center gap-1.5">
+                        <span className={`text-[11px] font-bold font-mono ${isSelected ? "text-primary" : "text-foreground"}`}>
+                          #{String(s.scene_number || idx + 1).padStart(2, "0")}
+                        </span>
+                        {vCount > 1 && (
+                          <span className="px-1 py-0.2 rounded text-[8.5px] font-mono font-medium bg-zinc-200/70 dark:bg-zinc-800 text-panel-text">
+                            {vCount}v
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Status indicator badge */}
+                      {isProcessing ? (
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[9px] font-medium bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30 animate-pulse">
+                          <Loader2 size={8} className="animate-spin" />
+                          <span>Rendering</span>
+                        </span>
+                      ) : hasImage ? (
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[9px] font-medium bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                          <Check size={8} strokeWidth={2.5} />
+                          <span>Ready</span>
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center px-1.5 py-0.2 rounded text-[8.5px] font-medium text-panel-text/70 bg-zinc-100 dark:bg-zinc-800/60 border border-border/40">
+                          Empty
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Scene Card Body: Thumbnail & Script Snippet */}
+                    <div className="flex items-center gap-2 w-full">
+                      {hasImage ? (
+                        <img
+                          src={`http://localhost:8000/static/${s.image_path}?t=${cacheBuster}`}
+                          alt={`Scene ${idx + 1}`}
+                          className="w-12 h-8 rounded object-cover border border-border/60 shrink-0 bg-zinc-100 dark:bg-zinc-900"
+                        />
+                      ) : (
+                        <div className="w-12 h-8 rounded border border-dashed border-border/60 bg-zinc-50/50 dark:bg-zinc-900/30 flex items-center justify-center shrink-0">
+                          <ImageIcon size={12} className="text-panel-text/30" />
+                        </div>
+                      )}
+                      
+                      <p className="text-[10px] text-panel-text line-clamp-2 leading-tight flex-1 select-none">
+                        {s.narration_khmer || s.image_prompt_english || "No script yet..."}
+                      </p>
+                    </div>
                   </button>
                 );
-              })}
-            </div>
+              })
+            )}
           </div>
 
-          {/* Main Unboxed Scene Card */}
+        </div>
+
+        {/* ======================================================= */}
+        {/* COLUMN 2: SCENE EDITOR & COPILOT                         */}
+        {/* ======================================================= */}
+        <div className="flex-1 min-w-[320px] flex flex-col h-full bg-card rounded-xl border border-border/70 p-4 shadow-2xs overflow-hidden min-h-0">
+          
           {!activeScene ? (
-            <div className="flex-1 bg-card rounded-xl border border-border/70 p-8 flex flex-col items-center justify-center text-center text-panel-text">
+            <div className="flex-1 flex flex-col items-center justify-center text-center text-panel-text">
               <ImageIcon size={32} className="opacity-30 mb-2" />
-              <p className="text-sm">No scenes found in project.</p>
-              <p className="text-xs text-panel-text/60 mt-1">Add or import scenes in the Brainstorming tab.</p>
+              <p className="text-sm">No scene selected.</p>
             </div>
           ) : (
-            <div className="flex-1 bg-card rounded-xl p-4 border border-border/70 shadow-2xs flex flex-col justify-between overflow-hidden min-h-0">
+            <div className="flex-1 flex flex-col justify-between overflow-hidden min-h-0">
               
-              {/* Scrollable upper content: voiceover, prompt, exclusions, references */}
-              <div className="overflow-y-auto custom-scrollbar space-y-3.5 pr-1 flex-1">
+              {/* Scene Navigation Bar */}
+              <div className="flex items-center justify-between pb-3 border-b border-border/40 shrink-0">
+                <div className="flex items-center gap-2">
+                  <span className="text-[12px] font-bold text-foreground">
+                    Scene #{String(activeScene?.scene_number || activeSceneIndex + 1).padStart(2, "0")}
+                  </span>
+                  {activeScene.image_path ? (
+                    <span className="px-1.5 py-0.2 rounded text-[9px] font-medium bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                      Active Frame Ready
+                    </span>
+                  ) : (
+                    <span className="px-1.5 py-0.2 rounded text-[9px] font-medium bg-zinc-100 dark:bg-zinc-800 text-panel-text border border-border/40">
+                      No Frame Rendered
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    disabled={activeSceneIndex <= 0}
+                    onClick={() => setActiveSceneIndex(prev => Math.max(0, prev - 1))}
+                    className="p-1 rounded border border-border/60 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-panel-text hover:text-foreground disabled:opacity-30 disabled:pointer-events-none transition-colors cursor-pointer"
+                    title="Previous scene"
+                  >
+                    <ChevronLeft size={13} />
+                  </button>
+                  <button
+                    type="button"
+                    disabled={activeSceneIndex >= scenes.length - 1}
+                    onClick={() => setActiveSceneIndex(prev => Math.min(scenes.length - 1, prev + 1))}
+                    className="p-1 rounded border border-border/60 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-panel-text hover:text-foreground disabled:opacity-30 disabled:pointer-events-none transition-colors cursor-pointer"
+                    title="Next scene"
+                  >
+                    <ChevronRight size={13} />
+                  </button>
+                </div>
+              </div>
+
+              {/* Scrollable Upper Content: Voiceover, Visual Prompt, Exclusions, References */}
+              <div className="overflow-y-auto custom-scrollbar space-y-3 py-3 pr-1 flex-1 min-h-0">
                 
-                {/* 1. Khmer Voiceover Script */}
+                {/* 1. Voiceover (Khmer) */}
                 <div>
-                  <div className="flex items-center justify-between mb-0.5">
-                    <label className="text-[9px] font-semibold text-panel-text uppercase tracking-wider flex items-center gap-1">
-                      <Volume2 size={10} className="text-panel-icon" />
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-[9.5px] font-semibold text-panel-text uppercase tracking-wider flex items-center gap-1.5">
+                      <Volume2 size={11} className="text-panel-icon" />
                       Voiceover (Khmer)
                     </label>
-                    <span className="text-[9px] text-panel-text/60">Auto-saves & syncs to Brainstorming</span>
                   </div>
                   <AutoResizeTextarea
                     defaultValue={activeScene.narration_khmer || ""}
                     onBlur={(val) => updateSingleScene(activeScene.id, { narration_khmer: val })}
                     placeholder="Khmer voiceover narration..."
-                    className="w-full bg-transparent text-[13.5px] text-foreground leading-relaxed outline-none border-b border-border/30 focus:border-primary transition-colors py-1"
+                    className="w-full bg-transparent text-[13px] text-foreground leading-relaxed outline-none border-b border-border/40 focus:border-primary transition-colors py-1"
                   />
                 </div>
 
-                {/* 2. Stickman Visual Prompt (English) */}
+                {/* 2. Visual Prompt (English) */}
                 <div>
-                  <div className="flex items-center justify-between mb-0.5">
-                    <label className="text-[9px] font-semibold text-panel-text uppercase tracking-wider flex items-center gap-1">
-                      <Sparkles size={10} className="text-panel-icon" />
-                      Stickman Visual Prompt (English)
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-[9.5px] font-semibold text-panel-text uppercase tracking-wider flex items-center gap-1.5">
+                      <Sparkles size={11} className="text-panel-icon" />
+                      Visual Prompt (English)
                     </label>
-                    <span className="text-[9px] text-panel-text/60">2D Flat Vector Stickman Doodle</span>
                   </div>
                   <AutoResizeTextarea
                     defaultValue={activeScene.image_prompt_english || ""}
                     onBlur={(val) => updateSingleScene(activeScene.id, { image_prompt_english: val })}
-                    placeholder="Stickman visual prompt in English..."
-                    className="w-full bg-transparent font-mono text-[11px] text-foreground/85 leading-relaxed outline-none border-b border-border/30 focus:border-primary transition-colors py-1"
+                    placeholder="Visual prompt in English..."
+                    className="w-full bg-transparent font-mono text-[11px] text-foreground/90 leading-relaxed outline-none border-b border-border/40 focus:border-primary transition-colors py-1"
                   />
                 </div>
 
-                {/* 3. Negative Constraints / Exclusions (Collapsible) */}
+                {/* 3. Exclusions / Negative Constraints (Collapsible) */}
                 <div className="pt-1 border-t border-border/30">
                   <button
                     type="button"
                     onClick={() => setIsExclusionsExpanded(prev => !prev)}
                     className="flex items-center gap-1.5 text-[10px] font-medium text-panel-text hover:text-foreground cursor-pointer transition-colors py-0.5 w-full text-left"
-                    title="Click to expand/collapse exclusions"
                   >
                     <ChevronRight 
                       size={11} 
@@ -634,27 +724,22 @@ export default function ImagesTab(props: ImagesTabProps) {
                         isExclusionsExpanded ? "rotate-90 text-primary" : ""
                       }`} 
                     />
-                    <span className="uppercase tracking-wider text-[9px] font-semibold text-panel-text">
-                      Exclusions
+                    <span className="uppercase tracking-wider text-[9px] font-semibold">
+                      Exclusions (Negative)
                     </span>
                     {!isExclusionsExpanded && activeScene.negative_prompt && (
-                      <span className="text-[10px] font-mono text-panel-text/60 truncate flex-1 ml-1">
+                      <span className="text-[9.5px] font-mono text-panel-text/60 truncate flex-1 ml-1">
                         — {activeScene.negative_prompt}
-                      </span>
-                    )}
-                    {!isExclusionsExpanded && !activeScene.negative_prompt && (
-                      <span className="text-[10px] text-panel-text/40 italic flex-1 ml-1">
-                        (none)
                       </span>
                     )}
                   </button>
 
                   {isExclusionsExpanded && (
-                    <div className="pt-1.5 pb-0.5 animate-in fade-in duration-100">
+                    <div className="pt-1.5 animate-in fade-in duration-100">
                       <AutoResizeTextarea
                         defaultValue={activeScene.negative_prompt || ""}
                         onBlur={(val) => updateSingleScene(activeScene.id, { negative_prompt: val })}
-                        placeholder="e.g. text, words, labels, watermark, 3D, photorealistic, comic book detail..."
+                        placeholder="e.g. text, watermark, bad anatomy, 3D render..."
                         className="w-full bg-zinc-100/60 dark:bg-zinc-900/60 p-2 rounded-lg font-mono text-[10px] text-foreground leading-relaxed outline-none border border-border/60 focus:border-primary transition-colors"
                       />
                     </div>
@@ -694,7 +779,7 @@ export default function ImagesTab(props: ImagesTabProps) {
                         return (
                           <div 
                             key={idx}
-                            className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-zinc-100 dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200 text-[10.5px] border border-border/60 font-mono"
+                            className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-zinc-100 dark:bg-zinc-900 text-foreground text-[10px] border border-border/60 font-mono"
                           >
                             {!isFlowUuid && (
                               <img 
@@ -722,28 +807,51 @@ export default function ImagesTab(props: ImagesTabProps) {
               </div>
 
               {/* ======================================================= */}
-              {/* TALK DIRECTLY TO FLOW (COPILOT ADJUSTMENT BAR)           */}
+              {/* FLOW COPILOT (CLEAN SLEEK PROMPT BOX)                    */}
               {/* ======================================================= */}
-              <div className="pt-3 border-t border-border/60 shrink-0 space-y-2">
+              <div className="pt-2.5 border-t border-border/50 shrink-0 space-y-1.5">
                 
                 {/* Copilot Header */}
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-1.5">
-                    <Wand2 size={12} className="text-primary" />
+                    <Wand2 size={11} className="text-primary" />
                     <span className="text-[10px] font-bold uppercase tracking-wider text-primary">
-                      Talk Directly to Flow (Copilot)
+                      Flow Copilot
                     </span>
                   </div>
-                  <span className="text-[9px] text-panel-text/60">
-                    Knows current prompt & Khmer script
-                  </span>
+
+                  {/* Reference Attachment Tag */}
+                  {effectiveRef ? (
+                    <div className="flex items-center gap-1.5 px-1.5 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/30 text-[9.5px]">
+                      <img 
+                        src={`http://localhost:8000/static/${effectiveRef}?t=${cacheBuster}`}
+                        alt="Reference thumbnail"
+                        className="w-3.5 h-3.5 rounded-xs object-cover border border-emerald-500/40 shrink-0"
+                      />
+                      <span className="font-semibold text-emerald-600 dark:text-emerald-400">
+                        {effectiveRefVIdx >= 0 ? `Ref: V${effectiveRefVIdx + 1}` : "Ref Frame"}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedRefImage(null)}
+                        className="text-panel-text hover:text-red-500 ml-1 cursor-pointer"
+                        title="Detach reference frame"
+                      >
+                        <X size={9} />
+                      </button>
+                    </div>
+                  ) : (
+                    <span className="text-[9px] text-panel-text/60">
+                      Text-to-Image Mode
+                    </span>
+                  )}
                 </div>
 
-                {/* Copilot Feedback Banner (if recently run) */}
+                {/* Copilot Feedback Banner */}
                 {copilotSummary && (
-                  <div className="p-2 rounded-lg bg-primary/10 border border-primary/20 flex items-start justify-between gap-2 animate-in fade-in duration-150">
-                    <p className="text-[11px] text-foreground leading-relaxed">
-                      <span className="font-bold text-primary mr-1">✓ Flow Copilot:</span>
+                  <div className="p-1.5 rounded-md bg-primary/10 border border-primary/20 flex items-start justify-between gap-1.5 animate-in fade-in duration-150">
+                    <p className="text-[10px] text-foreground leading-tight flex-1">
+                      <span className="font-bold text-primary mr-1">✓ Flow:</span>
                       {copilotSummary}
                     </p>
                     <button 
@@ -751,66 +859,13 @@ export default function ImagesTab(props: ImagesTabProps) {
                       onClick={() => setCopilotSummary(null)} 
                       className="text-panel-text hover:text-foreground shrink-0 cursor-pointer p-0.5"
                     >
-                      <X size={11} />
+                      <X size={10} />
                     </button>
                   </div>
                 )}
 
-                {/* Active Reference Context for Copilot */}
-                {(() => {
-                  const effectiveRef = selectedRefImage !== undefined ? selectedRefImage : (activeScene.image_path || null);
-                  const vIdx = effectiveRef ? imagesList.findIndex((p: string) => p === effectiveRef) : -1;
-                  const filename = effectiveRef ? effectiveRef.split("/").pop() : "";
-
-                  return effectiveRef ? (
-                    <div className="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-zinc-100/90 dark:bg-zinc-800/70 border border-emerald-500/30 text-[11px] animate-in fade-in duration-100">
-                      <div className="flex items-center gap-2 overflow-hidden">
-                        <img 
-                          src={`http://localhost:8000/static/${effectiveRef}?t=${cacheBuster}`}
-                          alt="Reference thumbnail"
-                          className="w-6 h-6 rounded-sm object-cover border border-emerald-500/40 shrink-0"
-                        />
-                        <div className="flex flex-col truncate">
-                          <div className="flex items-center gap-1.5">
-                            <span className="font-bold text-emerald-600 dark:text-emerald-400 text-[10.5px]">
-                              {vIdx >= 0 ? `Modifying V${vIdx + 1}` : "Modifying Image"}
-                            </span>
-                            <span className="text-[9.5px] text-panel-text/60 font-mono truncate max-w-[140px]" title={effectiveRef}>
-                              {filename}
-                            </span>
-                          </div>
-                          <span className="text-[9px] text-panel-text/70">
-                            Flow will condition adjustments on this active frame
-                          </span>
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => setSelectedRefImage(null)}
-                        className="px-2 py-0.5 rounded text-[9.5px] font-medium text-panel-text hover:text-red-500 hover:bg-red-500/10 transition-colors shrink-0 cursor-pointer ml-2"
-                        title="Don't use image reference (generate text-to-image)"
-                      >
-                        Detach Ref
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-zinc-100/50 dark:bg-zinc-900/30 border border-border/50 text-[10.5px] text-panel-text/70">
-                      <span className="text-[10px]">No reference image attached (Text-to-Image mode)</span>
-                      {activeScene.image_path && (
-                        <button
-                          type="button"
-                          onClick={() => setSelectedRefImage(activeScene.image_path)}
-                          className="text-[10px] font-semibold text-primary hover:underline cursor-pointer"
-                        >
-                          Attach Active Image
-                        </button>
-                      )}
-                    </div>
-                  );
-                })()}
-
-                {/* Copilot Input Box */}
-                <div className="relative flex flex-col rounded-xl border border-border/80 bg-zinc-50/50 dark:bg-zinc-900/40 focus-within:border-primary focus-within:ring-1 focus-within:ring-primary/20 transition-all">
+                {/* Copilot Prompt Input Container */}
+                <div className="rounded-xl border border-border/80 bg-zinc-50/50 dark:bg-zinc-900/40 focus-within:border-primary focus-within:ring-1 focus-within:ring-primary/20 transition-all flex flex-col">
                   <textarea
                     ref={copilotInputRef}
                     rows={2}
@@ -825,44 +880,42 @@ export default function ImagesTab(props: ImagesTabProps) {
                         }
                       }
                     }}
-                    placeholder="Tell Flow what to adjust (e.g. 'Make the mammoth friendly, put stickman rider holding a torch, and update voiceover to match')..."
-                    className="w-full px-3 pt-2 pb-1 bg-transparent text-[12.5px] text-foreground outline-none resize-none leading-relaxed placeholder:text-panel-text/50 custom-scrollbar disabled:opacity-50"
+                    placeholder="Tell Flow what to adjust (e.g. 'Make mammoth friendly, add stickman rider')..."
+                    className="w-full px-2.5 pt-2 pb-1 bg-transparent text-[11.5px] text-foreground outline-none resize-none leading-relaxed placeholder:text-panel-text/50 disabled:opacity-50"
                   />
 
-                  {/* Copilot Action Toolbar */}
-                  <div className="flex items-center justify-between px-2.5 py-1.5 border-t border-border/30 bg-card/60 rounded-b-xl">
-                    <span className="text-[9.5px] text-panel-text/60 font-mono">
-                      Shift+Enter for newline
+                  {/* Action Toolbar */}
+                  <div className="flex items-center justify-between px-2 py-1 border-t border-border/30 bg-card/60 rounded-b-xl">
+                    <span className="text-[9px] text-panel-text/50 font-mono">
+                      ↵ Enter to submit
                     </span>
 
                     <div className="flex items-center gap-1.5">
-                      {/* Refine Text Only */}
                       <button
                         type="button"
                         disabled={!copilotInput.trim() || isCopilotRunning}
                         onClick={() => handleCopilotSubmit(false)}
-                        className="px-2.5 py-1 rounded-lg text-[10.5px] font-medium text-panel-text hover:text-foreground hover:bg-zinc-200/50 dark:hover:bg-zinc-800 disabled:opacity-40 transition-colors cursor-pointer"
-                        title="Update prompt & script without generating image"
+                        className="px-2 py-0.5 rounded text-[10px] font-medium text-panel-text hover:text-foreground hover:bg-zinc-200/50 dark:hover:bg-zinc-800 disabled:opacity-40 transition-colors cursor-pointer"
+                        title="Refine prompt & script without rendering image"
                       >
                         Refine Text Only
                       </button>
 
-                      {/* Adjust & Generate Flow */}
                       <button
                         type="button"
                         disabled={!copilotInput.trim() || isCopilotRunning}
                         onClick={() => handleCopilotSubmit(true)}
-                        className="px-3 py-1 rounded-lg bg-primary hover:bg-primary-hover text-white text-[10.5px] font-semibold flex items-center gap-1.5 shadow-2xs disabled:opacity-40 transition-all cursor-pointer"
+                        className="px-2.5 py-0.5 rounded-lg bg-primary hover:bg-primary-hover text-white text-[10px] font-semibold flex items-center gap-1 shadow-2xs disabled:opacity-40 transition-all cursor-pointer"
                       >
                         {isCopilotRunning ? (
                           <>
-                            <Loader2 size={11} className="animate-spin" />
+                            <Loader2 size={10} className="animate-spin" />
                             <span>Adjusting...</span>
                           </>
                         ) : (
                           <>
-                            <Sparkles size={11} />
-                            <span>Adjust & Generate (Flow)</span>
+                            <Sparkles size={10} />
+                            <span>Adjust & Generate</span>
                           </>
                         )}
                       </button>
@@ -878,16 +931,16 @@ export default function ImagesTab(props: ImagesTabProps) {
         </div>
 
         {/* ======================================================= */}
-        {/* RIGHT COLUMN: RENDER STUDIO & VARIATIONS (lg:col-span-6) */}
+        {/* COLUMN 3: RENDER STUDIO, TOOLBAR & VARIATIONS           */}
         {/* ======================================================= */}
-        <div className="lg:col-span-6 flex flex-col h-full pl-1 min-h-0 space-y-2.5">
+        <div className="flex-1 min-w-[380px] flex flex-col h-full space-y-2 overflow-hidden min-h-0">
           
-          {/* Header Toolbar: Generation Parameters (Pill styling matching Brainstorming tab) */}
+          {/* Top Options Toolbar (Cleanly Segmented) */}
           <div className="h-8 shrink-0 flex items-center justify-between gap-2 overflow-x-auto custom-scrollbar">
             
-            <div className="flex items-center gap-1.5 shrink-0">
-              {/* Aspect Ratio Selector Pills */}
-              <div className="flex items-center gap-0.5 bg-card border border-border/70 p-0.5 rounded-lg shadow-2xs">
+            <div className="flex items-center gap-2 shrink-0">
+              {/* Aspect Ratio Pills */}
+              <div className="flex items-center gap-0.5 bg-card border border-border/70 p-0.5 rounded-lg shadow-2xs" title="Aspect Ratio">
                 {["16:9", "4:3", "1:1", "9:16", "2:3"].map((ratio) => {
                   const isActive = aspectRatioValue === ratio;
                   return (
@@ -900,12 +953,12 @@ export default function ImagesTab(props: ImagesTabProps) {
                           await updateActiveProject({ aspect_ratio: ratio });
                         }
                       }}
-                      className={`px-1.5 py-0.5 rounded-md text-[9.5px] font-mono flex items-center gap-1 transition-all cursor-pointer ${
+                      className={`px-1.5 py-0.5 rounded text-[9.5px] font-mono flex items-center gap-1 transition-all cursor-pointer ${
                         isActive
                           ? "bg-primary text-white font-bold shadow-2xs"
                           : "text-panel-text hover:text-foreground hover:bg-zinc-100 dark:hover:bg-zinc-800"
                       }`}
-                      title={`Aspect ratio ${ratio}`}
+                      title={`Aspect Ratio ${ratio}`}
                     >
                       <AspectRatioGraphic ratio={ratio} />
                       <span>{ratio}</span>
@@ -914,12 +967,12 @@ export default function ImagesTab(props: ImagesTabProps) {
                 })}
               </div>
 
-              {/* Flow Model Dropdown Pill */}
+              {/* Flow Model Dropdown */}
               {imageProvider === "flow" && (
                 <select
                   value={flowModel}
                   onChange={(e) => setFlowModel(e.target.value as "nano2" | "nano-pro")}
-                  className="px-2 py-1 bg-card border border-border/70 rounded-lg text-[10.5px] font-medium text-foreground focus:outline-none focus:ring-1 focus:ring-primary shadow-2xs cursor-pointer"
+                  className="px-2 py-0.5 h-7 bg-card border border-border/70 rounded-lg text-[10px] font-medium text-foreground focus:outline-none focus:ring-1 focus:ring-primary shadow-2xs cursor-pointer"
                   title="Google Flow Image Model"
                 >
                   <option value="nano2">Nano Banana 2 (Fast)</option>
@@ -927,16 +980,16 @@ export default function ImagesTab(props: ImagesTabProps) {
                 </select>
               )}
 
-              {/* Batch Count Selector Pills */}
+              {/* Batch Count Selector */}
               {imageProvider === "flow" && (
                 <div className="flex items-center gap-0.5 bg-card border border-border/70 p-0.5 rounded-lg shadow-2xs" title="Batch Generation Count">
-                  <span className="text-[9.5px] font-mono px-1 text-panel-text">x</span>
+                  <span className="text-[9px] font-mono px-1 text-panel-text">x</span>
                   {[1, 2, 3, 4].map((num) => (
                     <button
                       key={num}
                       type="button"
                       onClick={() => setImageCount(num)}
-                      className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-medium transition-all cursor-pointer ${
+                      className={`px-1.5 py-0.5 rounded text-[9.5px] font-mono font-medium transition-all cursor-pointer ${
                         imageCount === num
                           ? "bg-primary text-white font-bold"
                           : "text-panel-text hover:text-foreground hover:bg-zinc-100 dark:hover:bg-zinc-800"
@@ -954,7 +1007,7 @@ export default function ImagesTab(props: ImagesTabProps) {
               {/* Flow Daemon Pill */}
               {imageProvider === "flow" && (
                 <div 
-                  className={`px-2 py-0.5 rounded-md border text-[10px] font-medium flex items-center gap-1.5 shadow-2xs ${
+                  className={`px-2 py-0.5 rounded-md border text-[9.5px] font-medium flex items-center gap-1.5 shadow-2xs ${
                     flowStatus?.daemon_running 
                       ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30" 
                       : "bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/30"
@@ -962,7 +1015,7 @@ export default function ImagesTab(props: ImagesTabProps) {
                   title={flowStatus?.daemon_running ? "MCP Daemon running on :8765" : "Run ./scripts/start_flow_daemon.sh"}
                 >
                   <span className={`w-1.5 h-1.5 rounded-full ${flowStatus?.daemon_running ? "bg-emerald-500" : "bg-red-500"}`} />
-                  <span>{flowStatus?.daemon_running ? ":8765" : "Offline"}</span>
+                  <span>{flowStatus?.daemon_running ? ":8765 Connected" : "Offline"}</span>
                 </div>
               )}
 
@@ -970,21 +1023,21 @@ export default function ImagesTab(props: ImagesTabProps) {
               <button
                 type="button"
                 onClick={toggleImageEngine}
-                className={`px-2.5 py-1 rounded-lg text-[10.5px] font-medium transition-all flex items-center gap-1.5 border shadow-2xs cursor-pointer ${
+                className={`px-2 py-0.5 h-7 rounded-lg text-[10px] font-medium transition-all flex items-center gap-1 border shadow-2xs cursor-pointer ${
                   imageProvider === "flow"
                     ? "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/30 hover:bg-blue-500/20"
                     : "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/20"
                 }`}
-                title="Click to switch between Google Flow (MCP) and Local (Draw Things)"
+                title="Switch between Google Flow (MCP) and Local (Draw Things)"
               >
                 {imageProvider === "flow" ? (
                   <>
-                    <Cloud size={11} />
+                    <Cloud size={10} />
                     <span>Flow MCP</span>
                   </>
                 ) : (
                   <>
-                    <Cpu size={11} />
+                    <Cpu size={10} />
                     <span>Local</span>
                   </>
                 )}
@@ -993,7 +1046,7 @@ export default function ImagesTab(props: ImagesTabProps) {
 
           </div>
 
-          {/* Render Output Frame & Variations Container */}
+          {/* Render Output Frame & Variations Card */}
           <div 
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}
@@ -1002,26 +1055,24 @@ export default function ImagesTab(props: ImagesTabProps) {
               isDraggingOver ? "border-primary ring-2 ring-primary/20" : "border-border/70"
             }`}
           >
-            
-            {/* Viewfinder Header Bar */}
-            <div className="h-9 px-3.5 bg-panel-header/80 border-b border-border/70 flex items-center justify-between shrink-0">
+            {/* Viewfinder Header */}
+            <div className="h-8 px-3 bg-panel-header/80 border-b border-border/70 flex items-center justify-between shrink-0">
               <div className="flex items-center gap-2">
-                <ImageIcon size={12} className="text-panel-icon" />
+                <ImageIcon size={11} className="text-panel-icon" />
                 <span className="text-[10px] font-semibold tracking-wider uppercase text-panel-text">
                   Render Output Frame
                 </span>
               </div>
 
               <div className="flex items-center gap-1.5">
-                {/* Upload Button */}
                 <button
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
                   disabled={isUploading}
-                  className="px-2 py-0.5 rounded-md bg-zinc-200/60 dark:bg-zinc-800 hover:bg-zinc-300 dark:hover:bg-zinc-700 text-[10px] font-medium text-foreground transition-colors flex items-center gap-1 cursor-pointer"
-                  title="Directly upload an image file into this scene"
+                  className="px-2 py-0.5 rounded-md bg-zinc-200/60 dark:bg-zinc-800 hover:bg-zinc-300 dark:hover:bg-zinc-700 text-[9.5px] font-medium text-foreground transition-colors flex items-center gap-1 cursor-pointer"
+                  title="Upload an image file directly into this scene"
                 >
-                  {isUploading ? <Loader2 size={10} className="animate-spin" /> : <Upload size={10} />}
+                  {isUploading ? <Loader2 size={9} className="animate-spin" /> : <Upload size={9} />}
                   <span>{isUploading ? "Uploading..." : "Upload"}</span>
                 </button>
                 <input 
@@ -1035,7 +1086,6 @@ export default function ImagesTab(props: ImagesTabProps) {
                   className="hidden" 
                 />
 
-                {/* Lightbox Zoom Button */}
                 {activeScene?.image_path && (
                   <button
                     type="button"
@@ -1043,7 +1093,7 @@ export default function ImagesTab(props: ImagesTabProps) {
                     className="p-1 rounded-md hover:bg-zinc-200/50 dark:hover:bg-zinc-800 text-panel-text hover:text-foreground transition-colors cursor-pointer"
                     title="Zoom in Lightbox"
                   >
-                    <Maximize2 size={12} />
+                    <Maximize2 size={11} />
                   </button>
                 )}
               </div>
@@ -1053,11 +1103,11 @@ export default function ImagesTab(props: ImagesTabProps) {
             <div className="flex-1 flex items-center justify-center p-3 overflow-hidden relative min-h-0 bg-zinc-50/20 dark:bg-zinc-950/20">
               {isGenerating ? (
                 <div className="flex flex-col items-center justify-center text-center p-6 select-none animate-pulse">
-                  <Loader2 size={26} className="mb-2.5 animate-spin text-primary opacity-80" />
-                  <p className="text-[11px] uppercase tracking-widest font-bold text-foreground">
+                  <Loader2 size={24} className="mb-2 animate-spin text-primary opacity-80" />
+                  <p className="text-[10.5px] uppercase tracking-widest font-bold text-foreground">
                     {imageProvider === "flow" ? "Rendering via Google Flow MCP..." : "Synthesizing frame locally..."}
                   </p>
-                  <p className="text-[10px] text-panel-text/70 mt-1">
+                  <p className="text-[9.5px] text-panel-text/70 mt-0.5">
                     Generating frame variation & updating timeline
                   </p>
                 </div>
@@ -1070,30 +1120,61 @@ export default function ImagesTab(props: ImagesTabProps) {
                   />
                 </div>
               ) : (
-                <div className="flex flex-col items-center justify-center text-center p-6 select-none text-panel-text">
-                  <ImageIcon size={30} className="mb-2 opacity-30" />
-                  <p className="text-[11px] uppercase tracking-widest font-semibold text-panel-text">
+                <div className="flex flex-col items-center justify-center text-center p-4 select-none text-panel-text">
+                  <ImageIcon size={28} className="mb-2 opacity-30" />
+                  <p className="text-[10.5px] uppercase tracking-widest font-semibold text-panel-text">
                     No Render Output
                   </p>
-                  <p className="text-[10px] text-panel-text/60 mt-1 max-w-[220px] leading-relaxed">
+                  <p className="text-[9.5px] text-panel-text/60 mt-1 max-w-[220px] leading-relaxed">
                     Click "Generate Frame", talk to Flow Copilot, or drop an image file here.
                   </p>
                 </div>
               )}
             </div>
 
-            {/* Variations Strip (Downstream Video Automation Ready) */}
+            {/* ======================================================= */}
+            {/* VARIATIONS STRIP (SAFE CLICK-TO-SELECT & SAFE ACTIONS)  */}
+            {/* ======================================================= */}
             {imagesList.length > 0 && (
               <div className="border-t border-border/70 bg-panel-header/50 p-2.5 shrink-0">
-                <div className="flex items-center justify-between mb-1.5 px-0.5">
-                  <span className="text-[9.5px] uppercase font-bold text-panel-text flex items-center gap-1">
-                    <Layers size={10} /> Variations ({imagesList.length})
-                  </span>
-                  <span className="text-[9px] text-panel-text/60">
-                    Click thumbnail to select active timeline frame
-                  </span>
+                <div className="flex items-center justify-between mb-2 px-0.5">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[10px] uppercase font-bold text-panel-text flex items-center gap-1">
+                      <Layers size={11} /> Variations ({imagesList.length})
+                    </span>
+                    {activeVariantIdx >= 0 && (
+                      <span className="text-[9px] font-mono font-medium px-1.5 py-0.2 rounded bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
+                        V{activeVariantIdx + 1} Active
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Explicit Action Buttons for the Active/Selected Variant */}
+                  {activeScene?.image_path && (
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={(e) => handlePinVariantAsRef(activeScene.image_path!, e)}
+                        className="px-2 py-0.5 rounded text-[9.5px] font-medium text-panel-text hover:text-foreground bg-zinc-200/50 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-750 transition-colors flex items-center gap-1 cursor-pointer"
+                        title="Pin active frame as reference image for Flow Copilot"
+                      >
+                        <Pin size={9} />
+                        <span>Pin as Ref</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => handleDeleteVariant(activeScene.image_path!, e)}
+                        className="px-2 py-0.5 rounded text-[9.5px] font-medium text-red-500 hover:text-red-600 hover:bg-red-500/10 transition-colors flex items-center gap-1 cursor-pointer"
+                        title="Delete active variant"
+                      >
+                        <Trash2 size={9} />
+                        <span>Delete Variant</span>
+                      </button>
+                    </div>
+                  )}
                 </div>
 
+                {/* Safe Thumbnail List (Clicking thumbnail ALWAYS ticks it safely) */}
                 <div className="flex items-center gap-2 overflow-x-auto custom-scrollbar py-0.5">
                   {imagesList.map((variantPath, vIdx) => {
                     const isActiveVariant = activeScene.image_path === variantPath;
@@ -1103,47 +1184,38 @@ export default function ImagesTab(props: ImagesTabProps) {
                         onClick={() => handleSetActiveVariant(variantPath)}
                         className={`relative group shrink-0 w-14 h-14 rounded-lg overflow-hidden border-2 cursor-pointer transition-all ${
                           isActiveVariant 
-                            ? "border-emerald-500 shadow-xs ring-2 ring-emerald-500/20" 
+                            ? "border-emerald-500 shadow-xs ring-2 ring-emerald-500/30" 
                             : "border-border/70 hover:border-zinc-400 opacity-75 hover:opacity-100"
                         }`}
+                        title={`Click to activate Variant ${vIdx + 1}`}
                       >
                         <img 
-                          src={`http://localhost:8000/static/${variantPath}?t=${cacheBuster}`}
+                          src={`http://localhost:8000/static/${variantPath}?t=${cacheBuster}`} 
                           alt={`Variant ${vIdx + 1}`}
                           className="w-full h-full object-cover"
                         />
                         
                         {/* Variant Number Tag */}
-                        <div className="absolute bottom-0.5 left-0.5 px-1 py-0.2 rounded bg-black/60 text-white text-[8px] font-mono">
+                        <div className="absolute bottom-0.5 left-0.5 px-1 py-0.2 rounded bg-black/70 text-white text-[8px] font-mono">
                           V{vIdx + 1}
                         </div>
 
-                        {/* Active Selection Checkmark */}
-                        {isActiveVariant && (
+                        {/* Active Selection Checkmark Badge */}
+                        {isActiveVariant ? (
                           <div className="absolute top-0.5 right-0.5 bg-emerald-500 text-white rounded-full p-0.5 shadow-xs">
                             <Check size={8} strokeWidth={3} />
                           </div>
-                        )}
-                        
-                        {/* Hover Actions: Set as Ref or Delete */}
-                        <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-1.5">
-                          <button
-                            type="button"
-                            onClick={(e) => handlePinVariantAsRef(variantPath, e)}
-                            className="p-1 rounded bg-white/20 hover:bg-white/40 text-white transition-colors cursor-pointer"
-                            title="Use as Reference Image"
-                          >
-                            <Pin size={10} />
-                          </button>
+                        ) : (
+                          /* Micro delete button strictly in corner, non-overlapping with main thumbnail area */
                           <button
                             type="button"
                             onClick={(e) => handleDeleteVariant(variantPath, e)}
-                            className="p-1 rounded bg-red-500/50 hover:bg-red-600 text-white transition-colors cursor-pointer"
-                            title="Delete this variation"
+                            className="absolute top-0.5 right-0.5 p-0.5 rounded bg-black/60 hover:bg-red-600 text-white/80 hover:text-white opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer z-10"
+                            title={`Delete V${vIdx + 1}`}
                           >
-                            <Trash2 size={10} />
+                            <Trash2 size={8} />
                           </button>
-                        </div>
+                        )}
                       </div>
                     );
                   })}
@@ -1153,15 +1225,15 @@ export default function ImagesTab(props: ImagesTabProps) {
 
           </div>
 
-          {/* Bottom Action Footer Bar */}
-          <div className="flex gap-2.5 shrink-0 h-10">
+          {/* Bottom Action Buttons */}
+          <div className="flex gap-2 shrink-0 h-9">
             {activeScene?.image_status === "processing" ? (
               <button 
                 type="button"
                 onClick={handleStop}
-                className="flex-1 bg-red-600 hover:bg-red-700 text-white rounded-xl text-[13px] font-medium shadow-2xs transition-all flex items-center justify-center gap-2 cursor-pointer"
+                className="flex-1 bg-red-600 hover:bg-red-700 text-white rounded-xl text-[12px] font-medium shadow-2xs transition-all flex items-center justify-center gap-2 cursor-pointer"
               >
-                <X size={14} />
+                <X size={13} />
                 <span>Stop Rendering</span>
               </button>
             ) : (
@@ -1169,9 +1241,9 @@ export default function ImagesTab(props: ImagesTabProps) {
                 type="button"
                 onClick={handleGenerateFrame}
                 disabled={isGenerating || !activeScene}
-                className="flex-1 bg-primary hover:bg-primary-hover text-white rounded-xl text-[13px] font-semibold shadow-2xs transition-all flex items-center justify-center gap-2 disabled:opacity-40 cursor-pointer"
+                className="flex-1 bg-primary hover:bg-primary-hover text-white rounded-xl text-[12px] font-semibold shadow-2xs transition-all flex items-center justify-center gap-2 disabled:opacity-40 cursor-pointer"
               >
-                {isGenerating ? <Loader2 size={14} className="animate-spin" /> : <Wand2 size={14} />}
+                {isGenerating ? <Loader2 size={13} className="animate-spin" /> : <Wand2 size={13} />}
                 <span>{isGenerating ? "Rendering..." : `Generate Frame (${imageProvider === "flow" ? "Flow" : "Local"})`}</span>
               </button>
             )}
@@ -1180,10 +1252,10 @@ export default function ImagesTab(props: ImagesTabProps) {
               type="button"
               onClick={handleTrashAll}
               disabled={isGenerating || !activeScene || !activeScene.image_path}
-              className="bg-card border border-border/70 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/20 px-3.5 rounded-xl text-panel-text hover:border-red-300 dark:hover:border-red-800 transition-all flex items-center justify-center disabled:opacity-30 cursor-pointer"
+              className="bg-card border border-border/70 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/20 px-3 rounded-xl text-panel-text hover:border-red-300 dark:hover:border-red-800 transition-all flex items-center justify-center disabled:opacity-30 cursor-pointer"
               title="Clear Active Frame for this Scene"
             >
-              <Trash2 size={14} />
+              <Trash2 size={13} />
             </button>
           </div>
 
