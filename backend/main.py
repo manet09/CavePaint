@@ -22,7 +22,7 @@ import shutil
 
 from .database import get_db, Project, Scene, Character, Setting, Generation, SHARED_CHARACTERS_DIR, sync_project_json
 from .queue_worker import start_queue_worker, task_queue, GenerationTask
-from .services import voice_engine, flow_engine
+from .services import voice_engine, flow_engine, render_engine
 
 # Pydantic Schemas
 
@@ -90,6 +90,7 @@ class ProjectBase(BaseModel):
     character_attire: Optional[str] = None
     scene_staging: Optional[str] = "studio"
     flow_project_id: Optional[str] = None
+    timeline_data: Optional[str] = None
 
 class ProjectCreate(BaseModel):
     title: str
@@ -113,6 +114,7 @@ class ProjectUpdate(BaseModel):
     character_attire: Optional[str] = None
     scene_staging: Optional[str] = None
     flow_project_id: Optional[str] = None
+    timeline_data: Optional[str] = None
 
 class ProjectOutList(ProjectBase):
     id: int
@@ -1467,3 +1469,102 @@ async def unload_voice_model():
 @app.get("/api/model/status")
 async def get_model_status():
     return {"state": voice_engine._MODEL_STATE}
+
+# ----------------------------------------------------
+# Tab 4: Assembly & Video Synthesis Endpoints
+# ----------------------------------------------------
+
+@app.get("/api/projects/{project_id}/assembly-status")
+async def get_assembly_status(project_id: int, db: Session = Depends(get_db)):
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    status_data = render_engine.get_project_coupling_status(project, db)
+    return status_data
+
+@app.put("/api/projects/{project_id}/timeline")
+async def save_project_timeline(project_id: int, payload: dict, db: Session = Depends(get_db)):
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    project.timeline_data = json.dumps(payload)
+    db.commit()
+    return {"status": "saved", "timeline_data": payload}
+
+@app.post("/api/projects/{project_id}/upload-bgm")
+async def upload_project_bgm(project_id: int, file: UploadFile = File(...), db: Session = Depends(get_db)):
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    slug = project.slug or f"project-{project.id}"
+    bgm_dir = os.path.join(render_engine.WORKSPACE_DIR, slug, "bgm")
+    os.makedirs(bgm_dir, exist_ok=True)
+
+    # Sanitize filename
+    safe_name = re.sub(r'[^a-zA-Z0-9_\-\.]', '_', file.filename)
+    target_path = os.path.join(bgm_dir, safe_name)
+
+    with open(target_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+
+    dur = render_engine.get_audio_duration(target_path)
+    file_info = {
+        "filename": safe_name,
+        "relative_path": f"{slug}/bgm/{safe_name}",
+        "duration": round(dur, 2),
+        "size_bytes": os.path.getsize(target_path)
+    }
+
+    return {"status": "uploaded", "file": file_info}
+
+@app.delete("/api/projects/{project_id}/bgm/{filename}")
+async def delete_project_bgm(project_id: int, filename: str, db: Session = Depends(get_db)):
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    slug = project.slug or f"project-{project.id}"
+    target_path = os.path.join(render_engine.WORKSPACE_DIR, slug, "bgm", filename)
+    if os.path.exists(target_path):
+        try:
+            os.remove(target_path)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to delete file: {str(e)}")
+
+    return {"status": "deleted", "filename": filename}
+
+@app.post("/api/projects/{project_id}/render-video")
+async def trigger_video_render(project_id: int, db: Session = Depends(get_db)):
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    # Check if already rendering
+    job = render_engine.RENDER_JOBS.get(project_id)
+    if job and job.get("status") == "rendering":
+        return {"status": "already_rendering", "job": job}
+
+    async def _async_render_worker():
+        from .database import SessionLocal
+        bg_db = SessionLocal()
+        try:
+            await render_engine.render_project_video(project_id, bg_db)
+        except Exception as err:
+            print(f"[RENDER TASK EXCEPTION] {err}")
+        finally:
+            bg_db.close()
+
+    asyncio.create_task(_async_render_worker())
+    return {"status": "started", "message": "Video rendering started in background"}
+
+@app.get("/api/projects/{project_id}/render-status")
+async def get_video_render_status(project_id: int):
+    job = render_engine.RENDER_JOBS.get(project_id, {
+        "status": "idle",
+        "progress": 0,
+        "output_path": None,
+        "error": None
+    })
+    return job
+

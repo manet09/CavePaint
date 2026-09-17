@@ -9,7 +9,7 @@ const tabs = [
   { id: "brainstorming", label: "Brainstorming", icon: Lightbulb },
   { id: "images", label: "Images", icon: Sparkles },
   { id: "voice", label: "Voice", icon: Mic },
-  { id: "output", label: "Output", icon: Film },
+  { id: "assembly", label: "Assembly", icon: Film },
 ];
 
 export default function ProjectHeader({ projectId, title }: { projectId: string; title: string }) {

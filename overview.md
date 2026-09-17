@@ -50,8 +50,8 @@ flowchart TD
         ImagesTab <-->|Two-Way Reactive Sync: Prompts & Khmer Scripts| BrainstormingStudio["Brainstorming Tab (Storyboard Deck)"]
         ImagesTab -->|Talk Directly to Flow: LLM Refinement + Flow MCP| FlowRender["Google Flow MCP (:8765)"]
         FlowRender -->|New Variation + Canonical Mirror: scene_XXX.png| ImagesTab
-        ImagesTab --> OutputTab["Output Tab (Final Timeline & Video Automation Manifest)"]
-        VoiceTab --> OutputTab
+        ImagesTab --> AssemblyTab["Assembly Tab (Image & Voice Coupling • Timeline Mastering)"]
+        VoiceTab --> AssemblyTab
     end
 ```
 
@@ -109,6 +109,7 @@ Represents a complete video production workspace.
 * `character_attire` (`Text`): Era-appropriate clothing and hairstyle instructions (Whatly style).
 * `scene_staging` (`String`): Staging mode (`studio` for grounded white backdrop or `environment` for full-bleed scenery).
 * `flow_project_id` (`String`, Nullable): Unique Google Flow cloud project ID tied to this CavePaint project (1 CavePaint project = 1 Flow project ID, preventing Google anti-bot triggers).
+* `timeline_data` (`Text`, Nullable): JSON-stringified timeline state (BGM start offsets, volume, ducking flags, text overlays with fonts/colors/timing, and per-scene voice volume overrides).
 * `scenes`: Relationship to `Scene` records with cascade delete.
 
 ### 2. `Scene` Table
@@ -265,6 +266,22 @@ To balance fast manual tweaks with creative AI direction, CavePaint implements t
 * Injects sentence punctuation (`។`) and an acoustic silence cushion (0.20s).
 * Concatenates individual chunks into `master_voiceover.<format>`.
 
+### 5.5 Assembly & Multi-Track Video Synthesis Engine (`backend/services/render_engine.py`)
+* **Image-Voice Coupling Matrix**:
+  * Evaluates each scene dynamically:
+    * 🟢 **Coupled & Ready**: Canonical image (`scene_XXX.png`) and audio (`scene_XXX.wav/mp3`) are both present. Scene duration is precisely determined by `soundfile.info(audio_path).duration`.
+    * 🟡 **Missing Audio**: Frame exists, narration audio is pending or outdated.
+    * 🟡 **Missing Image**: Audio is ready, visual frame has not yet been rendered.
+    * 🔴 **Uncoupled**: Neither asset exists.
+* **Background Music (BGM) & Audio Mixing**:
+  * Upload custom `.mp3`, `.wav`, or `.m4a` music files to `workspace/<slug>/bgm/`.
+  * Non-destructive multi-track mixing: start offset slider (`adelay`), volume control, duplicate/looping, and auto-ducking (smoothly attenuating BGM by -12dB during voiceover narration).
+* **Text & Subtitle Overlays**:
+  * Configurable text layers with font families (Universal Sans, Editorial Serif, Bold Impact, Khmer Sangam MN), custom text color, background pill highlighting, and placement (bottom third, center, top).
+* **Dual-Layer Execution**:
+  1. **Real-time In-Browser Preview**: HTML5 Canvas and synchronized audio playback without waiting for server rendering.
+  2. **Automated FFmpeg Video Pipeline**: Uses bundled `imageio-ffmpeg` (FFmpeg 7.1 with `libx264`, `libfreetype`, `libass`) to stitch image durations, mix audio tracks, burn text overlays, and export crisp 1080p MP4s matching the project aspect ratio (`16:9`, `9:16`, `1:1`, etc.) to `workspace/<slug>/final_output.mp4`.
+
 ---
 
 ## 6. Complete API Reference
@@ -309,6 +326,12 @@ To balance fast manual tweaks with creative AI direction, CavePaint implements t
 | `POST` | `/api/model/load` | Manually load VoxCPM2 into memory. |
 | `POST` | `/api/model/unload` | Manually unload VoxCPM2 and free VRAM. |
 | `GET` | `/api/model/status` | Check memory state of VoxCPM2. |
+| `GET` | `/api/projects/{id}/assembly-status` | Get scene coupling readiness matrix, audio durations, BGM list, and render status. |
+| `PUT` | `/api/projects/{id}/timeline` | Persist multi-track assembly state (BGM offset/volume/ducking, text overlays, scene voice volume). |
+| `POST` | `/api/projects/{id}/upload-bgm` | Upload background music file (`.mp3`/`.wav`/`.m4a`) to project `bgm/` directory. |
+| `DELETE` | `/api/projects/{id}/bgm/{filename}` | Delete a background music file from project `bgm/` directory. |
+| `POST` | `/api/projects/{id}/render-video` | Enqueue background FFmpeg video rendering job. |
+| `GET` | `/api/projects/{id}/render-status` | Check video rendering status, progress percentage, and output path. |
 | `GET` | `/static/*` | Static file server mounting `workspace/` assets. |
 
 ---
@@ -365,8 +388,37 @@ To balance fast manual tweaks with creative AI direction, CavePaint implements t
      * Deterministic 1-to-1 canonical pairing: `workspace/<slug>/scene_XXX.png` <-> `workspace/<slug>/scene_XXX.wav` (or `.mp3`).
      * Automatic SQLite manifest synchronization (`structured_json_data`) on every audio chunk and master compilation.
      * Automatic change invalidation: modifying narration in any tab flags the corresponding scene audio as `outdated`.
-4. **Output Tab (`OutputTab.tsx`)**:
-   * Vertical production timeline matching rendered `.png` image frames with the synthesized `.wav`/`.mp3` audio tracks.
+4. **Assembly Tab (`AssemblyTab.tsx` — Unboxed 2-Column Architecture)**:
+   * **Design Philosophy**: Elevates the final studio stage from a static preview list to an interactive, unified Assembly editor where visual picture frames and spoken dialogue tracks are synchronized, mixed, and mastered.
+   * **Left Column: Image-Voice Coupling Scene Deck (~480px)**:
+     * **Coupling Readiness Header**: Summary counter (`X/Y Coupled & Ready (Z%)`) with visual progress bar.
+     * **Filter Pills**: Quick toggle between `All`, `Ready (Coupled)`, and `Missing Assets`.
+     * **Scene Coupling Cards**:
+       * Canonical frame thumbnail preview with jump link to Images tab if missing.
+       * Khmer narration text snippet with jump link to Voice tab if missing.
+       * Exact audio duration badge (e.g. `4.2s`) dynamically computed via `soundfile`.
+       * Coupling status badge: `🟢 Coupled`, `🟡 Missing Audio`, `🟡 Missing Frame`, `🔴 Uncoupled`.
+       * **Individual Scene Voice Volume Slider**: Fine-tune speech level (0% to 150%) per scene with 1-click reset.
+       * Click-to-seek: Clicking any scene moves the interactive playhead directly to that scene's start timecode.
+   * **Right Column: Interactive Player & Multi-Track Studio (Flex-1)**:
+     * **Real-time Video Viewport Canvas**: Responsive video frame reflecting the active project aspect ratio (`16:9`, `9:16`, `1:1`, etc.) with instantaneous frame switching as the playhead advances.
+     * **Interactive Subtitle / Text Renderer**: Overlays styled captions directly on top of the video canvas in real-time.
+     * **Transport & Scrub Bar**: Play/Pause, restart (`↺`), timecode indicators (`MM:SS / MM:SS`), and smooth scrub slider.
+     * **Background Music (BGM) Track**:
+       * Drag & drop / file upload for `.mp3`, `.wav`, or `.m4a` music.
+       * Start offset slider (`start_time`), master music volume slider (0-100%).
+       * **Duplicate Button**: Clone BGM block down the timeline to loop or repeat.
+       * **Auto-Ducking Switch**: Automatically lowers music volume by -12dB when narration speech is active.
+     * **Text Overlay Track**:
+       * `+ Add Text` at playhead position.
+       * Font Family picker: Universal Sans (Arial), Editorial Serif (Georgia), Bold Title (Impact), Khmer Standard (Khmer Sangam MN / Kantumruy Pro).
+       * Color Palette presets (White, Yellow, Cyan, Coral, Black) with background pill highlighting.
+       * Vertical placement: Lower-Third (Subtitle), Center (Title), Top (Header).
+       * Start time & duration sliders, duplicate block, and delete.
+     * **Video Export Pipeline**:
+       * Primary action: `Export Video (MP4)`.
+       * Background FFmpeg rendering with real-time percentage progress bar.
+       * Direct download action once rendered (`workspace/<slug>/final_output.mp4`).
 
 ### 7.3 Settings Modal (`Sidebar.tsx`)
 * Configures global LLM provider (`gemini` or `groq`) and active key slot.
@@ -396,6 +448,7 @@ video_studio/
 │       ├── draw_things.py      # Draw Things REST API integration
 │       ├── flow_engine.py      # Google Flow MCP client (Streamable HTTP + CLI fallback)
 │       ├── voice_engine.py     # VoxCPM2 TTS, cloning, and VRAM manager
+│       ├── render_engine.py    # FFmpeg video assembly, duration probing & BGM mixer
 │       ├── llm_orchestrator.py # High-level field generation router
 │       └── llm/
 │           ├── client.py       # Multi-provider client (Gemini & Groq)
@@ -421,19 +474,20 @@ video_studio/
 │   │   │   └── types.ts
 │   │   ├── components/
 │   │   │   ├── shell/          # Sidebar (with Settings), ProjectHeader, WelcomeScreen
-│   │   │   └── tabs/           # OverviewTab, ImagesTab, VoiceTab, OutputTab
+│   │   │   └── tabs/           # BrainstormingTab, ImagesTab, VoiceTab, AssemblyTab
 │   │   └── projects/[id]/      # Dynamic project routing
 │   │       ├── layout.tsx      # Project data provider & layout wrapper
-│   │       ├── overview/page.tsx
+│   │       ├── brainstorming/page.tsx
 │   │       ├── images/page.tsx
 │   │       ├── voice/page.tsx
-│   │       └── output/page.tsx
+│   │       ├── assembly/page.tsx
+│   │       └── output/page.tsx # Backwards-compatible redirect to /assembly
 │
 └── workspace/                  # Physical disk asset storage (ignored by git)
     ├── studio.db               # SQLite database file
     ├── shared_characters/      # AI-generated character voice profiles
     ├── custom_voices/          # Uploaded reference voice WAVs
-    └── <project-slug>/         # Project-specific rendered images & audio chunks
+    └── <project-slug>/         # Project rendered images, voice chunks, bgm/, and final_output.mp4
 ```
 
 ---

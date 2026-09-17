@@ -1,12 +1,18 @@
- 
 "use client";
 
-import React from "react";
-import OutputTab from "../../../components/tabs/OutputTab";
+import React, { useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { useProjectContext } from "../../../context/ProjectContext";
 
-export default function OutputPage() {
+export default function OutputRedirectPage() {
+  const router = useRouter();
   const { activeProject } = useProjectContext();
-  if (!activeProject) return null;
-  return <OutputTab activeProject={activeProject} />;
+
+  useEffect(() => {
+    if (activeProject?.id) {
+      router.replace(`/projects/${activeProject.id}/assembly`);
+    }
+  }, [activeProject?.id, router]);
+
+  return null;
 }

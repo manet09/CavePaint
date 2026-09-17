@@ -60,6 +60,7 @@ class Project(Base):
     character_attire = Column(Text, nullable=True)
     scene_staging = Column(String, default="studio")
     flow_project_id = Column(String, nullable=True)
+    timeline_data = Column(Text, nullable=True)
 
     scenes = relationship("Scene", back_populates="project", cascade="all, delete-orphan")
 
@@ -208,6 +209,12 @@ except Exception:
 try:
     with engine.begin() as conn:
         conn.execute(text("ALTER TABLE scenes ADD COLUMN reference_images TEXT DEFAULT '[]';"))
+except Exception:
+    pass
+
+try:
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE projects ADD COLUMN timeline_data TEXT;"))
 except Exception:
     pass
 

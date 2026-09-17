@@ -37,5 +37,6 @@ export interface Project {
   character_attire?: string | null;
   scene_staging?: string | null;
   flow_project_id?: string | null;
+  timeline_data?: string | null;
   scenes: SceneData[];
 }
