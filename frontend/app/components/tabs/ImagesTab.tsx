@@ -107,6 +107,7 @@ export default function ImagesTab(props: ImagesTabProps) {
   const [aspectRatioValue, setAspectRatioValue] = useState("16:9");
   const [inferenceSteps, setInferenceSteps] = useState(10);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isGeneratingAll, setIsGeneratingAll] = useState(false);
   const [cacheBuster, setCacheBuster] = useState(Date.now());
   
   // Engine & Model controls
@@ -210,22 +211,28 @@ export default function ImagesTab(props: ImagesTabProps) {
     return scenes.filter((s: any) => !!s.image_path).length;
   }, [scenes]);
 
-  // Generation status polling
+  // Check if any scene is currently processing
+  const isAnySceneProcessing = useMemo(() => {
+    return scenes.some((s: any) => s.image_status === "processing");
+  }, [scenes]);
+
+  // Generation status polling (polls if any scene in project is processing or batch generation initiated)
   useEffect(() => {
     let interval: NodeJS.Timeout;
-    if (activeScene && activeScene.image_status === "processing") {
+    if (isAnySceneProcessing || isGeneratingAll) {
       setIsGenerating(true);
       interval = setInterval(() => {
         if (props.refreshProjectData) props.refreshProjectData();
       }, 1500);
     } else {
-      if (isGenerating) {
+      if (isGenerating || isGeneratingAll) {
         setCacheBuster(Date.now());
       }
       setIsGenerating(false);
+      setIsGeneratingAll(false);
     }
     return () => clearInterval(interval);
-  }, [activeScene?.image_status, isGenerating]);
+  }, [isAnySceneProcessing, isGeneratingAll, props.refreshProjectData]);
 
   // Toggle engine (Flow MCP vs Draw Things)
   const toggleImageEngine = async () => {
@@ -341,6 +348,52 @@ export default function ImagesTab(props: ImagesTabProps) {
       if (props.refreshProjectData) await props.refreshProjectData();
     } catch (error) {
       console.error("Error stopping generation:", error);
+    }
+  };
+
+  // Generate All Scenes Images
+  const handleGenerateAllScenes = async () => {
+    if (!activeProject?.id || scenes.length === 0) return;
+    setIsGeneratingAll(true);
+
+    const payload = {
+      aspect_ratio: aspectRatioValue,
+      guidance_scale: 7.5,
+      inference_steps: inferenceSteps,
+      model: flowModel,
+      count: imageCount,
+      image_provider: imageProvider,
+    };
+
+    try {
+      const response = await fetch(`http://localhost:8000/api/projects/${activeProject.id}/generate-images`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (response.ok) {
+        if (props.refreshProjectData) await props.refreshProjectData();
+      } else {
+        setIsGeneratingAll(false);
+      }
+    } catch (error) {
+      console.error("Error triggering batch generation:", error);
+      setIsGeneratingAll(false);
+    }
+  };
+
+  // Stop All Scenes Generation
+  const handleStopAllScenes = async () => {
+    if (!activeProject?.id) return;
+    try {
+      await fetch(`http://localhost:8000/api/projects/${activeProject.id}/stop-images`, {
+        method: "POST",
+      });
+      if (props.refreshProjectData) await props.refreshProjectData();
+    } catch (error) {
+      console.error("Error stopping batch generation:", error);
+    } finally {
+      setIsGeneratingAll(false);
     }
   };
 
@@ -511,114 +564,150 @@ export default function ImagesTab(props: ImagesTabProps) {
         {/* ======================================================= */}
         {/* COLUMN 1: VERTICAL SCENE NAVIGATOR (~260px)              */}
         {/* ======================================================= */}
-        <div className="w-60 xl:w-68 shrink-0 flex flex-col h-full bg-card rounded-xl border border-border/70 shadow-2xs overflow-hidden">
+        <div className="w-60 xl:w-68 shrink-0 flex flex-col h-full gap-2">
           
-          {/* Navigator Header */}
-          <div className="h-10 px-3.5 border-b border-border/70 flex items-center justify-between shrink-0 bg-panel-header/60">
-            <div className="flex items-center gap-2">
-              <Layers size={13} className="text-panel-icon" />
-              <span className="text-[11px] font-bold uppercase tracking-wider text-foreground">
-                Scenes
-              </span>
-              <span className="text-[10px] font-mono text-panel-text">
-                ({scenes.length})
-              </span>
-            </div>
-
-            {/* Generated Status Counter */}
-            <div className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[9.5px] font-medium bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
-              <Check size={9} strokeWidth={2.5} />
-              <span>{generatedScenesCount}/{scenes.length} Ready</span>
-            </div>
-          </div>
-
-          {/* Vertical Scene List */}
-          <div className="flex-1 overflow-y-auto custom-scrollbar p-2 space-y-1.5 min-h-0">
-            {scenes.length === 0 ? (
-              <div className="h-full flex flex-col items-center justify-center p-4 text-center text-panel-text/60">
-                <ImageIcon size={24} className="opacity-30 mb-2" />
-                <p className="text-xs">No scenes found.</p>
+          {/* Scenes Card Container */}
+          <div className="flex-1 min-h-0 flex flex-col bg-card rounded-xl border border-border/70 shadow-2xs overflow-hidden">
+            
+            {/* Navigator Header */}
+            <div className="h-10 px-3.5 border-b border-border/70 flex items-center justify-between shrink-0 bg-panel-header/60">
+              <div className="flex items-center gap-2">
+                <Layers size={13} className="text-panel-icon" />
+                <span className="text-[11px] font-bold uppercase tracking-wider text-foreground">
+                  Scenes
+                </span>
+                <span className="text-[10px] font-mono text-panel-text">
+                  ({scenes.length})
+                </span>
               </div>
-            ) : (
-              scenes.map((s: any, idx: number) => {
-                const isSelected = activeSceneIndex === idx;
-                const hasImage = !!s.image_path;
-                const isProcessing = s.image_status === "processing";
-                
-                // Count variants for this scene
-                let vCount = hasImage ? 1 : 0;
-                if (s.images_list) {
-                  try {
-                    const parsed = typeof s.images_list === "string" ? JSON.parse(s.images_list) : s.images_list;
-                    if (Array.isArray(parsed) && parsed.length > 0) vCount = parsed.length;
-                  } catch {}
-                }
 
-                return (
-                  <button
-                    key={s.id || idx}
-                    type="button"
-                    onClick={() => setActiveSceneIndex(idx)}
-                    className={`w-full text-left p-2 rounded-lg border transition-all cursor-pointer flex flex-col gap-1.5 ${
-                      isSelected
-                        ? "bg-primary/10 border-primary text-foreground ring-1 ring-primary/30 shadow-2xs"
-                        : hasImage
-                          ? "bg-card hover:bg-zinc-100/70 dark:hover:bg-zinc-800/60 border-border/70 text-foreground"
-                          : "bg-card/40 hover:bg-zinc-100/50 dark:hover:bg-zinc-850/40 border-border/40 text-panel-text"
-                    }`}
-                  >
-                    {/* Scene Top: Number & Status Badge */}
-                    <div className="flex items-center justify-between gap-1 w-full">
-                      <div className="flex items-center gap-1.5">
-                        <span className={`text-[11px] font-bold font-mono ${isSelected ? "text-primary" : "text-foreground"}`}>
-                          #{String(s.scene_number || idx + 1).padStart(2, "0")}
-                        </span>
-                        {vCount > 1 && (
-                          <span className="px-1 py-0.2 rounded text-[8.5px] font-mono font-medium bg-zinc-200/70 dark:bg-zinc-800 text-panel-text">
-                            {vCount}v
+              {/* Generated Status Counter */}
+              <div className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[9.5px] font-medium bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                <Check size={9} strokeWidth={2.5} />
+                <span>{generatedScenesCount}/{scenes.length} Ready</span>
+              </div>
+            </div>
+
+            {/* Vertical Scene List */}
+            <div className="flex-1 overflow-y-auto custom-scrollbar p-2 space-y-1.5 min-h-0">
+              {scenes.length === 0 ? (
+                <div className="h-full flex flex-col items-center justify-center p-4 text-center text-panel-text/60">
+                  <ImageIcon size={24} className="opacity-30 mb-2" />
+                  <p className="text-xs">No scenes found.</p>
+                </div>
+              ) : (
+                scenes.map((s: any, idx: number) => {
+                  const isSelected = activeSceneIndex === idx;
+                  const hasImage = !!s.image_path;
+                  const isProcessing = s.image_status === "processing";
+                  const isFailed = s.image_status === "failed";
+                  
+                  // Count variants for this scene
+                  let vCount = hasImage ? 1 : 0;
+                  if (s.images_list) {
+                    try {
+                      const parsed = typeof s.images_list === "string" ? JSON.parse(s.images_list) : s.images_list;
+                      if (Array.isArray(parsed) && parsed.length > 0) vCount = parsed.length;
+                    } catch {}
+                  }
+
+                  return (
+                    <button
+                      key={s.id || idx}
+                      type="button"
+                      onClick={() => setActiveSceneIndex(idx)}
+                      className={`w-full text-left p-2 rounded-lg border transition-all cursor-pointer flex flex-col gap-1.5 ${
+                        isSelected
+                          ? "bg-primary/10 border-primary text-foreground ring-1 ring-primary/30 shadow-2xs"
+                          : hasImage
+                            ? "bg-card hover:bg-zinc-100/70 dark:hover:bg-zinc-800/60 border-border/70 text-foreground"
+                            : "bg-card/40 hover:bg-zinc-100/50 dark:hover:bg-zinc-850/40 border-border/40 text-panel-text"
+                      }`}
+                    >
+                      {/* Scene Top: Number & Status Badge */}
+                      <div className="flex items-center justify-between gap-1 w-full">
+                        <div className="flex items-center gap-1.5">
+                          <span className={`text-[11px] font-bold font-mono ${isSelected ? "text-primary" : "text-foreground"}`}>
+                            #{String(s.scene_number || idx + 1).padStart(2, "0")}
+                          </span>
+                          {vCount > 1 && (
+                            <span className="px-1 py-0.2 rounded text-[8.5px] font-mono font-medium bg-zinc-200/70 dark:bg-zinc-800 text-panel-text">
+                              {vCount}v
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Status indicator badge */}
+                        {isProcessing ? (
+                          <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[9px] font-medium bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30 animate-pulse">
+                            <Loader2 size={8} className="animate-spin" />
+                            <span>Rendering</span>
+                          </span>
+                        ) : isFailed ? (
+                          <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[9px] font-medium bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/30">
+                            <span>Failed</span>
+                          </span>
+                        ) : hasImage ? (
+                          <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[9px] font-medium bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                            <Check size={8} strokeWidth={2.5} />
+                            <span>Ready</span>
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center px-1.5 py-0.2 rounded text-[8.5px] font-medium text-panel-text/70 bg-zinc-100 dark:bg-zinc-800/60 border border-border/40">
+                            Empty
                           </span>
                         )}
                       </div>
 
-                      {/* Status indicator badge */}
-                      {isProcessing ? (
-                        <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[9px] font-medium bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30 animate-pulse">
-                          <Loader2 size={8} className="animate-spin" />
-                          <span>Rendering</span>
-                        </span>
-                      ) : hasImage ? (
-                        <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[9px] font-medium bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
-                          <Check size={8} strokeWidth={2.5} />
-                          <span>Ready</span>
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center px-1.5 py-0.2 rounded text-[8.5px] font-medium text-panel-text/70 bg-zinc-100 dark:bg-zinc-800/60 border border-border/40">
-                          Empty
-                        </span>
-                      )}
-                    </div>
+                      {/* Scene Card Body: Thumbnail & Script Snippet */}
+                      <div className="flex items-center gap-2 w-full">
+                        {hasImage ? (
+                          <img
+                            src={`http://localhost:8000/static/${s.image_path}?t=${cacheBuster}`}
+                            alt={`Scene ${idx + 1}`}
+                            className="w-12 h-8 rounded object-cover border border-border/60 shrink-0 bg-zinc-100 dark:bg-zinc-900"
+                          />
+                        ) : (
+                          <div className="w-12 h-8 rounded border border-dashed border-border/60 bg-zinc-50/50 dark:bg-zinc-900/30 flex items-center justify-center shrink-0">
+                            <ImageIcon size={12} className="text-panel-text/30" />
+                          </div>
+                        )}
+                        
+                        <p className="text-[10px] text-panel-text line-clamp-2 leading-tight flex-1 select-none">
+                          {s.narration_khmer || s.image_prompt_english || "No script yet..."}
+                        </p>
+                      </div>
+                    </button>
+                  );
+                })
+              )}
+            </div>
 
-                    {/* Scene Card Body: Thumbnail & Script Snippet */}
-                    <div className="flex items-center gap-2 w-full">
-                      {hasImage ? (
-                        <img
-                          src={`http://localhost:8000/static/${s.image_path}?t=${cacheBuster}`}
-                          alt={`Scene ${idx + 1}`}
-                          className="w-12 h-8 rounded object-cover border border-border/60 shrink-0 bg-zinc-100 dark:bg-zinc-900"
-                        />
-                      ) : (
-                        <div className="w-12 h-8 rounded border border-dashed border-border/60 bg-zinc-50/50 dark:bg-zinc-900/30 flex items-center justify-center shrink-0">
-                          <ImageIcon size={12} className="text-panel-text/30" />
-                        </div>
-                      )}
-                      
-                      <p className="text-[10px] text-panel-text line-clamp-2 leading-tight flex-1 select-none">
-                        {s.narration_khmer || s.image_prompt_english || "No script yet..."}
-                      </p>
-                    </div>
-                  </button>
-                );
-              })
+          </div>
+
+          {/* Action Button Below Scenes Card */}
+          <div className="shrink-0 h-9">
+            {!isAnySceneProcessing && !isGeneratingAll ? (
+              <button
+                type="button"
+                onClick={handleGenerateAllScenes}
+                disabled={scenes.length === 0}
+                className="w-full h-full rounded-xl bg-primary hover:bg-primary-hover text-white text-[12px] font-semibold flex items-center justify-center gap-2 shadow-2xs transition-all cursor-pointer disabled:opacity-40"
+                title="Queue all scenes and generate images one-by-one"
+              >
+                <Sparkles size={13} />
+                <span>Generate All Scenes</span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={handleStopAllScenes}
+                className="w-full h-full rounded-xl bg-red-600 hover:bg-red-700 text-white text-[12px] font-semibold flex items-center justify-center gap-2 shadow-2xs transition-all cursor-pointer"
+                title="Stop batch generation"
+              >
+                <Loader2 size={13} className="animate-spin" />
+                <span>Stop Generation</span>
+              </button>
             )}
           </div>
 
@@ -1240,7 +1329,7 @@ export default function ImagesTab(props: ImagesTabProps) {
               <button 
                 type="button"
                 onClick={handleGenerateFrame}
-                disabled={isGenerating || !activeScene}
+                disabled={isGenerating || isGeneratingAll || isAnySceneProcessing || !activeScene}
                 className="flex-1 bg-primary hover:bg-primary-hover text-white rounded-xl text-[12px] font-semibold shadow-2xs transition-all flex items-center justify-center gap-2 disabled:opacity-40 cursor-pointer"
               >
                 {isGenerating ? <Loader2 size={13} className="animate-spin" /> : <Wand2 size={13} />}
@@ -1251,7 +1340,7 @@ export default function ImagesTab(props: ImagesTabProps) {
             <button 
               type="button"
               onClick={handleTrashAll}
-              disabled={isGenerating || !activeScene || !activeScene.image_path}
+              disabled={isGenerating || isGeneratingAll || isAnySceneProcessing || !activeScene || !activeScene.image_path}
               className="bg-card border border-border/70 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/20 px-3 rounded-xl text-panel-text hover:border-red-300 dark:hover:border-red-800 transition-all flex items-center justify-center disabled:opacity-30 cursor-pointer"
               title="Clear Active Frame for this Scene"
             >

@@ -978,6 +978,81 @@ async def generate_scene_image(scene_id: int, payload: ImageGeneratePayload, db:
     db.commit()
     return {"status": "queued"}
 
+@app.post("/api/projects/{project_id}/generate-images")
+async def generate_project_images(project_id: int, payload: ImageGeneratePayload, db: Session = Depends(get_db)):
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    scenes = db.query(Scene).filter(Scene.project_id == project_id).order_by(Scene.scene_number.asc()).all()
+
+    queued_count = 0
+    for scene in scenes:
+        prompt = scene.image_prompt_english or scene.narration_khmer or ""
+        if not prompt.strip():
+            continue
+
+        if scene.image_status == "processing":
+            continue
+
+        refs = []
+        if payload.reference_images:
+            refs = payload.reference_images
+        elif scene.reference_images:
+            try:
+                refs = json.loads(scene.reference_images)
+            except Exception:
+                refs = []
+
+        task_payload = {
+            "prompt": prompt,
+            "style": project.illustration_style,
+            "negative_prompt": scene.negative_prompt,
+            "aspect_ratio": payload.aspect_ratio or project.aspect_ratio or "16:9",
+            "guidance_scale": payload.guidance_scale or 7.5,
+            "inference_steps": payload.inference_steps or 10,
+            "model": payload.model or "nano2",
+            "count": payload.count or 1,
+            "image_provider": payload.image_provider,
+            "reference_images": refs,
+        }
+
+        task = GenerationTask(
+            task_type="image",
+            project_id=scene.project_id,
+            scene_id=scene.id,
+            payload=task_payload
+        )
+
+        await task_queue.put(task)
+        scene.image_status = "processing"
+        queued_count += 1
+
+    db.commit()
+    return {"status": "queued", "count": queued_count}
+
+@app.post("/api/projects/{project_id}/stop-images")
+async def stop_project_images(project_id: int, db: Session = Depends(get_db)):
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    scenes = db.query(Scene).filter(Scene.project_id == project_id).all()
+    count = 0
+    for scene in scenes:
+        if scene.image_status == "processing":
+            scene.image_status = "idle"
+            count += 1
+
+    db.commit()
+
+    try:
+        requests.post("http://127.0.0.1:7860/sdapi/v1/interrupt", timeout=2)
+    except Exception as e:
+        print(f"Interrupt API unreachable or failed: {e}")
+
+    return {"status": "stopped", "cancelled_count": count}
+
 @app.post("/api/scenes/{scene_id}/upload-image")
 async def upload_scene_image(scene_id: int, file: UploadFile = File(...), db: Session = Depends(get_db)):
     scene = db.query(Scene).filter(Scene.id == scene_id).first()

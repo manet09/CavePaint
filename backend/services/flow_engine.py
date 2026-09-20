@@ -278,11 +278,13 @@ def trigger_flow_render(
                         if tool_data.get("status") in ["completed", "success"]:
                             files = tool_data.get("files", [])
                             if files:
-                                generated_files = files
-                                returned_flow_project_id = tool_data.get("project") or flow_project_id
-                                if tool_data.get("flow_media_id"):
-                                    flow_media_ids = [tool_data["flow_media_id"]]
-                                mcp_success = True
+                                generated_files = list(files)
+                            returned_flow_project_id = tool_data.get("flow_project_id") or tool_data.get("project") or flow_project_id
+                            if tool_data.get("flow_media_ids"):
+                                flow_media_ids = list(tool_data["flow_media_ids"])
+                            elif tool_data.get("flow_media_id"):
+                                flow_media_ids = [tool_data["flow_media_id"]]
+                            mcp_success = True
                         elif tool_data.get("status") in ["failed", "error"]:
                             err_info = tool_data.get("error", {})
                             detail = err_info.get("detail") if isinstance(err_info, dict) else str(err_info)
@@ -370,14 +372,37 @@ def trigger_flow_render(
         except Exception as json_err:
             print(f"Could not parse JSON stdout: {json_err}. Scanning output directory...")
 
-        # If files list not captured via JSON, scan temp_out_dir for newly created images (.png, .jpg, .jpeg, .webp)
-        if not generated_files and os.path.exists(temp_out_dir):
-            for f in sorted(os.listdir(temp_out_dir)):
+    # Scan temp_out_dir and project_dir for any generated files not captured in generated_files
+    if os.path.exists(temp_out_dir):
+        for root, _, fnames in os.walk(temp_out_dir):
+            for f in sorted(fnames):
                 if f.lower().endswith((".png", ".jpg", ".jpeg", ".webp")):
-                    generated_files.append(os.path.join(temp_out_dir, f))
+                    full_f = os.path.join(root, f)
+                    if full_f not in generated_files:
+                        generated_files.append(full_f)
+
+    if os.path.exists(project_dir):
+        for f in sorted(os.listdir(project_dir)):
+            if f.startswith("_flow_temp") and f.lower().endswith((".png", ".jpg", ".jpeg", ".webp")):
+                full_f = os.path.join(project_dir, f)
+                if full_f not in generated_files:
+                    generated_files.append(full_f)
 
     if not generated_files:
         raise Exception("No image files produced by Google Flow generation.")
+
+    # Determine starting version index by checking existing versions for this scene
+    ver_pattern = re.compile(rf"^scene_{scene_number:03d}_v(\d+)_")
+    existing_versions = []
+    if os.path.exists(project_dir):
+        for f in os.listdir(project_dir):
+            m = ver_pattern.match(f)
+            if m:
+                try:
+                    existing_versions.append(int(m.group(1)))
+                except ValueError:
+                    pass
+    next_ver = max(existing_versions, default=0) + 1
 
     # Move generated files into project workspace with clean filenames (standardize on PNG)
     final_paths = []
@@ -385,7 +410,8 @@ def trigger_flow_render(
     for idx, filepath in enumerate(generated_files):
         if not os.path.exists(filepath):
             continue
-        dest_filename = f"scene_{scene_number:03d}_v{idx+1:02d}_{ts}.png"
+        ver_num = next_ver + idx
+        dest_filename = f"scene_{scene_number:03d}_v{ver_num:02d}_{ts}.png"
         dest_path = os.path.join(project_dir, dest_filename)
         
         ext = os.path.splitext(filepath)[1].lower()
@@ -405,11 +431,23 @@ def trigger_flow_render(
 
         final_paths.append(f"{project_slug}/{dest_filename}")
 
-    # Cleanup temp folder
+    # Cleanup temp folder and any stray _flow_temp files
     try:
         shutil.rmtree(temp_out_dir, ignore_errors=True)
     except Exception:
         pass
+
+    if os.path.exists(project_dir):
+        for f in os.listdir(project_dir):
+            if f.startswith("_flow_temp"):
+                try:
+                    p = os.path.join(project_dir, f)
+                    if os.path.isfile(p):
+                        os.remove(p)
+                    elif os.path.isdir(p):
+                        shutil.rmtree(p, ignore_errors=True)
+                except Exception:
+                    pass
 
     return {
         "status": "completed",
