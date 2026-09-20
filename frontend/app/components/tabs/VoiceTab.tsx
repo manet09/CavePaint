@@ -409,6 +409,9 @@ export default function VoiceTab({ activeProject, refreshProjectData }: VoiceTab
   // Generate Single Scene Audio
   const handleGenerateSingleLine = async (scene: any) => {
     if (!scene?.id) return;
+    if (modelState === "unloaded") {
+      setModelState("loading");
+    }
     try {
       const url = new URL(`http://localhost:8000/api/scenes/${scene.id}/generate-audio`);
       if (scene.character_id) {
@@ -440,6 +443,9 @@ export default function VoiceTab({ activeProject, refreshProjectData }: VoiceTab
   const handleGenerateAllLines = async () => {
     if (!activeProject?.id) return;
     setIsGeneratingAll(true);
+    if (modelState === "unloaded") {
+      setModelState("loading");
+    }
     try {
       const url = new URL(`http://localhost:8000/api/projects/${activeProject.id}/generate-voice`);
       if (selectedCharIdForProject) {
@@ -1383,6 +1389,7 @@ export default function VoiceTab({ activeProject, refreshProjectData }: VoiceTab
                 const isCompleted = scene.audio_status === "completed";
                 const isProcessing = scene.audio_status === "processing";
                 const isOutdated = scene.audio_status === "outdated";
+                const isFailed = scene.audio_status === "failed";
                 const hasAudio = isCompleted || (isOutdated && scene.audio_path);
 
                 const audioUrl = scene.audio_path 
@@ -1395,6 +1402,8 @@ export default function VoiceTab({ activeProject, refreshProjectData }: VoiceTab
                     className={`p-3 rounded-lg border transition-colors flex flex-col gap-2 relative ${
                       isProcessing
                         ? "bg-amber-500/5 border-amber-500/30"
+                        : isFailed
+                        ? "bg-red-500/5 border-red-500/30"
                         : isOutdated
                         ? "bg-amber-500/5 dark:bg-amber-500/3 border-amber-500/25 dark:border-amber-500/20"
                         : isCompleted
@@ -1473,7 +1482,12 @@ export default function VoiceTab({ activeProject, refreshProjectData }: VoiceTab
                         {isProcessing ? (
                           <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[9px] font-medium bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30 animate-pulse">
                             <Loader2 size={8} className="animate-spin" />
-                            <span>Synthesizing...</span>
+                            <span>{modelState === "loading" ? "Warming Up..." : "Synthesizing..."}</span>
+                          </span>
+                        ) : isFailed ? (
+                          <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[9px] font-medium bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/30">
+                            <AlertTriangle size={8} />
+                            <span>Failed</span>
                           </span>
                         ) : isOutdated ? (
                           <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[9px] font-medium bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30">

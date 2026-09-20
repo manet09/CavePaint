@@ -180,6 +180,8 @@ worker_task = None
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global worker_task
+    from .services import voice_engine
+    voice_engine.set_event_loop(asyncio.get_running_loop())
     worker_task = asyncio.create_task(start_queue_worker())
     yield
     if worker_task:
@@ -1322,12 +1324,13 @@ async def generate_scene_audio_single(scene_id: int, character_id: Optional[int]
         
     scene.audio_status = "processing"
     
+    target_char_id = character_id if character_id is not None else scene.character_id
     task_payload = {"text": scene.narration_khmer}
-    if character_id is not None:
-        task_payload["character_id"] = character_id
+    if target_char_id is not None:
+        task_payload["character_id"] = target_char_id
         
     task = GenerationTask(
-        task_type="audio_single",
+        task_type="audio_single" if target_char_id else "audio",
         project_id=project.id,
         scene_id=scene.id,
         payload=task_payload

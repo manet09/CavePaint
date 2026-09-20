@@ -279,7 +279,8 @@ async def process_task(task: GenerationTask):
                 scene.scene_number,
                 reference_audio_path,
                 reference_text,
-                project.audio_format or "wav"
+                project.audio_format or "wav",
+                project.voice_profile_tag or "(Male, Adult, Documentary tone, Normal speed)"
             )
             
             rel_save_path = os.path.relpath(save_path, workspace_dir).replace("\\", "/")
@@ -310,7 +311,7 @@ async def process_task(task: GenerationTask):
             if scene:
                 if task.task_type == "image":
                     scene.image_status = "failed"
-                elif task.task_type == "audio":
+                elif task.task_type in ("audio", "audio_single"):
                     scene.audio_status = "failed"
                 db.commit()
         except Exception as fallback_e:

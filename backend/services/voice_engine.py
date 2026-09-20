@@ -1,6 +1,7 @@
 import os
 import gc
 import asyncio
+import threading
 import time
 import torch
 import soundfile as sf
@@ -15,70 +16,132 @@ _MODEL_STATE = "unloaded"
 _VOXCPM_MODEL = None
 _UNLOAD_TASK = None
 _LAST_ACTIVITY_TIME = time.time()
+_LOAD_LOCK = threading.Lock()
+_MAIN_EVENT_LOOP = None
+
+def set_event_loop(loop):
+    global _MAIN_EVENT_LOOP
+    _MAIN_EVENT_LOOP = loop
 
 def load_model() -> bool:
     global _MODEL_STATE, _VOXCPM_MODEL, _LAST_ACTIVITY_TIME
-    _LAST_ACTIVITY_TIME = time.time()
-    
-    if _MODEL_STATE == "unloaded":
+    with _LOAD_LOCK:
+        _LAST_ACTIVITY_TIME = time.time()
+        
+        if _MODEL_STATE == "loaded" and _VOXCPM_MODEL is not None:
+            _cancel_unload_task()
+            return True
+            
         _MODEL_STATE = "loading"
         print("Loading VoxCPM Model into Unified Memory...")
-        if VoxCPM is not None:
-            _VOXCPM_MODEL = VoxCPM.from_pretrained("ravuthz/VoxCPM2-khmer", load_denoiser=False)
-        else:
-            print("voxcpm module not found, mocking load.")
-            _VOXCPM_MODEL = "MockModelData"
-        _MODEL_STATE = "loaded"
-    
-    _cancel_unload_task()
-    return True
+        try:
+            if VoxCPM is not None:
+                _VOXCPM_MODEL = VoxCPM.from_pretrained("ravuthz/VoxCPM2-khmer", load_denoiser=False)
+            else:
+                print("voxcpm module not found, mocking load.")
+                _VOXCPM_MODEL = "MockModelData"
+            _MODEL_STATE = "loaded"
+            print("VoxCPM Model loaded successfully.")
+        except Exception as e:
+            _MODEL_STATE = "unloaded"
+            _VOXCPM_MODEL = None
+            print(f"Failed to load VoxCPM Model: {e}")
+            raise e
+        
+        _cancel_unload_task()
+        return True
 
 def _cancel_unload_task():
     global _UNLOAD_TASK
     if _UNLOAD_TASK is not None:
-        _UNLOAD_TASK.cancel()
+        try:
+            _UNLOAD_TASK.cancel()
+        except Exception:
+            pass
         _UNLOAD_TASK = None
 
 async def _idle_unloader():
     while True:
-        await asyncio.sleep(5) # check periodically
-        if _MODEL_STATE == "loaded" and (time.time() - _LAST_ACTIVITY_TIME) >= 60:
+        await asyncio.sleep(10)  # check periodically
+        # Keep model warm for 10 minutes (600s) after last synthesis activity
+        if _MODEL_STATE == "loaded" and (time.time() - _LAST_ACTIVITY_TIME) >= 600:
             unload_model()
             break
 
-def schedule_unload():
+async def _schedule_on_loop():
     global _UNLOAD_TASK
     _cancel_unload_task()
+    _UNLOAD_TASK = asyncio.create_task(_idle_unloader())
+
+def schedule_unload():
+    global _UNLOAD_TASK, _MAIN_EVENT_LOOP
+    _cancel_unload_task()
     try:
-        loop = asyncio.get_running_loop()
-        _UNLOAD_TASK = loop.create_task(_idle_unloader())
-    except RuntimeError:
-        # Fallback if no event loop is running
-        pass
+        loop = None
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = _MAIN_EVENT_LOOP
+            
+        if loop and loop.is_running():
+            asyncio.run_coroutine_threadsafe(_schedule_on_loop(), loop)
+    except Exception as e:
+        print(f"Failed to schedule unload task: {e}")
 
 def unload_model() -> bool:
     global _MODEL_STATE, _VOXCPM_MODEL
-    
-    if _MODEL_STATE == "unloaded":
+    with _LOAD_LOCK:
+        if _MODEL_STATE == "unloaded":
+            return True
+            
+        _MODEL_STATE = "unloading"
+        print("Unloading VoxCPM Model to recover Unified Memory...")
+        _VOXCPM_MODEL = None
+        
+        # Explicit garbage collection
+        gc.collect()
+        
+        # PyTorch device cache flusher
+        if torch.backends.mps.is_available():
+            torch.mps.empty_cache()
+            print("MPS cache cleared.")
+        elif torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            print("CUDA cache cleared.")
+            
+        _MODEL_STATE = "unloaded"
         return True
-        
-    _MODEL_STATE = "unloading"
-    print("Unloading VoxCPM Model to recover Unified Memory...")
-    _VOXCPM_MODEL = None
-    
-    # Explicit garbage collection
-    gc.collect()
-    
-    # PyTorch device cache flusher
-    if torch.backends.mps.is_available():
-        torch.mps.empty_cache()
-        print("MPS cache cleared.")
-    elif torch.cuda.is_available():
-        torch.cuda.empty_cache()
-        print("CUDA cache cleared.")
-        
-    _MODEL_STATE = "unloaded"
-    return True
+
+def trim_audio_silence(
+    audio_data: np.ndarray,
+    sample_rate: int,
+    threshold: float = 0.01,
+    lead_in_ms: float = 45.0,
+    trail_cushion_ms: float = 50.0
+) -> np.ndarray:
+    """
+    Trims leading dead air and trailing silence from generated speech audio,
+    preserving a clean lead_in buffer (default 45ms) before speech onset
+    and a trailing cushion (default 50ms) after speech ends.
+    """
+    if len(audio_data) == 0:
+        return audio_data
+
+    is_speech = np.abs(audio_data) > threshold
+    indices = np.nonzero(is_speech)[0]
+    if len(indices) == 0:
+        return audio_data
+
+    first_speech_idx = indices[0]
+    last_speech_idx = indices[-1]
+
+    lead_in_frames = int((lead_in_ms / 1000.0) * sample_rate)
+    trail_frames = int((trail_cushion_ms / 1000.0) * sample_rate)
+
+    start_idx = max(0, first_speech_idx - lead_in_frames)
+    end_idx = min(len(audio_data), last_speech_idx + trail_frames)
+
+    return audio_data[start_idx:end_idx]
 
 def generate_scene_audio_chunk(text: str, project_slug: str, profile_tag: str, scene_number: int, audio_format: str = "wav"):
     global _MODEL_STATE, _LAST_ACTIVITY_TIME, _VOXCPM_MODEL
@@ -126,11 +189,10 @@ def generate_scene_audio_chunk(text: str, project_slug: str, profile_tag: str, s
         except Exception as e:
             print(f"Failed to write seed audio: {e}")
 
-    # 3. Acoustic Cushion Layer (Padding)
-    # Ensure text chunk ends with the proper sentence token
+    # 2. Text Preparation & Punctuation Context
     text = text.strip()
-    if not text.endswith("។"):
-        text += "។"
+    sentence_terminators = ("។", "៕", "!", "?", ".", "…")
+    is_sentence_end = any(text.endswith(p) for p in sentence_terminators)
         
     if VoxCPM is not None and hasattr(_VOXCPM_MODEL, 'generate'):
         raw_audio = _VOXCPM_MODEL.generate(
@@ -152,12 +214,21 @@ def generate_scene_audio_chunk(text: str, project_slug: str, profile_tag: str, s
         audio_data = audio_data / max_amp
     audio_data = np.clip(audio_data, -1.0, 1.0)
 
-    # 0.20-second buffer of absolute silence
-    silence_frames = int(0.20 * sample_rate)
-    silence = np.zeros(silence_frames, dtype=np.float32)
-    
-    # Append the silence
-    padded_audio = np.concatenate((audio_data, silence))
+    # 3. Trim Leading Dead Air & Trailing Decay
+    # Preserves a clean 45ms lead-in buffer and a 50ms trailing cushion
+    audio_data = trim_audio_silence(audio_data, sample_rate, threshold=0.01, lead_in_ms=45.0, trail_cushion_ms=50.0)
+
+    # 4. Contextual Trailing Silence Padding
+    # Complete sentence: add extra 0.15s pause (50ms + 150ms = 200ms total trailing silence; ~245ms gap to next speech).
+    # Mid-sentence break (phrases cut in half by Enter): add extra 0.095s pause (50ms + 95ms = 145ms trailing silence;
+    # ~190ms natural clause/comma gap to next speech, giving comfortable breathing room without breaking momentum).
+    if is_sentence_end:
+        extra_silence_frames = int(0.150 * sample_rate)
+    else:
+        extra_silence_frames = int(0.095 * sample_rate)
+        
+    extra_silence = np.zeros(extra_silence_frames, dtype=np.float32)
+    padded_audio = np.concatenate((audio_data, extra_silence))
     
     # Flattened path layout
     padded_scene_number = f"{int(scene_number):03d}"
@@ -173,7 +244,7 @@ def generate_scene_audio_chunk(text: str, project_slug: str, profile_tag: str, s
     schedule_unload()
     return save_path
 
-def generate_single_scene_audio(text: str, project_slug: str, scene_number: int, reference_audio_path: str = None, reference_text: str = None, audio_format: str = "wav"):
+def generate_single_scene_audio(text: str, project_slug: str, scene_number: int, reference_audio_path: str = None, reference_text: str = None, audio_format: str = "wav", profile_tag: str = "(Male, Adult, Documentary tone, Normal speed)"):
     global _MODEL_STATE, _LAST_ACTIVITY_TIME, _VOXCPM_MODEL
     
     if _MODEL_STATE != "loaded":
@@ -183,23 +254,44 @@ def generate_single_scene_audio(text: str, project_slug: str, scene_number: int,
     
     workspace_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "workspace"))
     project_dir = os.path.join(workspace_dir, project_slug)
+    os.makedirs(project_dir, exist_ok=True)
     
-    if reference_audio_path and reference_text:
-        if not os.path.exists(reference_audio_path):
-            raise FileNotFoundError(f"Global character audio missing at: {reference_audio_path}")
+    sample_rate = _VOXCPM_MODEL.tts_model.sample_rate if hasattr(_VOXCPM_MODEL, 'tts_model') and hasattr(_VOXCPM_MODEL.tts_model, 'sample_rate') else 22050
+    
+    if reference_audio_path and reference_text and os.path.exists(reference_audio_path):
         seed_path = reference_audio_path
         seed_text = reference_text
     else:
         seed_path = os.path.join(project_dir, "voice_profile_seed.wav")
         seed_text = "កាលពី ១ម៉ឺនឆ្នាំមុន មនុស្សសម័យបុរេប្រវត្តិ បានរកឃើញអាថ៌កំបាំងមួយយ៉ាងអស្ចារ្យ។"
         if not os.path.exists(seed_path):
-            raise FileNotFoundError(f"Strict Consistency Lock Failed: {seed_path} is missing.")
-    
-    sample_rate = _VOXCPM_MODEL.tts_model.sample_rate if hasattr(_VOXCPM_MODEL, 'tts_model') and hasattr(_VOXCPM_MODEL.tts_model, 'sample_rate') else 22050
+            print(f"Auto-generating Voice Design Seed Profile for single scene in {project_slug}...")
+            if VoxCPM is not None and hasattr(_VOXCPM_MODEL, 'generate'):
+                tag = profile_tag or "(Male, Adult, Documentary tone, Normal speed)"
+                design_prompt = f"{tag}{seed_text}"
+                seed_audio = _VOXCPM_MODEL.generate(
+                    text=design_prompt,
+                    cfg_value=2.0,
+                    inference_timesteps=15
+                )
+            else:
+                duration = 1.0
+                t = np.linspace(0, duration, int(sample_rate * duration), endpoint=False)
+                seed_audio = 0.5 * np.sin(2 * np.pi * 440 * t)
+                
+            seed_audio_data = np.array(seed_audio, dtype=np.float32)
+            seed_max = np.max(np.abs(seed_audio_data))
+            if seed_max > 0:
+                seed_audio_data = seed_audio_data / seed_max
+            seed_audio_data = np.clip(seed_audio_data, -1.0, 1.0)
+            try:
+                sf.write(seed_path, seed_audio_data, sample_rate)
+            except Exception as e:
+                print(f"Failed to write single scene seed audio: {e}")
     
     text = text.strip()
-    if not text.endswith("។"):
-        text += "។"
+    sentence_terminators = ("។", "៕", "!", "?", ".", "…")
+    is_sentence_end = any(text.endswith(p) for p in sentence_terminators)
         
     if VoxCPM is not None and hasattr(_VOXCPM_MODEL, 'generate'):
         raw_audio = _VOXCPM_MODEL.generate(
@@ -220,9 +312,20 @@ def generate_single_scene_audio(text: str, project_slug: str, scene_number: int,
         audio_data = audio_data / max_amp
     audio_data = np.clip(audio_data, -1.0, 1.0)
 
-    silence_frames = int(0.20 * sample_rate)
-    silence = np.zeros(silence_frames, dtype=np.float32)
-    padded_audio = np.concatenate((audio_data, silence))
+    # Trim leading dead air & trailing decay
+    audio_data = trim_audio_silence(audio_data, sample_rate, threshold=0.01, lead_in_ms=45.0, trail_cushion_ms=50.0)
+
+    # Contextual Trailing Silence Padding
+    # Complete sentence: add extra 0.15s pause (50ms + 150ms = 200ms total trailing silence; ~245ms gap to next speech).
+    # Mid-sentence break (phrases cut in half by Enter): add extra 0.095s pause (50ms + 95ms = 145ms trailing silence;
+    # ~190ms natural clause/comma gap to next speech, giving comfortable breathing room without breaking momentum).
+    if is_sentence_end:
+        extra_silence_frames = int(0.150 * sample_rate)
+    else:
+        extra_silence_frames = int(0.095 * sample_rate)
+        
+    extra_silence = np.zeros(extra_silence_frames, dtype=np.float32)
+    padded_audio = np.concatenate((audio_data, extra_silence))
     
     padded_scene_number = f"{int(scene_number):03d}"
     extension = "mp3" if audio_format.lower() == "mp3" else "wav"
@@ -321,6 +424,7 @@ def generate_character_preview(personality_tag: str, reference_text: str) -> str
     if max_amp > 0:
         audio_data = audio_data / max_amp
     audio_data = np.clip(audio_data, -1.0, 1.0)
+    audio_data = trim_audio_silence(audio_data, sample_rate, threshold=0.01, lead_in_ms=45.0, trail_cushion_ms=50.0)
     
     try:
         sf.write(save_path, audio_data, sample_rate)
@@ -367,6 +471,7 @@ def generate_clone_preview(reference_audio_path: str, reference_text: str, text_
     if max_amp > 0:
         audio_data = audio_data / max_amp
     audio_data = np.clip(audio_data, -1.0, 1.0)
+    audio_data = trim_audio_silence(audio_data, sample_rate, threshold=0.01, lead_in_ms=45.0, trail_cushion_ms=50.0)
     
     try:
         sf.write(save_path, audio_data, sample_rate)
