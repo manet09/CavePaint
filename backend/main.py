@@ -73,6 +73,7 @@ class PreviewPayload(BaseModel):
 
 class ProjectBase(BaseModel):
     title: str
+    is_pinned: bool = False
     raw_research: Optional[str] = None
     script_narrative: Optional[str] = None
     video_concept: Optional[str] = None
@@ -93,10 +94,11 @@ class ProjectBase(BaseModel):
     timeline_data: Optional[str] = None
 
 class ProjectCreate(BaseModel):
-    title: str
+    title: Optional[str] = None
 
 class ProjectUpdate(BaseModel):
     title: Optional[str] = None
+    is_pinned: Optional[bool] = None
     raw_research: Optional[str] = None
     script_narrative: Optional[str] = None
     video_concept: Optional[str] = None
@@ -126,6 +128,7 @@ class ProjectSummary(BaseModel):
     id: int
     title: str
     slug: str
+    is_pinned: bool = False
     status: Optional[str] = "draft"
     scene_count: int = 0
     scenes_with_images: int = 0
@@ -248,29 +251,20 @@ async def update_settings(payload: SettingUpdate, db: Session = Depends(get_db))
 # Projects CRUD
 @app.post("/api/projects", response_model=ProjectOut)
 async def create_project(payload: ProjectCreate, db: Session = Depends(get_db)):
-    slug = re.sub(r'[^a-z0-9]+', '-', payload.title.lower()).strip('-')
-    
-    existing = db.query(Project).filter(Project.slug == slug).first()
-    if existing:
-        raise HTTPException(status_code=400, detail="Project with this title/slug already exists")
+    title = payload.title.strip() if payload.title and payload.title.strip() else "Untitled"
+    base_slug = re.sub(r'[^a-z0-9]+', '-', title.lower()).strip('-') or "untitled"
+    slug = base_slug
+    counter = 2
+    while db.query(Project).filter(Project.slug == slug).first():
+        slug = f"{base_slug}-{counter}"
+        counter += 1
         
     project = Project(
-        title=payload.title,
+        title=title,
         slug=slug,
         status="draft"
     )
     db.add(project)
-    db.commit()
-    db.refresh(project)
-    
-    # Immediately build an empty default relational placeholder row
-    scene = Scene(
-        project_id=project.id,
-        scene_number=1,
-        image_status="idle",
-        audio_status="idle"
-    )
-    db.add(scene)
     db.commit()
     db.refresh(project)
     
@@ -315,8 +309,23 @@ async def duplicate_project(project_id: int, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(new_project)
 
-    has_scenes = False
-    if new_project.structured_json_data:
+    if project.scenes:
+        for s in project.scenes:
+            neg = s.negative_prompt
+            scene = Scene(
+                project_id=new_project.id,
+                scene_number=s.scene_number,
+                narration_khmer=s.narration_khmer,
+                image_prompt_english=s.image_prompt_english,
+                negative_prompt=neg,
+                image_status="idle",
+                audio_status="idle",
+                user_refinement_prompt=s.user_refinement_prompt,
+                character_id=s.character_id,
+                character_name=s.character_name,
+            )
+            db.add(scene)
+    elif new_project.structured_json_data:
         try:
             scenes_data = json.loads(new_project.structured_json_data)
             if isinstance(scenes_data, list) and len(scenes_data) > 0:
@@ -332,21 +341,12 @@ async def duplicate_project(project_id: int, db: Session = Depends(get_db)):
                         audio_status="idle"
                     )
                     db.add(scene)
-                has_scenes = True
         except json.JSONDecodeError:
             pass
 
-    if not has_scenes:
-        scene = Scene(
-            project_id=new_project.id,
-            scene_number=1,
-            image_status="idle",
-            audio_status="idle"
-        )
-        db.add(scene)
-
     db.commit()
     db.refresh(new_project)
+    sync_project_json(new_project.id, db)
 
     proj_workspace_dir = os.path.join(workspace_dir, slug)
     os.makedirs(proj_workspace_dir, exist_ok=True)
@@ -355,12 +355,12 @@ async def duplicate_project(project_id: int, db: Session = Depends(get_db)):
 
 @app.get("/api/projects", response_model=List[ProjectOutList])
 async def get_projects(db: Session = Depends(get_db)):
-    projects = db.query(Project).all()
+    projects = db.query(Project).order_by(Project.is_pinned.desc(), Project.id.desc()).all()
     return projects
 
 @app.get("/api/projects/summary", response_model=List[ProjectSummary])
 async def get_projects_summary(db: Session = Depends(get_db)):
-    projects = db.query(Project).all()
+    projects = db.query(Project).order_by(Project.is_pinned.desc(), Project.id.desc()).all()
     summaries = []
     for project in projects:
         scene_count = len(project.scenes)
@@ -371,6 +371,7 @@ async def get_projects_summary(db: Session = Depends(get_db)):
                 id=project.id,
                 title=project.title,
                 slug=project.slug,
+                is_pinned=project.is_pinned,
                 status=project.status,
                 scene_count=scene_count,
                 scenes_with_images=scenes_with_images,
@@ -720,9 +721,6 @@ async def import_project_scenes(project_id: int, payload: ImportScenesPayload, d
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
-    if not payload.scenes:
-        raise HTTPException(status_code=400, detail="No scenes provided in payload")
-
     if payload.mode == "replace":
         existing_scenes = db.query(Scene).filter(Scene.project_id == project_id).all()
         for s in existing_scenes:
@@ -743,6 +741,8 @@ async def import_project_scenes(project_id: int, payload: ImportScenesPayload, d
         db.query(Scene).filter(Scene.project_id == project_id).delete()
         base_scene_number = 1
     elif payload.mode == "append":
+        if not payload.scenes:
+            raise HTTPException(status_code=400, detail="No scenes provided in payload")
         existing_scenes = db.query(Scene).filter(Scene.project_id == project_id).all()
         max_num = max([s.scene_number for s in existing_scenes], default=0)
         base_scene_number = max_num + 1
@@ -1667,5 +1667,4 @@ async def delete_project_render(project_id: int, db: Session = Depends(get_db)):
         "error": None
     }
     return {"status": "deleted"}
-
 

@@ -15,7 +15,9 @@ import {
   Copy, 
   Trash2, 
   X, 
-  Film 
+  Film,
+  Pin,
+  PinOff,
 } from "lucide-react";
 import { useProjectsListContext, useUIContext } from "../../context/ProjectContext";
 
@@ -24,8 +26,6 @@ export default function Sidebar() {
   const pathname = usePathname();
   const { projectsList, createNewProject, updateProject, deleteExistingProject, duplicateProject } = useProjectsListContext();
   const { theme, setTheme, sidebarCollapsed, setSidebarCollapsed } = useUIContext();
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [newProjectTopic, setNewProjectTopic] = useState("");
   const [isCreating, setIsCreating] = useState(false);
   const [openMenuId, setOpenMenuId] = useState<number | null>(null);
   const [renamingProjectId, setRenamingProjectId] = useState<number | null>(null);
@@ -77,17 +77,16 @@ export default function Sidebar() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  const handleCreateProject = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newProjectTopic.trim()) return;
-
+  const handleCreateProject = async () => {
+    if (isCreating) return;
     setIsCreating(true);
     try {
-      const created = await createNewProject(newProjectTopic);
-      setNewProjectTopic("");
-      setIsModalOpen(false);
-      if (created && typeof created === "object" && "id" in created) {
-        router.push(`/projects/${(created as { id: number }).id}/brainstorming`);
+      const created = await createNewProject();
+      if (created) {
+        if (isCollapsed) setSidebarCollapsed(false);
+        setRenamingProjectId(created.id);
+        setRenamingTitle(created.title);
+        router.push(`/projects/${created.id}/brainstorming`);
       }
     } catch (error) {
       console.error("Error creating project:", error);
@@ -143,18 +142,20 @@ export default function Sidebar() {
       <div className="px-3 pt-3 pb-1 shrink-0 w-full">
         {!isCollapsed ? (
           <button
-            onClick={() => setIsModalOpen(true)}
-            className="w-full h-8.5 rounded-lg bg-zinc-100 hover:bg-zinc-200/85 text-zinc-800 hover:text-zinc-950 border border-zinc-200/90 dark:bg-zinc-800/90 dark:hover:bg-zinc-750 dark:text-zinc-200 dark:hover:text-zinc-100 dark:border-zinc-700/80 text-[13px] font-medium flex items-center justify-center gap-2 shadow-2xs transition-colors cursor-pointer"
+            onClick={handleCreateProject}
+            disabled={isCreating}
+            className="w-full h-8.5 rounded-lg bg-zinc-100 hover:bg-zinc-200/85 text-zinc-800 hover:text-zinc-950 border border-zinc-200/90 dark:bg-zinc-800/90 dark:hover:bg-zinc-750 dark:text-zinc-200 dark:hover:text-zinc-100 dark:border-zinc-700/80 text-[13px] font-medium flex items-center justify-center gap-2 shadow-2xs transition-colors cursor-pointer disabled:opacity-60 disabled:cursor-wait"
             title="Create New Project"
           >
             <Plus size={14} strokeWidth={2} />
-            <span>New Project</span>
+            <span>{isCreating ? "Creating..." : "New Project"}</span>
           </button>
         ) : (
           <div className="flex justify-center">
             <button
-              onClick={() => setIsModalOpen(true)}
-              className="w-8 h-8 rounded-lg bg-zinc-100 hover:bg-zinc-200/85 text-zinc-800 hover:text-zinc-950 border border-zinc-200/90 dark:bg-zinc-800/90 dark:hover:bg-zinc-750 dark:text-zinc-200 dark:hover:text-zinc-100 dark:border-zinc-700/80 flex items-center justify-center shadow-2xs transition-colors cursor-pointer"
+              onClick={handleCreateProject}
+              disabled={isCreating}
+              className="w-8 h-8 rounded-lg bg-zinc-100 hover:bg-zinc-200/85 text-zinc-800 hover:text-zinc-950 border border-zinc-200/90 dark:bg-zinc-800/90 dark:hover:bg-zinc-750 dark:text-zinc-200 dark:hover:text-zinc-100 dark:border-zinc-700/80 flex items-center justify-center shadow-2xs transition-colors cursor-pointer disabled:opacity-60 disabled:cursor-wait"
               title="New Project"
             >
               <Plus size={15} strokeWidth={2} />
@@ -209,6 +210,7 @@ export default function Sidebar() {
                         className="text-[13px] flex-1 bg-background border border-primary/50 rounded px-1.5 py-0.5 outline-none text-foreground font-normal"
                         value={renamingTitle}
                         onChange={(e) => setRenamingTitle(e.target.value)}
+                        onFocus={(e) => e.currentTarget.select()}
                         onBlur={async () => {
                           if (renamingTitle.trim() && renamingTitle !== (project.title || project.slug)) {
                             await updateProject(project.id, { title: renamingTitle.trim() });
@@ -235,6 +237,15 @@ export default function Sidebar() {
                       </span>
                     )}
 
+                    {project.is_pinned && renamingProjectId !== project.id && (
+                      <Pin
+                        size={11}
+                        fill="currentColor"
+                        className="shrink-0 mr-0.5 opacity-55"
+                        aria-label="Pinned project"
+                      />
+                    )}
+
                     <button 
                       type="button"
                       className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-zinc-200/70 dark:hover:bg-zinc-700/70 text-panel-text hover:text-foreground cursor-pointer shrink-0 ml-auto"
@@ -256,7 +267,7 @@ export default function Sidebar() {
                           ? "bg-zinc-100 dark:bg-zinc-800/80 text-foreground"
                           : "text-panel-text hover:text-foreground hover:bg-zinc-100 dark:hover:bg-zinc-800"
                       }`}
-                      title={project.title || project.slug || "Untitled"}
+                      title={`${project.title || project.slug || "Untitled"}${project.is_pinned ? " (Pinned)" : ""}`}
                     >
                       <Folder size={15} strokeWidth={isActive ? 2 : 1.75} />
                     </button>
@@ -280,6 +291,21 @@ export default function Sidebar() {
                     >
                       <Pencil size={13} className="opacity-70" />
                       <span>Rename</span>
+                    </button>
+                    <button
+                      className="w-full text-left hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded px-2.5 py-1.5 cursor-pointer text-foreground flex items-center gap-2 transition-colors"
+                      onClick={async (e) => {
+                        e.stopPropagation();
+                        setOpenMenuId(null);
+                        await updateProject(project.id, { is_pinned: !project.is_pinned });
+                      }}
+                    >
+                      {project.is_pinned ? (
+                        <PinOff size={13} className="opacity-70" />
+                      ) : (
+                        <Pin size={13} className="opacity-70" />
+                      )}
+                      <span>{project.is_pinned ? "Unpin" : "Pin to top"}</span>
                     </button>
                     <button 
                       className="w-full text-left hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded px-2.5 py-1.5 cursor-pointer text-foreground flex items-center gap-2 transition-colors"
@@ -384,63 +410,6 @@ export default function Sidebar() {
           </div>
         )}
       </div>
-
-      {/* New Project Creator Modal */}
-      {isModalOpen && (
-        <div 
-          onClick={() => setIsModalOpen(false)}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4 cursor-pointer"
-        >
-          <div 
-            onClick={(e) => e.stopPropagation()}
-            className="bg-card border border-border p-5 rounded-xl w-full max-w-md shadow-2xl animate-in fade-in zoom-in-95 duration-150 cursor-default"
-          >
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-[15px] font-semibold tracking-tight text-foreground">Create New Project</h2>
-              <button 
-                type="button" 
-                onClick={() => setIsModalOpen(false)}
-                className="text-panel-text hover:text-foreground p-1 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer"
-              >
-                <X size={15} />
-              </button>
-            </div>
-            <form onSubmit={handleCreateProject}>
-              <div className="mb-5">
-                <label htmlFor="topic" className="block text-[11px] font-medium mb-1.5 text-panel-text uppercase tracking-wider">
-                  Project Topic / Title
-                </label>
-                <input
-                  type="text"
-                  id="topic"
-                  value={newProjectTopic}
-                  onChange={(e) => setNewProjectTopic(e.target.value)}
-                  className="w-full px-3 py-2 bg-background border border-border rounded-lg focus:outline-none focus:ring-1 focus:ring-zinc-400 dark:focus:ring-zinc-500 text-[13px] text-foreground placeholder:text-panel-text/40"
-                  placeholder="e.g. The History of Rome"
-                  autoFocus
-                  required
-                />
-              </div>
-              <div className="flex justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => setIsModalOpen(false)}
-                  className="px-3.5 py-1.5 text-[13px] font-medium border border-border hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg transition-colors text-panel-text hover:text-foreground cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isCreating || !newProjectTopic.trim()}
-                  className="px-3.5 py-1.5 bg-zinc-900 text-zinc-50 hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200 transition-colors font-medium rounded-lg text-[13px] disabled:opacity-40 shadow-xs cursor-pointer"
-                >
-                  {isCreating ? "Creating..." : "Create Project"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
 
       {/* Settings Modal */}
       {isSettingsOpen && (

@@ -1,6 +1,6 @@
 import os
 import json
-from sqlalchemy import create_engine, Column, Integer, String, Text, ForeignKey
+from sqlalchemy import create_engine, Boolean, Column, Integer, String, Text, ForeignKey
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship
 
 DB_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "workspace", "studio.db"))
@@ -50,6 +50,7 @@ class Project(Base):
     global_voice_style = Column(Text, nullable=True)
     structured_json_data = Column(Text, nullable=True)
     status = Column(String, default="draft")  # "draft", "generating", "completed"
+    is_pinned = Column(Boolean, default=False, nullable=False)
     master_audio_path = Column(String, nullable=True)
     voice_profile_tag = Column(String, nullable=True)
     audio_format = Column(String, default="wav")
@@ -217,6 +218,13 @@ try:
         conn.execute(text("ALTER TABLE projects ADD COLUMN timeline_data TEXT;"))
 except Exception:
     pass
+
+try:
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE projects ADD COLUMN is_pinned BOOLEAN NOT NULL DEFAULT 0;"))
+except Exception:
+    pass
+
 
 def get_db():
     db = SessionLocal()

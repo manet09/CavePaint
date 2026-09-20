@@ -266,10 +266,6 @@ export default function BrainstormingTab({ activeProject, refreshProjectData }: 
       const eraObj = ERA_OPTIONS.find((e) => e.id === era);
       const defaultAttire = eraObj ? `${eraObj.attire}, ${eraObj.hair}` : "";
       setCharacterAttire(activeProject.character_attire || defaultAttire);
-
-      if (!activeProject.scenes || activeProject.scenes.length === 0) {
-        setIsJsonDrawerOpen(true);
-      }
     }
   }, [activeProject?.id]);
 

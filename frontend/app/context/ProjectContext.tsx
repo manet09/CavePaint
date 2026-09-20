@@ -24,7 +24,7 @@ export interface ProjectContextType {
   refreshActiveProject: () => Promise<void>;
   selectProject: (id: number) => Promise<void>;
   setActiveProject: (project: Project | null) => void;
-  createNewProject: (title: string) => Promise<CreatedProject | null>;
+  createNewProject: (title?: string) => Promise<CreatedProject | null>;
   updateActiveProject: (fields: Partial<Project>) => Promise<void>;
   updateProject: (id: number, fields: Partial<ProjectSummary>) => Promise<void>;
   updateSingleScene: (sceneId: number, fields: Partial<SceneData>) => Promise<void>;

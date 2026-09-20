@@ -21,6 +21,7 @@ export interface Project {
   id: number;
   title: string;
   slug: string;
+  is_pinned?: boolean;
   raw_research: string | null;
   script_narrative: string | null;
   video_concept: string | null;

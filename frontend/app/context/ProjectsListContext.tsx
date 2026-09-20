@@ -7,6 +7,7 @@ export interface ProjectSummary {
   id: number;
   title: string;
   slug: string;
+  is_pinned: boolean;
   status: string;
   scene_count: number;
   scenes_with_images: number;
@@ -17,6 +18,7 @@ export interface CreatedProject {
   id: number;
   title: string;
   slug: string;
+  is_pinned: boolean;
 }
 
 const API_BASE = "http://localhost:8000";
@@ -27,13 +29,18 @@ interface ProjectsListContextType {
   isLoading: boolean;
   error: string | null;
   refreshList: () => Promise<void>;
-  createNewProject: (title: string) => Promise<CreatedProject | null>;
+  createNewProject: (title?: string) => Promise<CreatedProject | null>;
   updateProject: (id: number, fields: Partial<ProjectSummary>) => Promise<void>;
   deleteExistingProject: (id: number) => Promise<void>;
   duplicateProject: (id: number) => Promise<CreatedProject | null>;
 }
 
 const ProjectsListContext = createContext<ProjectsListContextType | undefined>(undefined);
+
+const sortProjects = (projects: ProjectSummary[]) =>
+  [...projects].sort(
+    (a, b) => Number(b.is_pinned) - Number(a.is_pinned) || b.id - a.id,
+  );
 
 export const ProjectsListProvider = ({ children }: { children: ReactNode }) => {
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
@@ -47,7 +54,7 @@ export const ProjectsListProvider = ({ children }: { children: ReactNode }) => {
       const response = await fetch(`${API_BASE}/api/projects/summary`);
       if (response.ok) {
         const data: ProjectSummary[] = await response.json();
-        setProjects(data);
+        setProjects(sortProjects(data));
       } else {
         setError("Failed to fetch projects");
       }
@@ -59,28 +66,31 @@ export const ProjectsListProvider = ({ children }: { children: ReactNode }) => {
     }
   }, []);
 
-  const createNewProject = async (title: string): Promise<CreatedProject | null> => {
+  const createNewProject = async (title?: string): Promise<CreatedProject | null> => {
     setError(null);
     try {
       const response = await fetch(`${API_BASE}/api/projects`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title }),
+        body: JSON.stringify(title?.trim() ? { title: title.trim() } : {}),
       });
       if (response.ok) {
         const newProject: CreatedProject = await response.json();
-        setProjects((prev) => [
-          {
-            id: newProject.id,
-            title: newProject.title,
-            slug: newProject.slug,
-            status: "draft",
-            scene_count: 1,
-            scenes_with_images: 0,
-            scenes_with_audio: 0,
-          },
-          ...prev,
-        ]);
+        setProjects((prev) =>
+          sortProjects([
+            {
+              id: newProject.id,
+              title: newProject.title,
+              slug: newProject.slug,
+              is_pinned: newProject.is_pinned ?? false,
+              status: "draft",
+              scene_count: 0,
+              scenes_with_images: 0,
+              scenes_with_audio: 0,
+            },
+            ...prev,
+          ]),
+        );
         return newProject;
       }
       setError("Failed to create project");
@@ -92,7 +102,9 @@ export const ProjectsListProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const updateProject = async (id: number, fields: Partial<ProjectSummary>) => {
-    setProjects((prev) => prev.map((p) => (p.id === id ? { ...p, ...fields } : p)));
+    setProjects((prev) =>
+      sortProjects(prev.map((p) => (p.id === id ? { ...p, ...fields } : p))),
+    );
     try {
       const response = await fetch(`${API_BASE}/api/projects/${id}`, {
         method: "PUT",
