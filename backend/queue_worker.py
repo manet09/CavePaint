@@ -14,8 +14,26 @@ class GenerationTask:
     scene_id: int
     payload: dict
 
-# Global task queue
-task_queue = asyncio.Queue()
+# Dedicated queues for image rendering and neural audio synthesis
+image_queue = asyncio.Queue()
+audio_queue = asyncio.Queue()
+
+class DualTaskQueue:
+    """Dispatches tasks to dedicated image or audio queues to avoid head-of-line blocking."""
+    async def put(self, task: GenerationTask):
+        if task.task_type in ("audio", "audio_single"):
+            await audio_queue.put(task)
+        else:
+            await image_queue.put(task)
+            
+    def qsize(self):
+        return image_queue.qsize() + audio_queue.qsize()
+        
+    @property
+    def _queue(self):
+        return list(image_queue._queue) + list(audio_queue._queue)
+
+task_queue = DualTaskQueue()
 
 async def process_task(task: GenerationTask):
     print(f"Processing task: {task}")
@@ -78,7 +96,7 @@ async def process_task(task: GenerationTask):
 
                     db.refresh(scene)
                     db.refresh(project)
-                    if scene.image_status == "idle":
+                    if scene.image_status != "processing":
                         print("Task was cancelled during execution.")
                         return
 
@@ -164,7 +182,7 @@ async def process_task(task: GenerationTask):
                     )
                     
                     db.refresh(scene)
-                    if scene.image_status == "idle":
+                    if scene.image_status != "processing":
                         print("Task was cancelled during execution.")
                         return
                     
@@ -320,18 +338,35 @@ async def process_task(task: GenerationTask):
     finally:
         db.close()
 
-async def start_queue_worker():
-    """Long-running background polling worker loop."""
-    print("Queue worker started. Enforcing single-lane execution...")
+async def _image_worker_loop():
+    print("Image queue worker started...")
     while True:
-        task = await task_queue.get()
+        task = await image_queue.get()
         try:
-            # Process tasks sequentially item-by-item to avoid memory fragmentation
             await process_task(task)
         except asyncio.CancelledError:
-            print("Queue worker cancelled.")
+            print("Image queue worker cancelled.")
             break
         except Exception as e:
-            print(f"Queue worker encountered error: {e}")
+            print(f"Image worker encountered error: {e}")
         finally:
-            task_queue.task_done()
+            image_queue.task_done()
+
+async def _audio_worker_loop():
+    print("Audio queue worker started...")
+    while True:
+        task = await audio_queue.get()
+        try:
+            await process_task(task)
+        except asyncio.CancelledError:
+            print("Audio queue worker cancelled.")
+            break
+        except Exception as e:
+            print(f"Audio worker encountered error: {e}")
+        finally:
+            audio_queue.task_done()
+
+async def start_queue_worker():
+    """Runs dedicated image and audio background workers concurrently."""
+    print("Starting dual background queue workers (Image & Audio lanes)...")
+    await asyncio.gather(_image_worker_loop(), _audio_worker_loop())

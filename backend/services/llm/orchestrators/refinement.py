@@ -83,6 +83,7 @@ def refine_scene_prompt_and_script(
     global_style: str = "",
     video_concept: str = "",
     theme_era: str = "",
+    theme_region: str = "cambodia",
     scene_staging: str = "studio"
 ) -> dict:
     """
@@ -91,7 +92,7 @@ def refine_scene_prompt_and_script(
     prompt and Khmer script while strictly adhering to Whatly stickman style guidelines.
     """
     system_prompt = (
-        "You are an expert Creative Director & Prompt Engineer for YouTube explainer animations (Whatly style).\n"
+        "You are an expert Creative Director & Prompt Engineer for YouTube explainer animations (Whatly stickman style).\n"
         "Your role is to iteratively refine a video scene's visual prompt and its corresponding Khmer voiceover script "
         "based on natural language user feedback.\n\n"
         
@@ -100,8 +101,16 @@ def refine_scene_prompt_and_script(
         "- Stick figures have round heads, large simple circle eyes, and thin stick limbs. Zero muscular anatomy, zero comic book cross-hatching.\n"
         "- Flat solid colors, pure minimalist shapes, seamless solid background (studio white or solid theme color).\n"
         "- STRICTLY NO text, NO words, NO letters, NO labels, NO watermarks on the image.\n"
-        "- Keep prompts concrete and physical (under 55 words). Describe concrete actions, props, and setting.\n"
+        "- Keep prompts concrete and physical (under 55 words).\n"
         "- NO gradients, NO 3D render, NO photorealism.\n\n"
+
+        "BROAD FRAMING & COMPOSITION DIRECTIVE:\n"
+        "- Prioritize broad panoramic views, wide-angle establishing shots, high-angle aerial bird's-eye views, or educational 2D visual diagrams.\n"
+        "- NEVER frame scenes as isolated single-object macro close-ups (e.g. avoid isolated bread baskets or solitary wax scrolls). Props must be shown in the hands of active stickmen or within an environmental setting.\n\n"
+
+        "CULTURAL & REGIONAL AUTHENTICITY:\n"
+        "- Strictly adhere to the specified region. When Region is Cambodia (Khmer), depict authentic Khmer architecture (Angkor sandstone temple prasats, wooden stilt houses, barays, sugar palm trees), attire (krama scarves, sampots/chong kbens), and daily life.\n"
+        "- Explicitly avoid Western European medieval knights, castles, or wax-seal scrolls when Cambodia is selected.\n\n"
         
         "SCRIPT & NARRATION GUIDELINES (KHMER):\n"
         "- If the user's adjustment modifies what happens in the scene or asks to change the voiceover, adjust the Khmer narration accordingly.\n"
@@ -123,6 +132,7 @@ def refine_scene_prompt_and_script(
         f"--- CONTEXT ---\n"
         f"Video Concept: {video_concept or 'Educational Explainer'}\n"
         f"Era: {theme_era or 'Modern'}\n"
+        f"Region / Country: {theme_region or 'Cambodia'}\n"
         f"Staging Mode: {scene_staging}\n"
         f"Global Style Guide: {global_style or '2D flat vector stickman illustration, clean black outlines, solid color fills, seamless pure white background'}\n\n"
         f"--- CURRENT SCENE STATE ---\n"

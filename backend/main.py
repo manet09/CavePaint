@@ -89,6 +89,7 @@ class ProjectBase(BaseModel):
     theme_custom: Optional[str] = None
     aspect_ratio: Optional[str] = "16:9"
     character_attire: Optional[str] = None
+    theme_region: Optional[str] = "cambodia"
     scene_staging: Optional[str] = "studio"
     flow_project_id: Optional[str] = None
     timeline_data: Optional[str] = None
@@ -110,6 +111,7 @@ class ProjectUpdate(BaseModel):
     voice_profile_tag: Optional[str] = None
     audio_format: Optional[str] = None
     theme_era: Optional[str] = None
+    theme_region: Optional[str] = None
     theme_mood: Optional[str] = None
     theme_custom: Optional[str] = None
     aspect_ratio: Optional[str] = None
@@ -184,8 +186,31 @@ worker_task = None
 async def lifespan(app: FastAPI):
     global worker_task
     from .services import voice_engine
+    from .database import SessionLocal, Scene
+    
+    # Auto-heal orphaned processing states from previous server crashes/restarts
+    try:
+        cleanup_db = SessionLocal()
+        orphaned = cleanup_db.query(Scene).filter(Scene.audio_status == "processing").all()
+        if orphaned:
+            print(f"[STARTUP] Found {len(orphaned)} orphaned audio processing scene(s). Recovering states...")
+            for s in orphaned:
+                if s.audio_path:
+                    s.audio_status = "completed"
+                else:
+                    s.audio_status = "idle"
+            cleanup_db.commit()
+        cleanup_db.close()
+    except Exception as cleanup_err:
+        print(f"[STARTUP] Failed to cleanup orphaned scene statuses: {cleanup_err}")
+
     voice_engine.set_event_loop(asyncio.get_running_loop())
     worker_task = asyncio.create_task(start_queue_worker())
+    
+    # Pre-warm VoxCPM2 model in background thread on server startup so first inference is immediate
+    print("[STARTUP] Pre-warming VoxCPM2 neural model in background...")
+    asyncio.create_task(asyncio.to_thread(voice_engine.load_model))
+    
     yield
     if worker_task:
         worker_task.cancel()
@@ -211,6 +236,41 @@ app.add_middleware(
 @app.get("/api/health")
 async def health_check():
     return {"status": "ok", "message": "CavePaint backend is healthy"}
+
+@app.get("/api/debug-queue")
+async def debug_queue():
+    global worker_task, task_queue
+    exc = None
+    if worker_task and worker_task.done() and not worker_task.cancelled():
+        try:
+            exc = str(worker_task.exception())
+        except Exception as e:
+            exc = str(e)
+            
+    stack = []
+    if worker_task:
+        for f in worker_task.get_stack():
+            stack.append(f"{f.f_code.co_filename}:{f.f_lineno} in {f.f_code.co_name}")
+            
+    items = []
+    if task_queue:
+        for t in list(task_queue._queue)[:5]:
+            items.append({
+                "type": t.task_type,
+                "scene_id": t.scene_id,
+                "project_id": t.project_id,
+                "payload": t.payload
+            })
+            
+    return {
+        "worker_task_exists": worker_task is not None,
+        "worker_task_done": worker_task.done() if worker_task else None,
+        "worker_task_cancelled": worker_task.cancelled() if worker_task else None,
+        "worker_task_exception": exc,
+        "coroutine_stack": stack,
+        "queue_size": task_queue.qsize() if task_queue else None,
+        "next_tasks": items
+    }
 
 @app.get("/api/flow/status")
 async def get_flow_status():
@@ -298,6 +358,7 @@ async def duplicate_project(project_id: int, db: Session = Depends(get_db)):
         global_voice_style=project.global_voice_style,
         structured_json_data=project.structured_json_data,
         theme_era=project.theme_era,
+        theme_region=getattr(project, "theme_region", "cambodia") or "cambodia",
         theme_mood=project.theme_mood,
         theme_custom=project.theme_custom,
         aspect_ratio=project.aspect_ratio or "16:9",
@@ -844,6 +905,7 @@ async def flow_adjust_scene_endpoint(scene_id: int, payload: FlowAdjustPayload, 
     global_style = project.illustration_style or "Minimalist 2D flat vector stickman doodle illustration, bold black marker outlines, solid flat colors, seamless studio pure white background"
     video_concept = project.video_concept or ""
     theme_era = project.theme_era or ""
+    theme_region = project.theme_region or "cambodia"
     scene_staging = project.scene_staging or "studio"
 
     # Always persist user refinement instruction
@@ -862,6 +924,7 @@ async def flow_adjust_scene_endpoint(scene_id: int, payload: FlowAdjustPayload, 
             global_style=global_style,
             video_concept=video_concept,
             theme_era=theme_era,
+            theme_region=theme_region,
             scene_staging=scene_staging
         )
         scene.image_prompt_english = result.get("image_prompt_english", current_positive)
@@ -952,6 +1015,9 @@ async def generate_scene_image(scene_id: int, payload: ImageGeneratePayload, db:
     if not scene:
         raise HTTPException(status_code=404, detail="Scene not found")
         
+    if scene.image_status == "processing":
+        return {"status": "already_queued"}
+
     project = db.query(Project).filter(Project.id == scene.project_id).first()
         
     task_payload = {
@@ -1043,7 +1109,7 @@ async def stop_project_images(project_id: int, db: Session = Depends(get_db)):
     count = 0
     for scene in scenes:
         if scene.image_status == "processing":
-            scene.image_status = "idle"
+            scene.image_status = "completed" if scene.image_path else "idle"
             count += 1
 
     db.commit()
@@ -1243,7 +1309,7 @@ async def stop_scene_generation(scene_id: int, db: Session = Depends(get_db)):
     if not scene:
         raise HTTPException(status_code=404, detail="Scene not found")
         
-    scene.image_status = "idle"
+    scene.image_status = "completed" if scene.image_path else "idle"
     db.commit()
     
     try:
@@ -1321,6 +1387,9 @@ async def generate_scene_audio_single(scene_id: int, character_id: Optional[int]
 
     if not scene.narration_khmer:
         raise HTTPException(status_code=400, detail="Scene has no narration text.")
+        
+    if scene.audio_status == "processing":
+        return {"status": "already_processing"}
         
     scene.audio_status = "processing"
     
@@ -1499,7 +1568,7 @@ async def generate_project_voice(project_id: int, character_id: Optional[int] = 
     
     queued_count = 0
     for scene in scenes:
-        if scene.narration_khmer:
+        if scene.narration_khmer and scene.audio_status != "processing":
             payload = {"text": scene.narration_khmer}
             target_char_id = character_id or scene.character_id
             if target_char_id:

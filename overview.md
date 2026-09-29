@@ -103,6 +103,7 @@ Represents a complete video production workspace.
 * `voice_profile_tag` (`String`): Global voice seed styling prompt tag.
 * `audio_format` (`String`): Audio container format (`wav` or `mp3`, default `wav`).
 * `theme_era` (`String`): Selected video era (e.g. `ancient`, `medieval`, `90s`, `modern`, `scifi`, `dystopian`).
+* `theme_region` (`String`): Selected cultural region & country (e.g. `cambodia`, `western`, `east_asia`, `south_asia`, `middle_east`, `global`).
 * `theme_mood` (`String`): Selected backdrop palette (e.g. `pure_white`, `pale_ice`, `parchment_cream`, `muted_sand`, `slate_navy`, `dark_crimson`).
 * `theme_custom` (`Text`): Specific environmental props and detail notes.
 * `aspect_ratio` (`String`): Target video aspect ratio (`16:9`, `9:16`, `1:1`, `4:3`, `2:3`, default `16:9`).

@@ -39,63 +39,401 @@ interface BrainstormingTabProps {
   refreshProjectData?: () => Promise<void>;
 }
 
-// Preset Era options with rich character attire & hair definitions
+// Preset Era options
 const ERA_OPTIONS = [
   { 
     id: "ancient", 
     label: "🦖 Ancient / Prehistoric", 
     shortLabel: "🦖 Ancient",
-    desc: "Stone Age, Ice Age, primitive caves, mammoth hunters, tribal camps",
-    attire: "Thick woolly mammoth fur pelt wrap, ragged animal hide tunic, stitched leather boots",
-    hair: "Wild, thick, messy prehistoric caveman hair",
-    props: "Flint spear, bone tools, primitive campfire, mammoth tusks",
+    desc: "Stone Age, primitive shelters, tribal hunter-gatherers, river valleys & caves",
   },
   { 
     id: "medieval", 
     label: "🏰 Medieval / Feudal", 
     shortLabel: "🏰 Medieval",
-    desc: "Stone castles, feudal kingdoms, muddy peasant villages, iron swords, dungeons",
-    attire: "Coarse linen peasant tunic with leather belt, woolen trousers, worn leather boots",
-    hair: "Shaggy medieval peasant haircut or hooded cloth cowl",
-    props: "Iron lantern, wooden barrel, torch, quill and scroll",
+    desc: "Feudal kingdoms, ancient stone temples/castles, stilt villages, markets & trade",
   },
   { 
     id: "90s", 
     label: "📼 90s / Retro", 
     shortLabel: "📼 90s Retro",
-    desc: "Analog era, chunky CRT monitors, messy bedrooms, floppy disks, dial-up internet",
-    attire: "Oversized vintage color-block windbreaker, graphic t-shirt, baggy denim jeans, chunky retro sneakers",
-    hair: "90s curtains/middle-parted haircut or backwards baseball cap",
-    props: "Chunky CRT monitor, cassette Walkman, floppy disks, messy desk",
+    desc: "Analog era, vintage motorbikes, CRT monitors, retro markets & cassettes",
   },
   { 
     id: "modern", 
     label: "📱 Today / Modern", 
     shortLabel: "📱 Modern",
-    desc: "Urban minimalist apartments, modern coffee shops, glass offices, smartphones",
-    attire: "Clean modern hoodie or casual jacket, minimalist t-shirt, dark jeans, white sneakers",
-    hair: "Neat styled contemporary haircut (textured crop or modern fade)",
-    props: "Smartphone, laptop, minimalist ceramic mug, clean desk",
+    desc: "Contemporary cities, coffee shops, smartphones, modern transportation & offices",
   },
   { 
     id: "scifi", 
     label: "🚀 Future / Sci-Fi", 
     shortLabel: "🚀 Sci-Fi",
-    desc: "Cyberpunk neon alleys, orbital space stations, hologram servers, Martian colonies",
-    attire: "Sleek minimalist form-fitting tech jumpsuit, tactical utility belt, magnetic boots",
-    hair: "Sleek futuristic haircut, neon-tinted tips, or subtle cybernetic earpiece",
-    props: "Glowing holographic datapad, neon UI panels, hovering drone",
+    desc: "Futuristic smart cities, solar Mekong floating pods, holographic UI & drones",
   },
   { 
     id: "dystopian", 
     label: "☢️ Dystopian", 
     shortLabel: "☢️ Dystopian",
-    desc: "Bleak post-apocalyptic wastelands, overgrown concrete ruins, fallout bunkers",
-    attire: "Scavenged patchwork duster coat, ragged wrapped scarf, utility straps, combat boots",
-    hair: "Windblown dusty hair, protective fabric bandana or goggles pushed onto forehead",
-    props: "Geiger counter, cracked gas mask, rusted salvage tools",
+    desc: "Overgrown ruins, scavenged outposts, survival settlements & salvage gear",
   },
 ];
+
+// Preset Region & Country options (Cambodia as dedicated primary option)
+const REGION_OPTIONS = [
+  {
+    id: "cambodia",
+    label: "🇰🇭 Cambodia / Khmer",
+    shortLabel: "🇰🇭 Cambodia",
+    flag: "🇰🇭",
+    desc: "Angkor stone prasats, wooden stilt houses, barays, sugar palms, kramas, sampots, Tonle Sap",
+  },
+  {
+    id: "western",
+    label: "🏰 Europe / Western",
+    shortLabel: "🏰 Western",
+    flag: "🏰",
+    desc: "Stone castles, cobblestone feudal villages, western retro & modern glass cities",
+  },
+  {
+    id: "east_asia",
+    label: "⛩️ East Asia",
+    shortLabel: "⛩️ East Asia",
+    flag: "⛩️",
+    desc: "Curved tiled roof pagodas, courtyard compounds, bamboo groves, Asian cityscapes & robes",
+  },
+  {
+    id: "south_asia",
+    label: "🇮🇳 South Asia",
+    shortLabel: "🇮🇳 South Asia",
+    flag: "🇮🇳",
+    desc: "Carved stone shrines, river ghats, draped cotton fabrics, vibrant ancient & modern bazaars",
+  },
+  {
+    id: "middle_east",
+    label: "🕌 Middle East",
+    shortLabel: "🕌 Middle East",
+    flag: "🕌",
+    desc: "Domed architecture, oasis towns, desert caravans, courtyards, souks, flowing robes",
+  },
+  {
+    id: "global",
+    label: "🌍 Global / Universal",
+    shortLabel: "🌍 Global",
+    flag: "🌍",
+    desc: "Universal archetypes, neutral landscapes, international modern cities without regional bias",
+  },
+];
+
+export interface EraRegionDetail {
+  eraTitle: string;
+  regionTitle: string;
+  attire: string;
+  hair: string;
+  props: string;
+  environment: string;
+  culturalDirectives: string;
+  examples: {
+    wideOverview: string;
+    birdsEyeView: string;
+    visualDiagram: string;
+    characterAction: string;
+  };
+}
+
+export function getEraRegionSetting(eraId: string, regionId: string): EraRegionDetail {
+  const isCambodia = regionId === "cambodia";
+  const isEastAsia = regionId === "east_asia";
+  const isSouthAsia = regionId === "south_asia";
+  const isMiddleEast = regionId === "middle_east";
+  const isWestern = regionId === "western";
+
+  // 1. MEDIEVAL / FEUDAL
+  if (eraId === "medieval") {
+    if (isCambodia) {
+      return {
+        eraTitle: "🏰 Medieval / Feudal (Angkorian Khmer Empire)",
+        regionTitle: "🇰🇭 Cambodia / Khmer",
+        attire: "Traditional Khmer sampot or chong kben cotton wrap cloth, checkered cotton krama scarf around neck or waist, bare feet or simple leather sandals",
+        hair: "Neat traditional Khmer topknot, neat cropped dark hair, or cloth headband",
+        props: "Inscribed palm-leaf manuscript (sasstra slok reth), clay water urn, woven bamboo basket, bronze spear, ox cart with wooden wheels, brass gong",
+        environment: "Angkor-style carved sandstone prasat temple spires, elevated wooden stilt houses along rivers and canals, wide baray water reservoirs, towering sugar palm trees, lush tropical countryside",
+        culturalDirectives: "Authentic Angkorian Khmer civilization (9th–15th century). STRICTLY NO European knights, NO iron armor, NO European stone castles, NO wax-sealed European scrolls. Depict ancient Khmer stone architecture, wooden stilt houses, and Buddhist/Hindu stone motifs.",
+        examples: {
+          wideOverview: "Minimalist 2D flat vector illustration, expansive panoramic wide overview of an ancient Angkorian Khmer settlement, showing wooden stilt houses along a wide river canal, towering stone prasat temple spires in the distance, lush sugar palm trees, multiple tiny stickman villagers walking and paddling wooden boats, bold black outlines, flat solid colors.",
+          birdsEyeView: "Minimalist 2D flat vector illustration, high-angle aerial bird's-eye view looking down on a bustling ancient Khmer riverside market, neatly arranged woven mats with tropical fruit and pottery, ox carts parked nearby, tiny stick figures trading and walking between stalls, bold black outlines, flat solid colors.",
+          visualDiagram: "Minimalist 2D flat vector educational diagram, architectural cutaway cross-section of a traditional Khmer wooden stilt house, showing the elevated living platform on wooden pillars above, storage and loom area underneath, stickmen demonstrating daily activities, clean diagram layout, bold black outlines, flat solid colors.",
+          characterAction: "Minimalist 2D flat vector stickman illustration, wide shot of a Khmer royal messenger stickman wearing a green chong kben wrap and krama, running along a stone temple terrace holding a rolled palm-leaf manuscript (sasstra), temple spires and palm trees in the wide background, bold black outlines, flat solid colors."
+        }
+      };
+    }
+    if (isEastAsia) {
+      return {
+        eraTitle: "🏰 Medieval / Feudal (East Asian Dynasties)",
+        regionTitle: "⛩️ East Asia",
+        attire: "Traditional linen robe (hanfu/kimono/hanbok) or martial tunic, cloth sash, woven straw sandals",
+        hair: "Topknot bun with wooden hairpin or woven conical straw hat",
+        props: "Calligraphy brush, ink stone, bamboo scroll, ceramic teapot, wooden cart",
+        environment: "Curved tiled roof pagodas, wooden courtyard compounds, stone bridges over koi canals, misty bamboo groves",
+        culturalDirectives: "Historical East Asian architecture and attire. Pagodas, bamboo groves, paper lanterns, and stone bridges.",
+        examples: {
+          wideOverview: "Minimalist 2D flat vector illustration, expansive panoramic wide overview of a traditional East Asian mountain valley town, tiered wooden pagodas with curved roofs, stone bridge over a quiet river, misty bamboo forest, tiny stick figures walking on cobblestone paths, bold black outlines, flat solid colors.",
+          birdsEyeView: "Minimalist 2D flat vector illustration, high-angle aerial bird's-eye view of a walled palace courtyard compound, symmetry of tiled rooftops, garden courtyards, and tiny stick figures strolling along covered pavilions, bold black outlines, flat solid colors.",
+          visualDiagram: "Minimalist 2D flat vector educational diagram, cutaway cross-section of a traditional multi-tier wooden pagoda, showing interlocking wooden timber joints without nails, central pillar, and stickman carpenters at work, clean diagram layout, bold black outlines, flat solid colors.",
+          characterAction: "Minimalist 2D flat vector stickman illustration, wide shot of an East Asian scholar stickman in flowing blue robe holding an ink brush at a low wooden table overlooking a tranquil garden, bold black outlines, flat solid colors."
+        }
+      };
+    }
+    if (isSouthAsia) {
+      return {
+        eraTitle: "🏰 Medieval / Classical (South Asian Kingdoms)",
+        regionTitle: "🇮🇳 South Asia",
+        attire: "Traditional draped cotton dhoti/angavastram or sari wrap, ornate armlet, bare feet",
+        hair: "Neat tied hair bun or draped turban",
+        props: "Carved palm-leaf texts, brass lamp, clay pottery, ornate parasol, decorated elephant saddle",
+        environment: "Intricate carved stone temple gopurams, riverside bathing ghats, royal pillared courtyards, banyan trees",
+        culturalDirectives: "Classical South Asian architectural motifs, stepwells, stone temples, and draped cotton attire.",
+        examples: {
+          wideOverview: "Minimalist 2D flat vector illustration, expansive panoramic wide overview of a medieval South Asian river kingdom, towering stone temple gopuram spires, ghat steps leading down to a sacred river, tiny stick figures in dhotis walking, bold black outlines, flat solid colors.",
+          birdsEyeView: "Minimalist 2D flat vector illustration, high-angle aerial bird's-eye view looking down at a geometrical stepwell reservoir, intricate stone stair patterns leading down to water, tiny stick figures carrying clay pots, bold black outlines, flat solid colors.",
+          visualDiagram: "Minimalist 2D flat vector educational diagram, architectural layout diagram of an ancient stone temple complex, showing outer pillared corridors, sanctum tower, and ceremonial courtyard, clean infographic layout, bold outlines, flat solid colors.",
+          characterAction: "Minimalist 2D flat vector stickman illustration, wide shot of a stickman merchant in a draped dhoti displaying brass lamps and spice sacks on a riverside terrace, banyan tree in wide background, bold black outlines, flat solid colors."
+        }
+      };
+    }
+    if (isMiddleEast) {
+      return {
+        eraTitle: "🏰 Medieval / Golden Age (Middle East & Arabia)",
+        regionTitle: "🕌 Middle East",
+        attire: "Flowing linen thobe or tunic, embroidered vest, leather sandals, wrapped turban",
+        hair: "Wrapped keffiyeh or turban",
+        props: "Brass astrolabe, leather-bound illuminated manuscript, ceramic oil lamp, spice sacks, camel caravan",
+        environment: "Arched stone courtyards, geometric mosaic tile fountains, domed bazaars, desert oasis with date palms",
+        culturalDirectives: "Islamic Golden Age & Middle Eastern heritage. Domes, arched courtyards, oasis settlements, and caravans.",
+        examples: {
+          wideOverview: "Minimalist 2D flat vector illustration, expansive panoramic wide overview of a desert oasis city, turquoise domed towers, adobe city walls, date palms, tiny stickman traders walking alongside camels, bold black outlines, flat solid colors.",
+          birdsEyeView: "Minimalist 2D flat vector illustration, high-angle aerial bird's-eye view of a covered vaulted souk marketplace, light filtering through roof skylights onto bustling textile stalls and tiny stick figures, bold black outlines, flat solid colors.",
+          visualDiagram: "Minimalist 2D flat vector educational diagram, cutaway cross-section diagram of an ancient desert windcatcher tower and underground qanat water channel, showing cooling airflow, clean educational layout, bold outlines, flat solid colors.",
+          characterAction: "Minimalist 2D flat vector stickman illustration, wide shot of an astronomer stickman in flowing robes holding a brass astrolabe on an open rooftop terrace under star-filled twilight, minarets in wide background, bold black outlines, flat solid colors."
+        }
+      };
+    }
+    // Western / Global Medieval
+    return {
+      eraTitle: "🏰 Medieval / Feudal (European Middle Ages)",
+      regionTitle: "🏰 Europe / Western",
+      attire: "Coarse linen peasant tunic with leather belt, woolen trousers, worn leather boots",
+      hair: "Shaggy medieval peasant haircut or hooded cloth cowl",
+      props: "Iron lantern, wooden barrel, torch, quill and scroll, wooden cart",
+      environment: "Stone castle walls, cobblestone feudal village, half-timbered wooden tavern, muddy road, dungeons",
+      culturalDirectives: "European feudal Middle Ages. Stone castle ramparts, cobblestone villages, wooden taverns, and rolling hills.",
+      examples: {
+        wideOverview: "Minimalist 2D flat vector illustration, expansive panoramic wide overview of a medieval European feudal town, cobblestone streets leading to distant stone castle ramparts, half-timbered houses, multiple tiny stickman townsfolk walking, bold black outlines, flat solid colors.",
+        birdsEyeView: "Minimalist 2D flat vector illustration, high-angle aerial bird's-eye view looking down at a medieval fortress and courtyard, showing stone outer curtain walls, central keep, training grounds, and tiny stick figures patrolling, bold black outlines, flat solid colors.",
+        visualDiagram: "Minimalist 2D flat vector educational diagram, cutaway cross-section of a medieval fortified castle tower, revealing dungeon, great banquet hall, armory, and rooftop battlements, stick figures showing functions, clean layout, bold outlines, flat solid colors.",
+        characterAction: "Minimalist 2D flat vector stickman illustration, wide shot of a medieval messenger stickman in leather boots running across a wooden drawbridge towards castle gates, rolling countryside in the wide background, bold black outlines, flat solid colors."
+      }
+    };
+  }
+
+  // 2. 90s / RETRO
+  if (eraId === "90s") {
+    if (isCambodia) {
+      return {
+        eraTitle: "📼 90s / Retro (Post-UNTAC Cambodia)",
+        regionTitle: "🇰🇭 Cambodia / Khmer",
+        attire: "Vintage 90s patterned short-sleeved button-up shirt, high-waisted casual trousers or traditional cotton sarong, slip-on sandals",
+        hair: "Classic 90s middle-parted feathered hair or casual vintage cap",
+        props: "Vintage Honda Super Cub or Daelim City motorbike, cassette tape boombox with Khmer pop tape, bulky tube CRT television with rabbit-ear antenna, open-air wooden market stalls with canvas umbrellas",
+        environment: "1990s Phnom Penh streetscape with weathered yellow French colonial shophouses, pedicab cyclos (xich lo), tangled overhead wires, dusty red-dirt roads, wooden stilt houses with zinc roofs",
+        culturalDirectives: "Authentic 1990s Cambodian everyday life. Nostalgic post-UNTAC era street scenes, vintage motorbikes, local market life, tropical street vendors.",
+        examples: {
+          wideOverview: "Minimalist 2D flat vector illustration, expansive panoramic wide overview of a 1990s Phnom Penh street corner, weathered yellow French colonial shophouse buildings, vintage Honda Super Cub motorbikes and pedicab cyclos parked along the road, tiny stickmen walking, bold black outlines, flat solid colors.",
+          birdsEyeView: "Minimalist 2D flat vector illustration, high-angle aerial bird's-eye view looking down on a bustling 1990s Cambodian outdoor market, colorful canvas umbrellas shading fruit and vegetable baskets, narrow alleys packed with shoppers, bold black outlines, flat solid colors.",
+          visualDiagram: "Minimalist 2D flat vector educational diagram, side-by-side comparison diagram of 1990s Cambodian communication: postal mail and cassette tape exchange on left vs early radio broadcast on right, stick figures demonstrating, clean infographic layout, bold outlines, flat colors.",
+          characterAction: "Minimalist 2D flat vector stickman illustration, wide shot of a 90s Cambodian stickman wearing a vintage patterned short-sleeve shirt riding a vintage motorbike past roadside food stalls, tropical palm trees in background, bold black outlines, flat solid colors."
+        }
+      };
+    }
+    if (isEastAsia) {
+      return {
+        eraTitle: "📼 90s / Retro (East Asian 90s Boom)",
+        regionTitle: "⛩️ East Asia",
+        attire: "Oversized 90s blazer or denim jacket, loose slacks, platform sneakers, Walkman headphones",
+        hair: "90s styled anime-era parted hair or bob",
+        props: "Cassette player, retro arcade cabinet, colorful vending machines, pager, payphone",
+        environment: "1990s Tokyo/Hong Kong street scene with glowing neon signs, elevated train tracks, narrow shopping alleys",
+        culturalDirectives: "1990s East Asian retro aesthetic. City neon signs, elevated trains, retro electronics, and bustling alleys.",
+        examples: {
+          wideOverview: "Minimalist 2D flat vector illustration, expansive panoramic wide overview of a 1990s Tokyo city street, colorful neon shop signs, elevated train passing on tracks overhead, tiny stickman pedestrians with umbrellas, bold black outlines, flat solid colors.",
+          birdsEyeView: "Minimalist 2D flat vector illustration, high-angle aerial bird's-eye view of a 90s multi-story arcade game center, rows of glowing CRT arcade cabinets, tiny stick figures playing fighting games, bold black outlines, flat solid colors.",
+          visualDiagram: "Minimalist 2D flat vector educational diagram, cutaway cross-section diagram of a 1990s Japanese capsule hotel or apartment block, showing compact living units and tiny stickmen, clean diagram layout, bold outlines, flat solid colors.",
+          characterAction: "Minimalist 2D flat vector stickman illustration, wide shot of a 90s student stickman with headphones listening to a Walkman cassette player waiting at a train station platform, city skyline in background, bold black outlines, flat solid colors."
+        }
+      };
+    }
+    // Western / Global 90s
+    return {
+      eraTitle: "📼 90s / Retro (Western Analog Era)",
+      regionTitle: "🏰 Europe / Western",
+      attire: "Oversized vintage color-block windbreaker, graphic t-shirt, baggy denim jeans, chunky retro sneakers",
+      hair: "90s curtains/middle-parted haircut or backwards baseball cap",
+      props: "Chunky CRT monitor, cassette Walkman, floppy disks, dial-up modem, messy desk",
+      environment: "Analog suburban bedroom, retro electronics shop, brick school corridors, arcade hall, shopping mall",
+      culturalDirectives: "Western 1990s analog culture. CRT computers, dial-up internet, suburban streets, and malls.",
+      examples: {
+        wideOverview: "Minimalist 2D flat vector illustration, expansive panoramic wide overview of a 1990s suburban street, brick houses, station wagon cars, kids on rollerblades, telephone poles, bold black outlines, flat solid colors.",
+        birdsEyeView: "Minimalist 2D flat vector illustration, high-angle aerial bird's-eye view of a 90s shopping mall interior, neon-signed shopfronts, central food court, tiny stickman shoppers walking between stores, bold black outlines, flat solid colors.",
+        visualDiagram: "Minimalist 2D flat vector educational diagram, step-by-step visual process of dial-up internet connection in the 90s: computer, modem handshake, telephone line, server, stickman waiting, clean diagram layout, bold outlines, flat solid colors.",
+        characterAction: "Minimalist 2D flat vector stickman illustration, wide shot of a stickman wearing a baggy windbreaker sitting at a desk with a chunky CRT monitor and cassette tapes, poster-covered bedroom in background, bold black outlines, flat solid colors."
+      }
+    };
+  }
+
+  // 3. TODAY / MODERN
+  if (eraId === "modern") {
+    if (isCambodia) {
+      return {
+        eraTitle: "📱 Today / Modern (Contemporary Cambodia)",
+        regionTitle: "🇰🇭 Cambodia / Khmer",
+        attire: "Neat modern casual linen shirt or minimalist graphic tee, dark jeans or chinos, white sneakers",
+        hair: "Neat contemporary fade or textured modern crop",
+        props: "Modern smartphone with PassApp or ABA banking app, iced milk coffee in takeaway plastic cup with straw, modern laptop, motorcycle helmet",
+        environment: "Modern Phnom Penh urban cafe with glass windows and tropical indoor plants, bustling street with tuktuks, PassApp motor-tricycles, modern boulevards, mix of sleek modern buildings and tropical palm trees",
+        culturalDirectives: "Contemporary Cambodian lifestyle. Vibrant Phnom Penh cityscape, modern coffee shops, mobile-first everyday technology, street tuktuks.",
+        examples: {
+          wideOverview: "Minimalist 2D flat vector illustration, expansive panoramic wide overview of a modern Phnom Penh city boulevard, glass high-rise towers mixed with classic French shophouses, modern tuktuks and cars driving on the wide road, tiny stick figures walking on tree-lined sidewalks, bold black outlines, flat solid colors.",
+          birdsEyeView: "Minimalist 2D flat vector illustration, high-angle aerial bird's-eye view looking down on a busy contemporary city roundabout, modern vehicles, tuktuks, and pedestrian crossings neatly organized, tiny stick figures commuting, bold black outlines, flat solid colors.",
+          visualDiagram: "Minimalist 2D flat vector educational diagram, side-by-side comparative infographic showing modern digital mobile banking and QR payments on left versus traditional cash transactions on right, stickmen interacting, clean vector layout, bold black outlines, flat colors.",
+          characterAction: "Minimalist 2D flat vector stickman illustration, wide shot of a modern Cambodian stickman holding a takeaway iced coffee cup and smartphone standing in front of a trendy glass-fronted cafe, tuktuk passing on the street behind him, bold black outlines, flat solid colors."
+        }
+      };
+    }
+    if (isEastAsia) {
+      return {
+        eraTitle: "📱 Today / Modern (Contemporary East Asia)",
+        regionTitle: "⛩️ East Asia",
+        attire: "Sleek minimalist monochrome streetwear, tailored trousers, clean sneakers, wireless earbuds",
+        hair: "Neat modern textured haircut or sleek bob",
+        props: "High-end smartphone, subway transit card, convenience store bento box, ultrabook laptop",
+        environment: "Modern high-density metropolis, glass transit hubs, 24-hour convenience stores, sleek high-speed rail",
+        culturalDirectives: "Modern high-tech East Asian metropolis. Clean transit systems, convenience stores, and towering glass skyscrapers.",
+        examples: {
+          wideOverview: "Minimalist 2D flat vector illustration, expansive panoramic wide overview of a modern East Asian metropolis, towering glass skyscrapers, sleek bullet train gliding on elevated viaduct, bustling pedestrian crossing below with tiny stick figures, bold black outlines, flat solid colors.",
+          birdsEyeView: "Minimalist 2D flat vector illustration, high-angle aerial bird's-eye view of a modern multi-track railway terminal, bullet trains at platforms, concourses with tiny commuting stick figures, bold black outlines, flat solid colors.",
+          visualDiagram: "Minimalist 2D flat vector educational diagram, cutaway cross-section of a 24-hour modern convenience store, showing refrigerated drink shelves, automated checkout, and hot food counter with stick figures, clean diagram layout, bold outlines, flat solid colors.",
+          characterAction: "Minimalist 2D flat vector stickman illustration, wide shot of a commuter stickman with umbrella crossing a broad illuminated glass bridge with streaming headlights in the highway below, bold black outlines, flat solid colors."
+        }
+      };
+    }
+    // Western / Global Modern
+    return {
+      eraTitle: "📱 Today / Modern (Global Urban Modern)",
+      regionTitle: "🏰 Europe / Western",
+      attire: "Clean modern hoodie or casual jacket, minimalist t-shirt, dark jeans, white sneakers",
+      hair: "Neat styled contemporary haircut (textured crop or modern fade)",
+      props: "Smartphone, laptop, minimalist ceramic mug, clean desk, reusable water bottle",
+      environment: "Urban minimalist apartments, glass skyscraper offices, modern subway station, open plazas, coffee shops",
+      culturalDirectives: "Contemporary global urban lifestyle. Minimalist interiors, glass offices, open public plazas, and tech-enabled city life.",
+      examples: {
+        wideOverview: "Minimalist 2D flat vector illustration, expansive panoramic wide overview of a modern downtown city square, glass skyscrapers, subway entrance, outdoor seating plaza with tiny stick figures drinking coffee and working on laptops, bold black outlines, flat solid colors.",
+        birdsEyeView: "Minimalist 2D flat vector illustration, high-angle aerial bird's-eye view looking down at a modern tech office floorplan, open-plan desks, meeting pods, coffee bar, tiny stick figures collaborating, bold black outlines, flat solid colors.",
+        visualDiagram: "Minimalist 2D flat vector educational diagram, visual flow process of modern cloud data synchronization: smartphone, wireless signal, cloud server, laptop, clean educational layout, bold black outlines, flat solid colors.",
+        characterAction: "Minimalist 2D flat vector stickman illustration, wide shot of a stickman with a backpack walking across a modern glass pedestrian bridge overlooking city traffic, bold black outlines, flat solid colors."
+      }
+    };
+  }
+
+  // 4. ANCIENT / PREHISTORIC (Broad view enhanced for all eras including ancient!)
+  if (eraId === "ancient") {
+    if (isCambodia || isEastAsia || isSouthAsia) {
+      return {
+        eraTitle: "🦖 Ancient / Prehistoric (Tropical Southeast Asia)",
+        regionTitle: "🇰🇭 Cambodia / Southeast Asia",
+        attire: "Ragged woven bark or palm-fiber wrap, primitive animal hide loincloth, bead necklace made of river shells and seeds",
+        hair: "Wild messy dark prehistoric hair with woven fiber headband",
+        props: "Polished Neolithic stone adze, bamboo spear with fire-hardened tip, clay pot, woven rattan fish trap",
+        environment: "Lush tropical prehistoric river valley, limestone karst cave opening, bamboo stilt shelter, wild tropical jungle and riverbanks",
+        culturalDirectives: "Prehistoric tropical Southeast Asian environment. Lush jungle rivers, bamboo tools, limestone karst caves, Asian wild elephants and water buffalo (STRICTLY NO woolly mammoths, NO glaciers).",
+        examples: {
+          wideOverview: "Minimalist 2D flat vector illustration, expansive panoramic wide overview of a lush prehistoric tropical river valley, limestone karst cliffs in distance, bamboo stilt shelters along the riverbank, tiny stickman hunter-gatherers fishing and gathering, bold black outlines, flat solid colors.",
+          birdsEyeView: "Minimalist 2D flat vector illustration, high-angle aerial bird's-eye view of a prehistoric tropical river settlement, circular thatched huts arranged near fishing traps and canoes, tiny stick figures smoking fish over fire pits, bold black outlines, flat solid colors.",
+          visualDiagram: "Minimalist 2D flat vector educational diagram, side-by-side comparison diagram showing early crude river-pebble tools on left versus polished Neolithic stone adzes on right, stickmen demonstrating use, clean infographic layout, bold outlines, flat colors.",
+          characterAction: "Minimalist 2D flat vector stickman illustration, wide shot of three prehistoric stickmen in fiber wraps working together to carve a dugout wooden canoe by the riverbank, dense tropical jungle in background, bold black outlines, flat solid colors."
+        }
+      };
+    }
+    // Western / Global Prehistoric (Ice Age)
+    return {
+      eraTitle: "🦖 Ancient / Prehistoric (Ice Age / Mammoth Steppe)",
+      regionTitle: "🌍 Global Ice Age",
+      attire: "Thick woolly mammoth fur pelt wrap, ragged animal hide tunic, stitched leather boots",
+      hair: "Wild, thick, messy prehistoric caveman hair",
+      props: "Flint spear, carved bone needle, primitive stone campfire, mammoth tusks",
+      environment: "Snowy glacial plains, vast ice cliffs, rugged prehistoric rock cave, roaming mammoth herds",
+      culturalDirectives: "Ice Age mammoth steppe. Vast snowy tundras, colossal mammoth herds, fur-clad hunter-gatherers, and campfire caves.",
+      examples: {
+        wideOverview: "Minimalist 2D flat vector illustration, expansive panoramic wide overview of a vast prehistoric tundra valley, colossal woolly mammoths grazing across the snowy steppe, tiny stickman hunters gathered around a distant campfire near glacial cliffs, bold black outlines, flat solid colors.",
+        birdsEyeView: "Minimalist 2D flat vector illustration, high-angle aerial bird's-eye view of a prehistoric tribal campsite, mammoth-hide tents encircling a central stone fire pit, meat drying racks, tiny stick figures crafting tools, bold black outlines, flat solid colors.",
+        visualDiagram: "Minimalist 2D flat vector educational diagram, cutaway cross-section of a prehistoric cave shelter, showing outer fire pit sentry area, inner sleeping furs, cave wall doodle paintings, stickmen demonstrating tasks, clean diagram layout, bold outlines, flat solid colors.",
+        characterAction: "Minimalist 2D flat vector stickman illustration, wide shot of three prehistoric hunter stickmen in thick fur pelts tracking animal tracks across a snowy ridge, distant mountain peaks in the wide background, bold black outlines, flat solid colors."
+      }
+    };
+  }
+
+  // 5. FUTURE / SCI-FI
+  if (eraId === "scifi") {
+    if (isCambodia) {
+      return {
+        eraTitle: "🚀 Future / Sci-Fi (Neo-Khmer Solarpunk)",
+        regionTitle: "🇰🇭 Cambodia / Solarpunk",
+        attire: "Sleek lightweight solar-weave smart tunic with subtle krama pattern accents, magnetic sandals, AR smart glasses",
+        hair: "Styled futuristic crop with glowing cyber hair clip",
+        props: "Floating delivery drone, solar Mekong water purifier, holographic palm-leaf datapad",
+        environment: "Futuristic floating solar cities along the Tonle Sap, vertical hydroponic bamboo towers, sleek automated sky-tuktuks",
+        culturalDirectives: "Neo-Khmer solarpunk aesthetic. Tropical green smart architecture, floating river habitats, and sustainable tech.",
+        examples: {
+          wideOverview: "Minimalist 2D flat vector illustration, expansive panoramic wide overview of a futuristic solar-powered floating city along a wide tropical river, vertical bamboo bio-towers, automated sky-tuktuks flying between platforms, tiny stick figures walking, bold black outlines, flat solid colors.",
+          birdsEyeView: "Minimalist 2D flat vector illustration, high-angle aerial bird's-eye view of an automated floating agricultural ring on the lake, robotic harvesting drones tending hydroponic lotus crops, tiny stick figures monitoring control panels, bold black outlines, flat solid colors.",
+          visualDiagram: "Minimalist 2D flat vector educational diagram, cutaway cross-section of a futuristic floating eco-dome home, showing rooftop solar panels, rainwater filtration, and living quarters, clean educational layout, bold outlines, flat solid colors.",
+          characterAction: "Minimalist 2D flat vector stickman illustration, wide shot of a futuristic engineer stickman holding a glowing holographic tablet beside a docked automated river skiff, solar towers in background, bold black outlines, flat solid colors."
+        }
+      };
+    }
+    return {
+      eraTitle: "🚀 Future / Sci-Fi (Cyberpunk & Space Age)",
+      regionTitle: "🌍 Global Sci-Fi",
+      attire: "Sleek minimalist form-fitting tech jumpsuit, tactical utility belt, magnetic boots",
+      hair: "Sleek futuristic haircut, neon-tinted tips, or subtle cybernetic earpiece",
+      props: "Glowing holographic datapad, neon UI panels, hovering drone, energy tool",
+      environment: "Cyberpunk neon alleys, orbital space stations, hologram servers, Martian geodesic domes",
+      culturalDirectives: "Futuristic sci-fi world. Neon cityscapes, orbital space stations, and advanced holographic technologies.",
+      examples: {
+        wideOverview: "Minimalist 2D flat vector illustration, expansive panoramic wide overview of a futuristic orbital space station ring overlooking a blue planet, automated transport pods gliding along magnetic rails, tiny stickman astronauts in jumpsuits walking, bold black outlines, flat solid colors.",
+        birdsEyeView: "Minimalist 2D flat vector illustration, high-angle aerial bird's-eye view of a multi-tier cyber city intersection, flying vehicles streaming on light-lanes, neon holographic signs, tiny stick figures traversing pedestrian skybridges, bold black outlines, flat solid colors.",
+        visualDiagram: "Minimalist 2D flat vector educational diagram, cutaway cross-section of an orbital research module, revealing hydroponic garden, control bridge, gravity centrifuge, and airlock, clean diagram layout, bold outlines, flat solid colors.",
+        characterAction: "Minimalist 2D flat vector stickman illustration, wide shot of an astronaut stickman in a tech jumpsuit operating a large glowing holographic star-map terminal in a glass-walled observatory, outer space in background, bold black outlines, flat solid colors."
+      }
+    };
+  }
+
+  // 6. DYSTOPIAN
+  return {
+    eraTitle: "☢️ Dystopian (Post-Apocalyptic Survival)",
+    regionTitle: isCambodia ? "🇰🇭 Cambodia / Post-Apocalyptic" : "🌍 Global Wasteland",
+    attire: "Scavenged patchwork duster coat, ragged wrapped scarf, utility straps, combat boots",
+    hair: "Windblown dusty hair, protective fabric bandana or goggles pushed onto forehead",
+    props: "Geiger counter, solar battery pack, cracked salvage tools, water filter canteen",
+    environment: "Bleak post-apocalyptic wastelands, overgrown concrete ruins, salvage bunkers, makeshift watchtowers",
+    culturalDirectives: "Post-apocalyptic survival wasteland. Overgrown ruins, improvised settlements, and scavenged technology.",
+    examples: {
+      wideOverview: "Minimalist 2D flat vector illustration, expansive panoramic wide overview of an overgrown ruined city reclaimed by wild nature, crumbling concrete towers draped in vines, tiny stickman scavenger silhouettes walking along a cracked highway, bold black outlines, flat solid colors.",
+      birdsEyeView: "Minimalist 2D flat vector illustration, high-angle aerial bird's-eye view of a fortified survivor outpost, corrugated metal barriers enclosing salvage workshops, solar battery banks, and watchtowers with tiny stick figures, bold black outlines, flat solid colors.",
+      visualDiagram: "Minimalist 2D flat vector educational diagram, cutaway cross-section of an underground fallout bunker shelter, showing air filtration pump, hydroponic food tank, and bunk quarters, clean diagram layout, bold outlines, flat solid colors.",
+      characterAction: "Minimalist 2D flat vector stickman illustration, wide shot of two survivor stickmen with backpacks and goggles inspecting a salvaged solar generator, vast overgrown wasteland hills in the wide background, bold black outlines, flat solid colors."
+    }
+  };
+}
 
 // Preset Atmosphere & Solid Backdrop Color Palettes (Pure Studio White as default)
 const MOOD_OPTIONS = [
@@ -199,7 +537,7 @@ export default function BrainstormingTab({ activeProject, refreshProjectData }: 
   const { updateActiveProject, updateSingleScene } = useProjectContext();
 
   // Custom dropdown popovers state & click-outside refs
-  const [openDropdown, setOpenDropdown] = useState<"era" | "staging" | "ratio" | "mood" | "batch" | "batchSize" | null>(null);
+  const [openDropdown, setOpenDropdown] = useState<"era" | "region" | "staging" | "ratio" | "mood" | "batch" | "batchSize" | null>(null);
   const styleBarRef = useRef<HTMLDivElement>(null);
   const batchDropdownRef = useRef<HTMLDivElement>(null);
   const batchSizeRef = useRef<HTMLDivElement>(null);
@@ -216,6 +554,7 @@ export default function BrainstormingTab({ activeProject, refreshProjectData }: 
   // Local state for creative fields
   const [scriptText, setScriptText] = useState("");
   const [selectedEra, setSelectedEra] = useState("ancient");
+  const [selectedRegion, setSelectedRegion] = useState("cambodia");
   const [selectedMood, setSelectedMood] = useState("pure_white");
   const [selectedAspectRatio, setSelectedAspectRatio] = useState("16:9");
   const [characterAttire, setCharacterAttire] = useState("");
@@ -257,14 +596,16 @@ export default function BrainstormingTab({ activeProject, refreshProjectData }: 
     if (activeProject) {
       setScriptText(activeProject.script_narrative || "");
       const era = activeProject.theme_era || "ancient";
+      const region = activeProject.theme_region || "cambodia";
       setSelectedEra(era);
+      setSelectedRegion(region);
       setSelectedMood(activeProject.theme_mood || "pure_white");
       setSelectedAspectRatio(activeProject.aspect_ratio || "16:9");
       setCustomSetting(activeProject.theme_custom || "");
       setSceneStaging((activeProject.scene_staging as any) || "studio");
 
-      const eraObj = ERA_OPTIONS.find((e) => e.id === era);
-      const defaultAttire = eraObj ? `${eraObj.attire}, ${eraObj.hair}` : "";
+      const setting = getEraRegionSetting(era, region);
+      const defaultAttire = setting ? `${setting.attire}, ${setting.hair}` : "";
       setCharacterAttire(activeProject.character_attire || defaultAttire);
     }
   }, [activeProject?.id]);
@@ -333,15 +674,29 @@ export default function BrainstormingTab({ activeProject, refreshProjectData }: 
     }
   };
 
-  // Era selection handler: auto-populates character attire & hair
+  // Era selection handler: auto-populates character attire & hair based on Era + Region
   const handleSelectEra = async (eraId: string) => {
     setSelectedEra(eraId);
-    const eraObj = ERA_OPTIONS.find((e) => e.id === eraId);
-    const defaultAttire = eraObj ? `${eraObj.attire}, ${eraObj.hair}` : "";
+    const setting = getEraRegionSetting(eraId, selectedRegion);
+    const defaultAttire = setting ? `${setting.attire}, ${setting.hair}` : "";
     setCharacterAttire(defaultAttire);
     if (activeProject?.id) {
       await updateActiveProject({ 
         theme_era: eraId,
+        character_attire: defaultAttire
+      });
+    }
+  };
+
+  // Region selection handler: auto-populates character attire & hair based on Era + Region
+  const handleSelectRegion = async (regionId: string) => {
+    setSelectedRegion(regionId);
+    const setting = getEraRegionSetting(selectedEra, regionId);
+    const defaultAttire = setting ? `${setting.attire}, ${setting.hair}` : "";
+    setCharacterAttire(defaultAttire);
+    if (activeProject?.id) {
+      await updateActiveProject({ 
+        theme_region: regionId,
         character_attire: defaultAttire
       });
     }
@@ -355,10 +710,10 @@ export default function BrainstormingTab({ activeProject, refreshProjectData }: 
     }
   };
 
-  // Reset character attire to era defaults
+  // Reset character attire to era + region defaults
   const handleResetCharacterAttire = async () => {
-    const eraObj = ERA_OPTIONS.find((e) => e.id === selectedEra);
-    const defaultAttire = eraObj ? `${eraObj.attire}, ${eraObj.hair}` : "";
+    const setting = getEraRegionSetting(selectedEra, selectedRegion);
+    const defaultAttire = setting ? `${setting.attire}, ${setting.hair}` : "";
     setCharacterAttire(defaultAttire);
     if (activeProject?.id) {
       await updateActiveProject({ character_attire: defaultAttire });
@@ -400,6 +755,8 @@ export default function BrainstormingTab({ activeProject, refreshProjectData }: 
   // Build the complete frontier prompt for ChatGPT/Claude
   const generatePrompt = (batchIdx: number = selectedBatchIndex) => {
     const eraObj = ERA_OPTIONS.find((e) => e.id === selectedEra) || ERA_OPTIONS[0];
+    const regionObj = REGION_OPTIONS.find((r) => r.id === selectedRegion) || REGION_OPTIONS[0];
+    const eraSetting = getEraRegionSetting(selectedEra, selectedRegion);
     const moodObj = MOOD_OPTIONS.find((m) => m.id === selectedMood) || MOOD_OPTIONS[0];
     const ratioObj = ASPECT_RATIO_OPTIONS.find((r) => r.id === selectedAspectRatio) || ASPECT_RATIO_OPTIONS[0];
 
@@ -421,46 +778,48 @@ export default function BrainstormingTab({ activeProject, refreshProjectData }: 
       ? `YOUR TARGET TASK (BATCH ${currentBatch.index + 1}: SCENES ${startNum} TO ${endNum})`
       : `YOUR TARGET TASK (ALL SCENES 1 TO ${sentences.length})`;
 
-    const attireText = characterAttire.trim() || `${eraObj.attire}, ${eraObj.hair}`;
+    const attireText = characterAttire.trim() || `${eraSetting.attire}, ${eraSetting.hair}`;
     const stagingInstruction = sceneStaging === "studio"
       ? `Uniform seamless ${moodObj.label} (${moodObj.desc}) background. The character and key story elements are grounded with a clean subtle contact shadow/floor patch. Clean minimalist composition with zero border frames.`
-      : `Full-bleed 2D illustrated ${eraObj.label} setting filling the frame edge-to-edge. Rich environmental context, vibrant flat colors. NO border margins, NO letterbox frames.`;
+      : `Full-bleed 2D illustrated ${eraSetting.eraTitle} setting filling the frame edge-to-edge. Rich environmental context, vibrant flat colors. NO border margins, NO letterbox frames.`;
 
     return `You are the lead visual director and storyboard artist for a top-tier educational animated explainer channel in the signature "Whatly" stickman doodle aesthetic.
 
 ### 1. CORE VISUAL ENGINE DIRECTIVE (LOCAL FLUX STICKMAN VECTOR SPEC):
 - Target Image Engine: Local FLUX.1 vector diffusion.
 - CRITICAL: DO NOT use the word "Whatly" in the prompts (the model does not recognize proper-noun channel tags).
-- CORE STYLE FORMULA: "Minimalist 2D flat vector stickman doodle illustration, clean thick bold black marker outlines, flat solid color fills, zero shading, zero gradients, zero shadows, pure simple minimalist shapes, ${sceneStaging === 'studio' ? 'seamless ' + moodObj.label + ' studio background' : 'full-bleed flat 2D ' + eraObj.label + ' environment'}, ${ratioObj.desc}, zero 3D rendering, zero photorealism, zero comic book detail".
-- PROMPT LENGTH: Concise and punchy (30 to 45 words max).
+- CORE STYLE FORMULA: "Minimalist 2D flat vector stickman doodle illustration, clean thick bold black marker outlines, flat solid color fills, zero shading, zero gradients, zero shadows, pure simple minimalist shapes, ${sceneStaging === 'studio' ? 'seamless ' + moodObj.label + ' studio background' : 'full-bleed flat 2D ' + eraSetting.eraTitle + ' environment'}, ${ratioObj.desc}, zero 3D rendering, zero photorealism, zero comic book detail".
+- PROMPT LENGTH: Concise, punchy, and cinematic (35 to 55 words max).
 
 ### 2. CHARACTER SPECIFICATION (TRUE WHATLY STICKMAN DOODLE):
 When human characters appear, they MUST be simple, cute 2D stick figures:
 - Round circle head filled with simple skin tone.
 - Two large round white cartoon eyes with black dot pupils.
-- Simple expressive line eyebrows and mouth (e.g. smiling, wide shock, shivering chattering teeth).
+- Simple expressive line eyebrows and mouth (e.g. smiling, wide shock, determined).
 - Simple rounded torso wearing flat-colored attire: ${attireText}.
 - Thin black stick-line arms and legs (pure stickman limbs).
 - ABSOLUTELY NO muscular detail, NO realistic face, NO gritty comic book shading, NO crosshatching.
 
-### 3. THE GOLDEN RULE OF WHATLY: CONCRETE PHYSICAL SCENES ONLY (NO ABSTRACT DIAGRAMS!):
-Image diffusion models are camera renderers, NOT graphic designers. They CANNOT understand abstract symbols like "bare skin symbol", "visual transition from X to Y", or "fading silhouettes behind red Xs" (these produce bizarre flesh blobs and clipart mess).
-EVERY PROMPT MUST DESCRIBE A REAL, CONCRETE, PHYSICAL SCENE:
-- HOW TO DO COMPARISONS (The Whatly Character Gag): Put subjects side by side in the physical scene! E.g. To show humans had no thick fur like animals: Show a shivering blue stickman with chattering teeth and shivering lines looking enviously at a cozy fluffy woolly mammoth standing happily in the snow.
-- HOW TO SHOW ABSTRACT IDEAS (Intelligence / Creativity): Draw a confident stickman winking with a bright glowing cartoon lightbulb and brain icon floating above his head, holding a simple stone tool.
-- HOW TO SHOW INVENTIONS & TOOLS: Draw a concrete macro close-up of a sharp carved bone needle threading leather hide, or a stickman proudly holding a finished fur jacket.
-- ZERO TEXT / ZERO WORDS: NEVER request words, letters, labels, or captions. Diffusion models cannot render text. Use only physical objects and simple visual icons.
+### 3. GOLDEN FRAMING RULES: EXPANSIVE BROAD VIEWS, BIRD'S EYE & DIAGRAMS (NO ISOLATED MACRO OBJECTS!):
+- STRICT PROHIBITION ON ISOLATED MACRO CLOSE-UPS: NEVER generate macro close-ups of single isolated objects sitting in the middle of a blank canvas (NO macro bread baskets, NO isolated wax scrolls, NO single tools floating alone). If an object or prop is mentioned in the narration, show it held by an active stickman in a wider scene, or integrated within an environmental setting or market!
+- MANDATORY BROAD & OVERVIEW FRAMING: Default to wide-angle panoramic establishing shots, broad landscape/cityscape overviews, high-angle aerial bird's-eye views, or educational 2D vector diagrams.
+- EDUCATIONAL VISUAL DIAGRAMS WELCOMED: When explaining concepts, architectures, social structures, or comparisons, use clean 2D vector educational diagrams (e.g. architectural cutaway cross-sections, split-panel before/after comparisons, or step-by-step visual process layouts).
+- ZERO TEXT / ZERO WORDS: NEVER request words, letters, labels, or captions. Diffusion models cannot render text. Use only physical objects, structural layouts, and simple visual icons.
 
-### 4. 4 DIVERSE PHYSICAL SHOT TYPES:
-Cycle through these 4 physical shot types to keep the storyboard exciting:
-1. CHARACTER GAG / ACTION: Stickman interacting with animals, tools, or elements (e.g. freezing stickman beside warm mammoth; stickman striking flint sparks).
-2. WIDE SCALE LANDSCAPE: Vast icy landscape where stickman is a tiny cute silhouette in the bottom corner dwarfed by colossal ice.
-3. MACRO OBJECT STILL-LIFE: Clean close-up of a tangible tool or invention (e.g. sharp bone needle piercing hide; campfire with orange sparks).
-4. WILDLIFE SCENE: A cute flat vector prehistoric beast (e.g. woolly mammoth with curved tusks walking across snowy plains; no humans).
+### 4. 4 HIGH-ENGAGEMENT BROAD SHOT TYPES:
+Cycle through these 4 physical shot types to keep the storyboard visually dynamic and expansive:
+1. WIDE OVERVIEW (PANORAMA): Expansive wide-angle landscape, settlement, market, temple complex, or city boulevard showing the full environment and multiple active stick figures.
+2. BIRD'S EYE VIEW (TOP-DOWN AERIAL): High-angle aerial perspective looking down from above at town layouts, riverways, agricultural fields, irrigation canals, or bustling marketplace pathways.
+3. VISUAL DIAGRAM / CUTAWAY: Educational 2D vector explainer diagram, split-screen comparison (e.g. left vs right), or architectural cross-section cutaway showing structural levels.
+4. CHARACTER ACTION IN BROAD CONTEXT: Wide or medium-wide shot of 2+ stick figures engaged in physical storytelling (trading, running, building, journeying) with rich environmental backdrop.
 
-### 5. THEME & SETTING CONTEXT:
-- Era: ${eraObj.label} (${eraObj.desc}).
+### 5. THEME, REGION & SETTING CONTEXT:
+- Era: ${eraSetting.eraTitle}.
+- Cultural Region: ${regionObj.label} (${regionObj.desc}).
+- Cultural Directives: ${eraSetting.culturalDirectives}.
 - Character Attire & Hair (WHEN CHARACTERS APPEAR): ${attireText}.
+- Typical Setting & Architecture: ${eraSetting.environment}.
+- Authentic Key Props: ${eraSetting.props}.
 - Backdrop Palette: ${moodObj.label} (${moodObj.desc}).
 - Video Framing: ${ratioObj.label} (${ratioObj.desc}).
 ${customSetting.trim() ? `- Key Story Props / Elements: ${customSetting.trim()}\n` : ""}
@@ -481,17 +840,17 @@ Do not wrap in extra conversational markdown text. RETURN ONLY VALID JSON:
   {
     "scene_number": ${startNum},
     "narration_khmer": "<exact Khmer sentence from target list>",
-    "shot_type": "character_action | wide_scale | object_focus | wildlife",
-    "image_prompt_english": "<concise 30-45 word prompt describing a CONCRETE physical scene in minimalist stickman doodle style, zero text, bold black outlines, flat solid colors>",
-    "negative_prompt": "text, words, letters, labels, alphabet, captions, watermark, signature, comic book, gritty, realistic, muscular, detailed anatomy, 3D, render, shading, gradients, shadows, photorealistic"
+    "shot_type": "wide_overview | birds_eye_view | visual_diagram | character_action_wide",
+    "image_prompt_english": "<concise 35-55 word prompt describing a CONCRETE broad/overview scene in minimalist stickman doodle style, zero text, bold black outlines, flat solid colors>",
+    "negative_prompt": "text, words, letters, labels, alphabet, captions, watermark, signature, macro close-up, isolated single object, comic book, gritty, realistic, muscular, detailed anatomy, 3D, render, shading, gradients, shadows, photorealistic"
   }
 ]
 
-### REFERENCE EXAMPLES OF PROPER WHATLY SCENES (CONCRETE & CLEAN):
-- Example Comparison (Physical Gag): "Minimalist 2D flat vector stickman illustration, a miserable stickman character shivering and hugging his thin arms with blue frost on his cheeks, standing next to a huge cozy woolly mammoth covered in thick fluffy fur smiling in the falling snow, bold black outlines, flat solid colors, seamless ${moodObj.label} background."
-- Example Idea / Intelligence: "Minimalist 2D flat vector stickman illustration, a clever prehistoric stickman smiling proudly with a bright glowing yellow lightbulb and brain icon floating above his head, holding a sharp flint spearhead, thin stick limbs, bold black outlines, flat solid colors, seamless ${moodObj.label} background."
-- Example Macro Tool: "Minimalist 2D flat vector doodle illustration, macro close-up of a sharp prehistoric carved bone needle with sinew thread puncturing thick animal hide leather, simple clean graphic lines, vibrant flat solid colors, bold black outlines, seamless ${moodObj.label} background."
-- Example Wide Landscape: "Minimalist 2D flat vector illustration, a massive flat-colored blue glacial wall towering across the frame, a tiny cute stickman silhouette walking in the lower corner dwarfed by the giant ice, cold minimalist atmosphere, bold black outlines, flat solid colors, seamless ${moodObj.label} background."`;
+### REFERENCE EXAMPLES FOR ${eraSetting.eraTitle.toUpperCase()} (${regionObj.shortLabel.toUpperCase()}):
+- Example Wide Overview: "${eraSetting.examples.wideOverview}"
+- Example Bird's Eye View: "${eraSetting.examples.birdsEyeView}"
+- Example Visual Diagram / Cutaway: "${eraSetting.examples.visualDiagram}"
+- Example Character Action (Broad): "${eraSetting.examples.characterAction}"`;
   };
 
   // Copy prompt to clipboard
@@ -606,6 +965,7 @@ Do not wrap in extra conversational markdown text. RETURN ONLY VALID JSON:
 
   const scenes = activeProject?.scenes || [];
   const currentEra = ERA_OPTIONS.find((e) => e.id === selectedEra) || ERA_OPTIONS[0];
+  const currentRegion = REGION_OPTIONS.find((r) => r.id === selectedRegion) || REGION_OPTIONS[0];
   const currentMood = MOOD_OPTIONS.find((m) => m.id === selectedMood) || MOOD_OPTIONS[0];
 
   return (
@@ -715,7 +1075,59 @@ Do not wrap in extra conversational markdown text. RETURN ONLY VALID JSON:
                 )}
               </div>
 
-              {/* 2. Custom Staging Dropdown */}
+              {/* 2. Custom Region Dropdown */}
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setOpenDropdown(openDropdown === "region" ? null : "region")}
+                  className={`flex items-center gap-1.5 bg-card hover:bg-zinc-100 dark:hover:bg-zinc-800 border rounded-lg px-2 py-1 text-[11px] font-semibold text-foreground cursor-pointer transition-colors shadow-2xs ${
+                    openDropdown === "region" ? "border-primary ring-1 ring-primary/30" : "border-border/70"
+                  }`}
+                  title="Select cultural region & country setting"
+                >
+                  <span className="text-panel-text font-normal text-[11px]">Region:</span>
+                  <span>{currentRegion.shortLabel || currentRegion.label}</span>
+                  <ChevronDown size={11} className={`text-panel-text ml-0.5 transition-transform duration-150 ${openDropdown === "region" ? "rotate-180 text-primary" : ""}`} />
+                </button>
+
+                {openDropdown === "region" && (
+                  <div className="absolute bottom-full mb-2 left-0 z-50 bg-card border border-border/80 rounded-xl shadow-2xl p-2 min-w-[280px] max-h-[250px] overflow-y-auto custom-scrollbar animate-in fade-in zoom-in-95 duration-100">
+                    <div className="text-[10px] font-semibold text-panel-text uppercase tracking-wider px-2 pb-1.5 border-b border-border/40 mb-1">
+                      Cultural Region & Country
+                    </div>
+                    <div className="space-y-0.5">
+                      {REGION_OPTIONS.map((reg) => {
+                        const isSelected = selectedRegion === reg.id;
+                        return (
+                          <button
+                            key={reg.id}
+                            type="button"
+                            onClick={() => {
+                              handleSelectRegion(reg.id);
+                              setOpenDropdown(null);
+                            }}
+                            className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-left transition-colors cursor-pointer ${
+                              isSelected ? "bg-primary/10 text-primary font-semibold" : "text-foreground/85 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                            }`}
+                          >
+                            <div className="pr-2 min-w-0">
+                              <div className="text-[11px] font-semibold flex items-center gap-1.5 truncate">
+                                {reg.label}
+                              </div>
+                              <div className="text-[10px] text-panel-text leading-tight mt-0.5 truncate">
+                                {reg.desc}
+                              </div>
+                            </div>
+                            {isSelected && <Check size={12} className="text-primary shrink-0" />}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* 3. Custom Staging Dropdown */}
               <div className="relative">
                 <button
                   type="button"
@@ -767,7 +1179,7 @@ Do not wrap in extra conversational markdown text. RETURN ONLY VALID JSON:
                 )}
               </div>
 
-              {/* 3. Custom Aspect Ratio Dropdown with Graphic matching Google Flow */}
+              {/* 4. Custom Aspect Ratio Dropdown with Graphic matching Google Flow */}
               <div className="relative">
                 <button
                   type="button"
@@ -845,7 +1257,7 @@ Do not wrap in extra conversational markdown text. RETURN ONLY VALID JSON:
                 )}
               </div>
 
-              {/* 4. Custom Backdrop Color Dropdown */}
+              {/* 5. Custom Backdrop Color Dropdown */}
               <div className="relative">
                 <button
                   type="button"

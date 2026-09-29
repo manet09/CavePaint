@@ -26,7 +26,8 @@ import {
   AudioLines,
   UserCheck,
   User,
-  SlidersHorizontal
+  SlidersHorizontal,
+  Clock
 } from "lucide-react";
 
 export interface Character {
@@ -351,7 +352,27 @@ export default function VoiceTab({ activeProject, refreshProjectData }: VoiceTab
 
   // Check if any scene is currently processing audio
   const scenes = activeProject?.scenes || [];
-  const isAnySceneProcessing = scenes.some((s: any) => s.audio_status === "processing");
+  const processingScenes = useMemo(() => {
+    return scenes.filter((s: any) => s.audio_status === "processing");
+  }, [scenes]);
+  const isAnySceneProcessing = processingScenes.length > 0;
+  const activeProcessingScene = processingScenes[0] || null;
+
+  // Track elapsed seconds during active synthesis
+  const [synthesisElapsedSeconds, setSynthesisElapsedSeconds] = useState(0);
+  useEffect(() => {
+    let timer: NodeJS.Timeout;
+    if (isAnySceneProcessing) {
+      timer = setInterval(() => {
+        setSynthesisElapsedSeconds((prev) => prev + 1);
+      }, 1000);
+    } else {
+      setSynthesisElapsedSeconds(0);
+    }
+    return () => {
+      if (timer) clearInterval(timer);
+    };
+  }, [isAnySceneProcessing]);
 
   // Fast polling logic during audio generation
   useEffect(() => {
@@ -361,13 +382,31 @@ export default function VoiceTab({ activeProject, refreshProjectData }: VoiceTab
         if (refreshProjectData) refreshProjectData();
       }, 1500);
     } else {
-      setCacheBuster(Date.now());
       setIsGeneratingAll(false);
     }
     return () => {
       if (intervalId) clearInterval(intervalId);
     };
   }, [isAnySceneProcessing, refreshProjectData]);
+
+  // Automatically refresh audio cache buster whenever any scene completes
+  const completedCount = useMemo(() => scenes.filter((s: any) => s.audio_status === "completed").length, [scenes]);
+  const prevCompletedCountRef = useRef(completedCount);
+  useEffect(() => {
+    if (completedCount !== prevCompletedCountRef.current) {
+      setCacheBuster(Date.now());
+      prevCompletedCountRef.current = completedCount;
+    }
+  }, [completedCount]);
+
+  // Sync selectedCharIdForProject with active project scenes
+  useEffect(() => {
+    if (scenes.length > 0) {
+      setSelectedCharIdForProject(scenes[0]?.character_id ?? null);
+    } else {
+      setSelectedCharIdForProject(null);
+    }
+  }, [activeProject?.id, scenes]);
 
   // Compiled tag
   const compiledTag = `(${gender}, ${age}, ${tone} tone, ${speed} speed)`;
@@ -645,7 +684,6 @@ export default function VoiceTab({ activeProject, refreshProjectData }: VoiceTab
   }, [scenes, timelineFilter]);
 
   // Statistics
-  const completedCount = scenes.filter((s: any) => s.audio_status === "completed").length;
   const outdatedCount = scenes.filter((s: any) => s.audio_status === "outdated").length;
   const pendingCount = scenes.length - completedCount;
 
@@ -1171,11 +1209,15 @@ export default function VoiceTab({ activeProject, refreshProjectData }: VoiceTab
                               type="button"
                               disabled={isApplyingAll}
                               onClick={() => handleApplyCharacterToAll(char)}
-                              className="px-2 py-0.5 rounded-md text-[9.5px] font-semibold text-primary hover:bg-primary/10 border border-primary/20 transition-all cursor-pointer flex items-center gap-1 disabled:opacity-40"
-                              title="Set as narrator for all scenes in this project"
+                              className={`px-2 py-0.5 rounded-md text-[9.5px] font-semibold transition-all cursor-pointer flex items-center gap-1 disabled:opacity-40 ${
+                                isAssignedAsDefault
+                                  ? "bg-primary text-white shadow-2xs"
+                                  : "text-primary hover:bg-primary/10 border border-primary/20"
+                              }`}
+                              title={isAssignedAsDefault ? "Currently assigned to all scenes" : "Set as narrator for all scenes in this project"}
                             >
                               <UserCheck size={10} />
-                              <span>Apply to All Scenes</span>
+                              <span>{isAssignedAsDefault ? "Active Narrator" : "Apply to All Scenes"}</span>
                             </button>
                           </div>
                         </div>
@@ -1255,15 +1297,8 @@ export default function VoiceTab({ activeProject, refreshProjectData }: VoiceTab
           {/* Top Options Toolbar (Cleanly Segmented) */}
           <div className="h-8 shrink-0 flex items-center justify-between gap-2 overflow-x-auto custom-scrollbar">
             
-            {/* Left: Ready Counter & Filter Pills */}
+            {/* Left: Filter Pills */}
             <div className="flex items-center gap-2 shrink-0">
-              
-              {/* Ready Status Counter */}
-              <div className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[9.5px] font-medium bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
-                <Check size={9} strokeWidth={2.5} />
-                <span>{completedCount}/{scenes.length} Audio Ready</span>
-              </div>
-
               {/* Timeline Filter Pills */}
               <div className="flex items-center gap-0.5 bg-card border border-border/70 p-0.5 rounded-lg shadow-2xs">
                 {(["all", "ready", "pending", "outdated"] as const).map((mode) => {
@@ -1351,7 +1386,7 @@ export default function VoiceTab({ activeProject, refreshProjectData }: VoiceTab
               </button>
 
               {/* Primary Batch Generate Button */}
-              {!isAnySceneProcessing && !isGeneratingAll ? (
+              {!isAnySceneProcessing ? (
                 <button
                   type="button"
                   onClick={handleGenerateAllLines}
@@ -1363,14 +1398,29 @@ export default function VoiceTab({ activeProject, refreshProjectData }: VoiceTab
                   <span>Generate All Lines</span>
                 </button>
               ) : (
-                <button
-                  type="button"
-                  onClick={handleStopVoice}
-                  className="px-2.5 py-0.5 h-7 rounded-lg bg-red-600 hover:bg-red-700 text-white text-[10px] font-semibold flex items-center gap-1.5 shadow-2xs transition-colors cursor-pointer"
-                >
-                  <Loader2 size={10} className="animate-spin" />
-                  <span>Stop Synthesis</span>
-                </button>
+                <div className="flex items-center gap-2">
+                  <div className="text-[10px] font-mono text-amber-500 bg-amber-500/10 border border-amber-500/30 px-2 py-0.5 rounded-lg flex items-center gap-1.5 animate-pulse">
+                    <Loader2 size={10} className="animate-spin text-amber-500 shrink-0" />
+                    <span>
+                      {modelState === "loading" || (synthesisElapsedSeconds < 25 && modelState !== "loaded")
+                        ? `Warming Up VoxCPM2 Model (${synthesisElapsedSeconds}s)...`
+                        : `Rendering Line #${activeProcessingScene?.scene_number || 1} (${synthesisElapsedSeconds}s)`}
+                    </span>
+                    {processingScenes.length > 1 && (
+                      <span className="text-[9px] text-amber-400/80 font-normal">
+                        ({processingScenes.length - 1} in queue)
+                      </span>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleStopVoice}
+                    className="px-2 py-0.5 h-7 rounded-lg bg-red-600/90 hover:bg-red-700 text-white text-[10px] font-semibold flex items-center gap-1 shadow-2xs transition-colors cursor-pointer"
+                    title="Stop synthesis"
+                  >
+                    <span>Stop</span>
+                  </button>
+                </div>
               )}
 
             </div>
@@ -1391,6 +1441,8 @@ export default function VoiceTab({ activeProject, refreshProjectData }: VoiceTab
                 const isOutdated = scene.audio_status === "outdated";
                 const isFailed = scene.audio_status === "failed";
                 const hasAudio = isCompleted || (isOutdated && scene.audio_path);
+                const isSceneActiveRendering = activeProcessingScene?.id === scene.id;
+                const queueIndex = processingScenes.findIndex((s: any) => s.id === scene.id);
 
                 const audioUrl = scene.audio_path 
                   ? `http://localhost:8000/static/${scene.audio_path}?t=${cacheBuster}`
@@ -1480,10 +1532,21 @@ export default function VoiceTab({ activeProject, refreshProjectData }: VoiceTab
                       {/* Status Badges & Action Buttons */}
                       <div className="flex items-center gap-1.5">
                         {isProcessing ? (
-                          <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[9px] font-medium bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30 animate-pulse">
-                            <Loader2 size={8} className="animate-spin" />
-                            <span>{modelState === "loading" ? "Warming Up..." : "Synthesizing..."}</span>
-                          </span>
+                          isSceneActiveRendering ? (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[9px] font-medium bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/40 animate-pulse">
+                              <Loader2 size={8} className="animate-spin" />
+                              <span>
+                                {modelState === "loading" || (synthesisElapsedSeconds < 25 && modelState !== "loaded")
+                                  ? `Warming Up (${synthesisElapsedSeconds}s)...`
+                                  : `Synthesizing... (${synthesisElapsedSeconds}s)`}
+                              </span>
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[9px] font-medium bg-zinc-500/10 text-zinc-400 border border-zinc-500/20">
+                              <Clock size={8} />
+                              <span>In Queue (#{queueIndex + 1})</span>
+                            </span>
+                          )
                         ) : isFailed ? (
                           <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[9px] font-medium bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/30">
                             <AlertTriangle size={8} />

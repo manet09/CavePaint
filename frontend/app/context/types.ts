@@ -32,6 +32,7 @@ export interface Project {
   voice_profile_tag?: string;
   audio_format?: string;
   theme_era?: string | null;
+  theme_region?: string | null;
   theme_mood?: string | null;
   theme_custom?: string | null;
   aspect_ratio?: string | null;

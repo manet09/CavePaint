@@ -21,7 +21,8 @@ import {
   Layers, 
   ChevronLeft, 
   ChevronRight, 
-  Volume2
+  Volume2,
+  Clock
 } from "lucide-react";
 
 interface ImagesTabProps {

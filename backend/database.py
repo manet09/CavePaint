@@ -7,7 +7,7 @@ DB_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "workspa
 SQLALCHEMY_DATABASE_URL = f"sqlite:///{DB_PATH}"
 
 engine = create_engine(
-    SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False}
+    SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False, "timeout": 30}
 )
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
@@ -59,6 +59,7 @@ class Project(Base):
     theme_custom = Column(Text, nullable=True)
     aspect_ratio = Column(String, default="16:9")
     character_attire = Column(Text, nullable=True)
+    theme_region = Column(String, default="cambodia", nullable=True)
     scene_staging = Column(String, default="studio")
     flow_project_id = Column(String, nullable=True)
     timeline_data = Column(Text, nullable=True)
@@ -166,6 +167,12 @@ except Exception:
 try:
     with engine.begin() as conn:
         conn.execute(text("ALTER TABLE projects ADD COLUMN scene_staging VARCHAR DEFAULT 'studio';"))
+except Exception:
+    pass
+
+try:
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE projects ADD COLUMN theme_region VARCHAR DEFAULT 'cambodia';"))
 except Exception:
     pass
 
