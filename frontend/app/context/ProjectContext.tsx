@@ -28,6 +28,7 @@ export interface ProjectContextType {
   updateActiveProject: (fields: Partial<Project>) => Promise<void>;
   updateProject: (id: number, fields: Partial<ProjectSummary>) => Promise<void>;
   updateSingleScene: (sceneId: number, fields: Partial<SceneData>) => Promise<void>;
+  reorderScenes: (newSceneIds: number[]) => Promise<void>;
   deleteExistingProject: (id: number) => Promise<void>;
   duplicateProject: (id: number) => Promise<CreatedProject | null>;
 }
@@ -71,6 +72,7 @@ export const useProjectContext = (): ProjectContextType => {
     updateActiveProject: data.updateActiveProject,
     updateProject: list.updateProject,
     updateSingleScene: data.updateSingleScene,
+    reorderScenes: data.reorderScenes,
     deleteExistingProject: list.deleteExistingProject,
     duplicateProject: list.duplicateProject,
   };

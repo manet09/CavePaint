@@ -69,15 +69,22 @@ async def process_task(task: GenerationTask):
                     count = int(task.payload.get("count", 1))
                     instructions = task.payload.get("instruction") or task.payload.get("instructions")
 
-                    # Resolve reference images
+                    # Resolve reference images (merge payload and stored scene references)
                     refs = []
                     if task.payload.get("reference_images"):
-                        refs = task.payload.get("reference_images")
-                    elif scene.reference_images:
+                        p_refs = task.payload.get("reference_images")
+                        if isinstance(p_refs, list):
+                            refs.extend(p_refs)
+                        elif p_refs:
+                            refs.append(p_refs)
+                    if scene.reference_images:
                         try:
-                            refs = json.loads(scene.reference_images)
+                            db_refs = json.loads(scene.reference_images)
+                            for r in db_refs:
+                                if r and r not in refs:
+                                    refs.append(r)
                         except Exception:
-                            refs = []
+                            pass
 
                     render_result = await loop.run_in_executor(
                         None,

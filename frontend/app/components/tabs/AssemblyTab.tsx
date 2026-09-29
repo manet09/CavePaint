@@ -2,7 +2,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
-import { Project } from "../../context/ProjectContext";
+import { Project, useProjectContext } from "../../context/ProjectContext";
 import { 
   FolderCheck, 
   Image as ImageIcon, 
@@ -30,7 +30,8 @@ import {
   ZoomIn,
   ZoomOut,
   FileAudio,
-  X
+  X,
+  GripVertical
 } from "lucide-react";
 import Link from "next/link";
 
@@ -116,6 +117,7 @@ const BG_PRESETS = [
 ];
 
 export default function AssemblyTab({ activeProject }: AssemblyTabProps) {
+  const { reorderScenes } = useProjectContext();
   const [scenesData, setScenesData] = useState<SceneCouplingItem[]>([]);
   const [bgmFiles, setBgmFiles] = useState<BgmFile[]>([]);
   const [totalDuration, setTotalDuration] = useState<number>(0);
@@ -125,6 +127,85 @@ export default function AssemblyTab({ activeProject }: AssemblyTabProps) {
   const [filterMode, setFilterMode] = useState<"all" | "ready" | "incomplete">("all");
   const [isLoadingStatus, setIsLoadingStatus] = useState<boolean>(true);
   const [isUploadingBgm, setIsUploadingBgm] = useState<boolean>(false);
+
+  const sceneIdsOrder = useMemo(() => {
+    return (activeProject.scenes || []).map((s) => `${s.id}:${s.scene_number}`).join(",");
+  }, [activeProject.scenes]);
+
+  // Scene reorder drag & drop states
+  const [draggedSceneIdx, setDraggedSceneIdx] = useState<number | null>(null);
+  const [dragOverSceneIdx, setDragOverSceneIdx] = useState<number | null>(null);
+  const [dropPosition, setDropPosition] = useState<"before" | "after" | null>(null);
+
+  const handleSceneDragStart = (e: React.DragEvent, index: number) => {
+    setDraggedSceneIdx(index);
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", String(index));
+  };
+
+  const handleSceneDragOver = (e: React.DragEvent, index: number) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    if (draggedSceneIdx === null || draggedSceneIdx === index) {
+      setDragOverSceneIdx(null);
+      setDropPosition(null);
+      return;
+    }
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const midY = rect.top + rect.height / 2;
+    const pos = e.clientY < midY ? "before" : "after";
+    setDragOverSceneIdx(index);
+    setDropPosition(pos);
+  };
+
+  const handleSceneDrop = async (e: React.DragEvent, targetIndex: number) => {
+    e.preventDefault();
+    if (draggedSceneIdx === null || draggedSceneIdx === targetIndex) {
+      setDraggedSceneIdx(null);
+      setDragOverSceneIdx(null);
+      setDropPosition(null);
+      return;
+    }
+
+    const currentScenes = [...scenesData];
+    const sourceScene = filteredScenes[draggedSceneIdx];
+    const targetScene = filteredScenes[targetIndex];
+    if (!sourceScene || !targetScene) return;
+
+    const sourceIdxInFull = currentScenes.findIndex((s) => s.id === sourceScene.id);
+    const targetIdxInFull = currentScenes.findIndex((s) => s.id === targetScene.id);
+    if (sourceIdxInFull === -1 || targetIdxInFull === -1) return;
+
+    const [draggedItem] = currentScenes.splice(sourceIdxInFull, 1);
+    let insertIndex = targetIdxInFull;
+    if (dropPosition === "after" && sourceIdxInFull < targetIdxInFull) {
+      insertIndex = targetIdxInFull;
+    } else if (dropPosition === "before" && sourceIdxInFull > targetIdxInFull) {
+      insertIndex = targetIdxInFull;
+    } else if (dropPosition === "after" && sourceIdxInFull > targetIdxInFull) {
+      insertIndex = targetIdxInFull + 1;
+    } else if (dropPosition === "before" && sourceIdxInFull < targetIdxInFull) {
+      insertIndex = targetIdxInFull - 1;
+    }
+    insertIndex = Math.max(0, Math.min(currentScenes.length, insertIndex));
+    currentScenes.splice(insertIndex, 0, draggedItem);
+
+    const newOrderedIds = currentScenes.map((s) => s.id);
+
+    setDraggedSceneIdx(null);
+    setDragOverSceneIdx(null);
+    setDropPosition(null);
+
+    if (reorderScenes) {
+      await reorderScenes(newOrderedIds);
+    }
+  };
+
+  const handleSceneDragEnd = () => {
+    setDraggedSceneIdx(null);
+    setDragOverSceneIdx(null);
+    setDropPosition(null);
+  };
   
   // Timeline zoom level (pixels per second)
   const [zoomPxPerSec, setZoomPxPerSec] = useState<number>(35);
@@ -263,7 +344,7 @@ export default function AssemblyTab({ activeProject }: AssemblyTabProps) {
     } finally {
       setIsLoadingStatus(false);
     }
-  }, [activeProject.id]);
+  }, [activeProject.id, sceneIdsOrder]);
 
   useEffect(() => {
     fetchAssemblyStatus();
@@ -1060,17 +1141,31 @@ export default function AssemblyTab({ activeProject }: AssemblyTabProps) {
                 No scenes found matching the filter.
               </div>
             ) : (
-              filteredScenes.map((scene) => {
+              filteredScenes.map((scene, idx) => {
                 const isCoupled = scene.coupling_status === "ready";
                 const isSelected = currentSceneAtPlayhead?.scene_number === scene.scene_number;
                 const volumeVal = timeline.scene_volumes[String(scene.scene_number)] ?? 1.0;
                 const isAuditioning = auditioningSceneId === scene.id;
 
+                const isBeingDragged = draggedSceneIdx === idx;
+                const isDropTarget = dragOverSceneIdx === idx;
+
                 return (
                   <div
                     key={scene.id}
+                    draggable
+                    onDragStart={(e) => handleSceneDragStart(e, idx)}
+                    onDragOver={(e) => handleSceneDragOver(e, idx)}
+                    onDrop={(e) => handleSceneDrop(e, idx)}
+                    onDragEnd={handleSceneDragEnd}
                     onClick={() => handleSeek(sceneTimelineMap.find(s => s.scene_number === scene.scene_number)?.timeline_start || 0)}
-                    className={`bg-background border rounded-lg p-2.5 transition-all cursor-pointer ${
+                    className={`bg-background border rounded-lg p-2.5 transition-all cursor-pointer relative select-none ${
+                      isBeingDragged ? "opacity-30 scale-[0.98] border-dashed border-primary" : ""
+                    } ${
+                      isDropTarget && dropPosition === "before" ? "border-t-2 border-t-primary" : ""
+                    } ${
+                      isDropTarget && dropPosition === "after" ? "border-b-2 border-b-primary" : ""
+                    } ${
                       isSelected 
                         ? "border-primary ring-1 ring-primary/40 shadow-sm" 
                         : "border-border hover:border-border/80"
@@ -1090,9 +1185,16 @@ export default function AssemblyTab({ activeProject }: AssemblyTabProps) {
                             <ImageIcon size={14} />
                           </div>
                         )}
-                        <span className="absolute top-0.5 left-0.5 bg-black/75 text-white text-[8px] font-mono px-1 py-0.2 rounded">
-                          #{String(scene.scene_number).padStart(2, "0")}
-                        </span>
+                        <div className="absolute top-0.5 left-0.5 bg-black/75 text-white text-[8px] font-mono px-1 py-0.2 rounded flex items-center gap-0.5">
+                          <span 
+                            className="cursor-grab active:cursor-grabbing text-white/70 hover:text-white transition-colors" 
+                            title="Drag to reorder sequence"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <GripVertical size={9} />
+                          </span>
+                          <span>#{String(scene.scene_number).padStart(2, "0")}</span>
+                        </div>
                       </div>
 
                       {/* Content & Gain */}

@@ -5,6 +5,7 @@ import asyncio
 import requests
 import dotenv
 import time
+import uuid
 from contextlib import asynccontextmanager
 from typing import List, Optional
 
@@ -206,11 +207,6 @@ async def lifespan(app: FastAPI):
 
     voice_engine.set_event_loop(asyncio.get_running_loop())
     worker_task = asyncio.create_task(start_queue_worker())
-    
-    # Pre-warm VoxCPM2 model in background thread on server startup so first inference is immediate
-    print("[STARTUP] Pre-warming VoxCPM2 neural model in background...")
-    asyncio.create_task(asyncio.to_thread(voice_engine.load_model))
-    
     yield
     if worker_task:
         worker_task.cancel()
@@ -835,6 +831,183 @@ async def import_project_scenes(project_id: int, payload: ImportScenesPayload, d
     }
 
 
+class ReorderScenesPayload(BaseModel):
+    scene_ids: List[int]
+
+@app.put("/api/projects/{project_id}/reorder-scenes", response_model=ProjectOut)
+async def reorder_project_scenes(project_id: int, payload: ReorderScenesPayload, db: Session = Depends(get_db)):
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    existing_scenes = db.query(Scene).filter(Scene.project_id == project_id).all()
+    scene_map = {s.id: s for s in existing_scenes}
+
+    # Validate that IDs belong to project
+    for sid in payload.scene_ids:
+        if sid not in scene_map:
+            raise HTTPException(status_code=400, detail=f"Scene ID {sid} does not belong to project {project_id}")
+
+    # Build the reordered list
+    ordered_scenes = [scene_map[sid] for sid in payload.scene_ids]
+    # Append any scenes that were not in payload (just in case)
+    for s in existing_scenes:
+        if s not in ordered_scenes:
+            ordered_scenes.append(s)
+
+    slug = project.slug or f"project-{project.id}"
+    project_dir = os.path.join(workspace_dir, slug)
+    os.makedirs(project_dir, exist_ok=True)
+    audio_fmt = project.audio_format or "wav"
+    ext = "mp3" if audio_fmt.lower() == "mp3" else "wav"
+
+    # --- Two-Phase File Re-indexing for Audio & Images ---
+    # Phase 1: Move existing scene files to temporary unique files to avoid collisions during swapping
+    temp_audio_map = {}  # scene_id -> temp_filepath
+    temp_img_map = {}    # scene_id -> temp_filepath
+
+    for scene in ordered_scenes:
+        old_num = scene.scene_number
+        if old_num is None:
+            continue
+        # 1. Audio staging
+        canonical_aud = os.path.join(project_dir, f"scene_{old_num:03d}.{ext}")
+        aud_src = None
+        if os.path.exists(canonical_aud):
+            aud_src = canonical_aud
+        elif scene.audio_path:
+            full_audio_path = os.path.join(workspace_dir, scene.audio_path)
+            if os.path.exists(full_audio_path):
+                aud_src = full_audio_path
+
+        if aud_src and os.path.exists(aud_src):
+            tmp_aud_name = f"_tmp_reorder_{uuid.uuid4().hex[:8]}_{scene.id}.{ext}"
+            tmp_aud_path = os.path.join(project_dir, tmp_aud_name)
+            try:
+                shutil.move(aud_src, tmp_aud_path)
+                temp_audio_map[scene.id] = tmp_aud_path
+            except Exception as e:
+                print(f"Error staging audio for scene {scene.id}: {e}")
+
+        # 2. Canonical Image staging
+        canonical_img = os.path.join(project_dir, f"scene_{old_num:03d}.png")
+        if os.path.exists(canonical_img):
+            tmp_img_name = f"_tmp_reorder_{uuid.uuid4().hex[:8]}_{scene.id}.png"
+            tmp_img_path = os.path.join(project_dir, tmp_img_name)
+            try:
+                shutil.move(canonical_img, tmp_img_path)
+                temp_img_map[scene.id] = tmp_img_path
+            except Exception as e:
+                print(f"Error staging canonical image for scene {scene.id}: {e}")
+
+    # Phase 2: Place files into their new sequence numbers (1-indexed)
+    timeline_dict = {}
+    if project.timeline_data:
+        try:
+            timeline_dict = json.loads(project.timeline_data)
+        except Exception:
+            timeline_dict = {}
+    old_volumes = timeline_dict.get("scene_volumes", {})
+    new_volumes = {}
+
+    for new_idx, scene in enumerate(ordered_scenes):
+        new_num = new_idx + 1
+        old_num = scene.scene_number
+        scene.scene_number = new_num
+
+        # Remap volume
+        if old_num is not None and str(old_num) in old_volumes:
+            new_volumes[str(new_num)] = old_volumes[str(old_num)]
+
+        # Place Audio
+        new_canonical_aud = os.path.join(project_dir, f"scene_{new_num:03d}.{ext}")
+        if scene.id in temp_audio_map:
+            tmp_aud_path = temp_audio_map[scene.id]
+            try:
+                shutil.move(tmp_aud_path, new_canonical_aud)
+                scene.audio_path = f"{slug}/scene_{new_num:03d}.{ext}"
+            except Exception as e:
+                print(f"Error moving audio to canonical path for scene {scene.id}: {e}")
+        else:
+            scene.audio_path = None
+            if scene.audio_status == "completed":
+                scene.audio_status = "idle"
+
+        # Place Image
+        new_canonical_img = os.path.join(project_dir, f"scene_{new_num:03d}.png")
+        if scene.image_path:
+            old_canonical_rel = f"{slug}/scene_{old_num:03d}.png" if old_num is not None else None
+            # If image_path was previously pointing to canonical scene_{old_num}.png
+            if old_canonical_rel and scene.image_path == old_canonical_rel and scene.id in temp_img_map:
+                tmp_img_path = temp_img_map[scene.id]
+                try:
+                    shutil.move(tmp_img_path, new_canonical_img)
+                    scene.image_path = f"{slug}/scene_{new_num:03d}.png"
+                except Exception as e:
+                    print(f"Error moving image to canonical path for scene {scene.id}: {e}")
+            else:
+                # Active image is a variant or external file
+                src_img = os.path.join(workspace_dir, scene.image_path)
+                if os.path.exists(src_img):
+                    try:
+                        shutil.copyfile(src_img, new_canonical_img)
+                    except Exception as e:
+                        print(f"Error copying variant to canonical image: {e}")
+                elif scene.id in temp_img_map:
+                    # Fallback to previously mirrored image
+                    tmp_img_path = temp_img_map[scene.id]
+                    try:
+                        shutil.move(tmp_img_path, new_canonical_img)
+                        scene.image_path = f"{slug}/scene_{new_num:03d}.png"
+                    except Exception as e:
+                        print(f"Error fallback moving image: {e}")
+        elif scene.id in temp_img_map:
+            # Had a canonical image without explicit image_path
+            tmp_img_path = temp_img_map[scene.id]
+            try:
+                shutil.move(tmp_img_path, new_canonical_img)
+                scene.image_path = f"{slug}/scene_{new_num:03d}.png"
+            except Exception as e:
+                print(f"Error moving canonical image: {e}")
+        else:
+            scene.image_path = None
+            if os.path.exists(new_canonical_img):
+                try:
+                    os.remove(new_canonical_img)
+                except Exception:
+                    pass
+
+    # Clean up any leftover temp files
+    for p in list(temp_audio_map.values()) + list(temp_img_map.values()):
+        if os.path.exists(p):
+            try:
+                os.remove(p)
+            except Exception:
+                pass
+
+    # Save new timeline volumes
+    if "scene_volumes" in timeline_dict or new_volumes:
+        timeline_dict["scene_volumes"] = new_volumes
+        project.timeline_data = json.dumps(timeline_dict)
+
+    db.commit()
+    db.refresh(project)
+
+    # Re-compile master voiceover with the new sequence
+    try:
+        from .services.voice_engine import compile_master_voiceover
+        compile_master_voiceover(project.id, db)
+    except Exception as e:
+        print(f"Error recompiling master voiceover after reorder: {e}")
+
+    # Synchronize structured JSON data
+    sync_project_json(project.id, db)
+    db.refresh(project)
+
+    project.scenes.sort(key=lambda x: x.scene_number)
+    return project
+
+
 @app.post("/api/scenes/{scene_id}/refine")
 def refine_image_prompt_endpoint(scene_id: int, payload: SceneRefine, db: Session = Depends(get_db)):
     # 1. Fetch target scene configuration from database
@@ -944,7 +1117,7 @@ async def flow_adjust_scene_endpoint(scene_id: int, payload: FlowAdjustPayload, 
     # 3. Resolve active reference image from clicked variant or scene active frame
     from .services.flow_engine import find_flow_asset_for_image
     ref_image_path = payload.reference_image or scene.image_path
-    resolved_refs = None
+    resolved_refs = []
     ref_asset_name = None
 
     if ref_image_path:
@@ -954,13 +1127,27 @@ async def flow_adjust_scene_endpoint(scene_id: int, payload: FlowAdjustPayload, 
         
         # Resolve to absolute local file path for flow.google.com compatibility
         if os.path.isabs(ref_image_path) and os.path.exists(ref_image_path):
-            resolved_refs = [ref_image_path]
+            resolved_refs.append(ref_image_path)
         else:
             full_ref = os.path.join(workspace_dir, ref_image_path)
             if os.path.exists(full_ref):
-                resolved_refs = [full_ref]
+                resolved_refs.append(full_ref)
             else:
-                resolved_refs = [ref_image_path]
+                resolved_refs.append(ref_image_path)
+
+    # Also merge any stored scene reference images
+    if scene.reference_images:
+        try:
+            stored_refs = json.loads(scene.reference_images)
+            for r in stored_refs:
+                if not r:
+                    continue
+                abs_r = r if os.path.isabs(r) and os.path.exists(r) else os.path.join(workspace_dir, r)
+                target_r = abs_r if os.path.exists(abs_r) else r
+                if target_r not in resolved_refs:
+                    resolved_refs.append(target_r)
+        except Exception:
+            pass
 
     # 4. Trigger immediate image generation via Flow MCP / queue
     generating = False

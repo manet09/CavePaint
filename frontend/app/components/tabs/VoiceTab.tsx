@@ -27,7 +27,8 @@ import {
   UserCheck,
   User,
   SlidersHorizontal,
-  Clock
+  Clock,
+  GripVertical
 } from "lucide-react";
 
 export interface Character {
@@ -249,7 +250,82 @@ interface VoiceTabProps {
 }
 
 export default function VoiceTab({ activeProject, refreshProjectData }: VoiceTabProps) {
-  const { updateActiveProject, updateSingleScene } = useProjectContext();
+  const { updateActiveProject, updateSingleScene, reorderScenes } = useProjectContext();
+
+  // Scene reorder drag & drop states
+  const [draggedSceneIdx, setDraggedSceneIdx] = useState<number | null>(null);
+  const [dragOverSceneIdx, setDragOverSceneIdx] = useState<number | null>(null);
+  const [dropPosition, setDropPosition] = useState<"before" | "after" | null>(null);
+
+  const handleSceneDragStart = (e: React.DragEvent, index: number) => {
+    setDraggedSceneIdx(index);
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", String(index));
+  };
+
+  const handleSceneDragOver = (e: React.DragEvent, index: number) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    if (draggedSceneIdx === null || draggedSceneIdx === index) {
+      setDragOverSceneIdx(null);
+      setDropPosition(null);
+      return;
+    }
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const midY = rect.top + rect.height / 2;
+    const pos = e.clientY < midY ? "before" : "after";
+    setDragOverSceneIdx(index);
+    setDropPosition(pos);
+  };
+
+  const handleSceneDrop = async (e: React.DragEvent, targetIndex: number) => {
+    e.preventDefault();
+    if (draggedSceneIdx === null || draggedSceneIdx === targetIndex) {
+      setDraggedSceneIdx(null);
+      setDragOverSceneIdx(null);
+      setDropPosition(null);
+      return;
+    }
+
+    const currentScenes = [...scenes];
+    const sourceScene = filteredScenes[draggedSceneIdx];
+    const targetScene = filteredScenes[targetIndex];
+    if (!sourceScene || !targetScene) return;
+
+    const sourceIdxInFull = currentScenes.findIndex((s: any) => s.id === sourceScene.id);
+    const targetIdxInFull = currentScenes.findIndex((s: any) => s.id === targetScene.id);
+    if (sourceIdxInFull === -1 || targetIdxInFull === -1) return;
+
+    const [draggedItem] = currentScenes.splice(sourceIdxInFull, 1);
+    let insertIndex = targetIdxInFull;
+    if (dropPosition === "after" && sourceIdxInFull < targetIdxInFull) {
+      insertIndex = targetIdxInFull;
+    } else if (dropPosition === "before" && sourceIdxInFull > targetIdxInFull) {
+      insertIndex = targetIdxInFull;
+    } else if (dropPosition === "after" && sourceIdxInFull > targetIdxInFull) {
+      insertIndex = targetIdxInFull + 1;
+    } else if (dropPosition === "before" && sourceIdxInFull < targetIdxInFull) {
+      insertIndex = targetIdxInFull - 1;
+    }
+    insertIndex = Math.max(0, Math.min(currentScenes.length, insertIndex));
+    currentScenes.splice(insertIndex, 0, draggedItem);
+
+    const newOrderedIds = currentScenes.map((s: any) => s.id);
+
+    setDraggedSceneIdx(null);
+    setDragOverSceneIdx(null);
+    setDropPosition(null);
+
+    if (reorderScenes) {
+      await reorderScenes(newOrderedIds);
+    }
+  };
+
+  const handleSceneDragEnd = () => {
+    setDraggedSceneIdx(null);
+    setDragOverSceneIdx(null);
+    setDropPosition(null);
+  };
 
   // Navigation sub-tab in Voice Studio
   const [activeSubTab, setActiveSubTab] = useState<"factory" | "library" | "script">("factory");
@@ -1435,7 +1511,7 @@ export default function VoiceTab({ activeProject, refreshProjectData }: VoiceTab
                 <p className="text-sm font-medium">No scenes match the selected filter.</p>
               </div>
             ) : (
-              filteredScenes.map((scene: any) => {
+              filteredScenes.map((scene: any, idx: number) => {
                 const isCompleted = scene.audio_status === "completed";
                 const isProcessing = scene.audio_status === "processing";
                 const isOutdated = scene.audio_status === "outdated";
@@ -1448,10 +1524,24 @@ export default function VoiceTab({ activeProject, refreshProjectData }: VoiceTab
                   ? `http://localhost:8000/static/${scene.audio_path}?t=${cacheBuster}`
                   : `http://localhost:8000/static/${activeProject?.slug}/scene_${String(scene.scene_number).padStart(3, "0")}.${currentFormat}?t=${cacheBuster}`;
 
+                const isBeingDragged = draggedSceneIdx === idx;
+                const isDropTarget = dragOverSceneIdx === idx;
+
                 return (
                   <div
                     key={scene.id}
-                    className={`p-3 rounded-lg border transition-colors flex flex-col gap-2 relative ${
+                    draggable
+                    onDragStart={(e) => handleSceneDragStart(e, idx)}
+                    onDragOver={(e) => handleSceneDragOver(e, idx)}
+                    onDrop={(e) => handleSceneDrop(e, idx)}
+                    onDragEnd={handleSceneDragEnd}
+                    className={`p-3 rounded-lg border transition-all flex flex-col gap-2 relative select-none ${
+                      isBeingDragged ? "opacity-30 scale-[0.98] border-dashed border-primary" : ""
+                    } ${
+                      isDropTarget && dropPosition === "before" ? "border-t-2 border-t-primary" : ""
+                    } ${
+                      isDropTarget && dropPosition === "after" ? "border-b-2 border-b-primary" : ""
+                    } ${
                       isProcessing
                         ? "bg-amber-500/5 border-amber-500/30"
                         : isFailed
@@ -1466,7 +1556,14 @@ export default function VoiceTab({ activeProject, refreshProjectData }: VoiceTab
                     {/* Scene Card Header */}
                     <div className="flex items-center justify-between gap-2">
                       
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-1.5">
+                        <span 
+                          className="cursor-grab active:cursor-grabbing text-panel-text/40 hover:text-foreground transition-colors p-0.5" 
+                          title="Drag to reorder sequence"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <GripVertical size={12} />
+                        </span>
                         <span className="text-[11px] font-bold font-mono text-foreground">
                           Scene #{String(scene.scene_number).padStart(2, "0")}
                         </span>

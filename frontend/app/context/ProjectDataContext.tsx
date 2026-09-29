@@ -14,6 +14,7 @@ interface ProjectDataContextType {
   refreshActive: () => Promise<void>;
   updateActiveProject: (fields: Partial<Project>) => Promise<void>;
   updateSingleScene: (sceneId: number, fields: Partial<SceneData>) => Promise<void>;
+  reorderScenes: (newSceneIds: number[]) => Promise<void>;
 }
 
 const ProjectDataContext = createContext<ProjectDataContextType | undefined>(undefined);
@@ -138,6 +139,69 @@ export const ProjectDataProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
+  const reorderScenes = async (newSceneIds: number[]) => {
+    if (!activeProject || !activeProject.scenes) return;
+
+    const previousScenes = activeProject.scenes;
+    const sceneMap = new Map(previousScenes.map((s) => [s.id, s]));
+
+    const reordered: SceneData[] = [];
+    newSceneIds.forEach((id, idx) => {
+      const s = sceneMap.get(id);
+      if (s) {
+        reordered.push({ ...s, scene_number: idx + 1 });
+      }
+    });
+
+    // Append any scenes not in newSceneIds to avoid dropping scenes
+    previousScenes.forEach((s) => {
+      if (!newSceneIds.includes(s.id)) {
+        reordered.push({ ...s, scene_number: reordered.length + 1 });
+      }
+    });
+
+    const cleanJsonArray = reordered.map((scene) => ({
+      scene_number: scene.scene_number,
+      narration_khmer: scene.narration_khmer,
+      image_prompt_english: scene.image_prompt_english,
+      negative_prompt: scene.negative_prompt,
+      image_path: scene.image_path,
+      audio_path: scene.audio_path,
+      character_id: scene.character_id,
+      character_name: scene.character_name,
+    }));
+
+    // Optimistic update
+    setActiveProject((prev) =>
+      prev
+        ? {
+            ...prev,
+            scenes: reordered,
+            structured_json_data: JSON.stringify(cleanJsonArray, null, 2),
+          }
+        : null
+    );
+
+    try {
+      const response = await fetch(`${API_BASE}/api/projects/${activeProject.id}/reorder-scenes`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ scene_ids: newSceneIds }),
+      });
+
+      if (response.ok) {
+        const data: Project = await response.json();
+        setActiveProject(data);
+      } else {
+        console.error("Failed to sync scene reorder to backend");
+        await refreshActive();
+      }
+    } catch (err) {
+      console.error("Error reordering scenes:", err);
+      await refreshActive();
+    }
+  };
+
   return (
     <ProjectDataContext.Provider
       value={{
@@ -148,6 +212,7 @@ export const ProjectDataProvider = ({ children }: { children: ReactNode }) => {
         refreshActive,
         updateActiveProject,
         updateSingleScene,
+        reorderScenes,
       }}
     >
       {children}

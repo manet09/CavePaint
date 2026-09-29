@@ -31,7 +31,8 @@ import {
   CornerDownLeft,
   Columns2,
   Maximize2,
-  Minimize2
+  Minimize2,
+  GripVertical
 } from "lucide-react";
 
 interface BrainstormingTabProps {
@@ -534,7 +535,76 @@ function AutoResizeTextarea({
 }
 
 export default function BrainstormingTab({ activeProject, refreshProjectData }: BrainstormingTabProps) {
-  const { updateActiveProject, updateSingleScene } = useProjectContext();
+  const { updateActiveProject, updateSingleScene, reorderScenes } = useProjectContext();
+
+  // Scene reorder drag & drop states
+  const [draggedSceneIdx, setDraggedSceneIdx] = useState<number | null>(null);
+  const [dragOverSceneIdx, setDragOverSceneIdx] = useState<number | null>(null);
+  const [dropPosition, setDropPosition] = useState<"before" | "after" | null>(null);
+
+  const handleSceneDragStart = (e: React.DragEvent, index: number) => {
+    setDraggedSceneIdx(index);
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", String(index));
+  };
+
+  const handleSceneDragOver = (e: React.DragEvent, index: number) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    if (draggedSceneIdx === null || draggedSceneIdx === index) {
+      setDragOverSceneIdx(null);
+      setDropPosition(null);
+      return;
+    }
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const midY = rect.top + rect.height / 2;
+    const pos = e.clientY < midY ? "before" : "after";
+    setDragOverSceneIdx(index);
+    setDropPosition(pos);
+  };
+
+  const handleSceneDrop = async (e: React.DragEvent, targetIndex: number) => {
+    e.preventDefault();
+    if (draggedSceneIdx === null || draggedSceneIdx === targetIndex) {
+      setDraggedSceneIdx(null);
+      setDragOverSceneIdx(null);
+      setDropPosition(null);
+      return;
+    }
+
+    const currentScenes = activeProject?.scenes || [];
+    const newScenes = [...currentScenes];
+    const [draggedItem] = newScenes.splice(draggedSceneIdx, 1);
+    
+    let insertIndex = targetIndex;
+    if (dropPosition === "after" && draggedSceneIdx < targetIndex) {
+      insertIndex = targetIndex;
+    } else if (dropPosition === "before" && draggedSceneIdx > targetIndex) {
+      insertIndex = targetIndex;
+    } else if (dropPosition === "after" && draggedSceneIdx > targetIndex) {
+      insertIndex = targetIndex + 1;
+    } else if (dropPosition === "before" && draggedSceneIdx < targetIndex) {
+      insertIndex = targetIndex - 1;
+    }
+    insertIndex = Math.max(0, Math.min(newScenes.length, insertIndex));
+    newScenes.splice(insertIndex, 0, draggedItem);
+
+    const newOrderedIds = newScenes.map((s: any) => s.id);
+
+    setDraggedSceneIdx(null);
+    setDragOverSceneIdx(null);
+    setDropPosition(null);
+
+    if (reorderScenes) {
+      await reorderScenes(newOrderedIds);
+    }
+  };
+
+  const handleSceneDragEnd = () => {
+    setDraggedSceneIdx(null);
+    setDragOverSceneIdx(null);
+    setDropPosition(null);
+  };
 
   // Custom dropdown popovers state & click-outside refs
   const [openDropdown, setOpenDropdown] = useState<"era" | "region" | "staging" | "ratio" | "mood" | "batch" | "batchSize" | null>(null);
@@ -1671,16 +1741,42 @@ Do not wrap in extra conversational markdown text. RETURN ONLY VALID JSON:
                 </p>
               </div>
             ) : (
-              scenes.map((scene: any) => (
-                <div 
-                  key={scene.id || scene.scene_number} 
-                  className="group bg-card rounded-xl p-3.5 border border-border/70 hover:border-border transition-all shadow-2xs space-y-2"
-                >
-                  {/* Scene Header */}
-                  <div className="flex items-center justify-between pb-1 border-b border-border/30">
-                    <span className="text-[11px] font-bold text-primary tracking-wide">
-                      Scene #{String(scene.scene_number).padStart(2, "0")}
-                    </span>
+              scenes.map((scene: any, idx: number) => {
+                const isBeingDragged = draggedSceneIdx === idx;
+                const isDropTarget = dragOverSceneIdx === idx;
+
+                return (
+                  <div 
+                    key={scene.id || scene.scene_number} 
+                    draggable
+                    onDragStart={(e) => handleSceneDragStart(e, idx)}
+                    onDragOver={(e) => handleSceneDragOver(e, idx)}
+                    onDrop={(e) => handleSceneDrop(e, idx)}
+                    onDragEnd={handleSceneDragEnd}
+                    className={`group bg-card rounded-xl p-3.5 border transition-all shadow-2xs space-y-2 relative select-none ${
+                      isBeingDragged ? "opacity-30 scale-[0.98] border-dashed border-primary" : ""
+                    } ${
+                      isDropTarget && dropPosition === "before" ? "border-t-2 border-t-primary" : ""
+                    } ${
+                      isDropTarget && dropPosition === "after" ? "border-b-2 border-b-primary" : ""
+                    } ${
+                      !isBeingDragged && !isDropTarget ? "border-border/70 hover:border-border" : ""
+                    }`}
+                  >
+                    {/* Scene Header */}
+                    <div className="flex items-center justify-between pb-1 border-b border-border/30">
+                      <div className="flex items-center gap-1.5">
+                        <span 
+                          className="cursor-grab active:cursor-grabbing text-panel-text/40 hover:text-foreground transition-colors p-0.5" 
+                          title="Drag to reorder sequence"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <GripVertical size={12} />
+                        </span>
+                        <span className="text-[11px] font-bold text-primary tracking-wide">
+                          Scene #{String(scene.scene_number).padStart(2, "0")}
+                        </span>
+                      </div>
                     <button
                       type="button"
                       onClick={() => handleDeleteScene(scene.id)}
@@ -1758,7 +1854,8 @@ Do not wrap in extra conversational markdown text. RETURN ONLY VALID JSON:
                     )}
                   </div>
                 </div>
-              ))
+              );
+            })
             )}
           </div>
 

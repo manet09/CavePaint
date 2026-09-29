@@ -22,7 +22,8 @@ import {
   ChevronLeft, 
   ChevronRight, 
   Volume2,
-  Clock
+  Clock,
+  GripVertical
 } from "lucide-react";
 
 interface ImagesTabProps {
@@ -97,7 +98,7 @@ function AutoResizeTextarea({
 }
 
 export default function ImagesTab(props: ImagesTabProps) {
-  const { activeProject, updateSingleScene, refreshProjects, updateActiveProject } = useProjectContext();
+  const { activeProject, updateSingleScene, refreshProjects, updateActiveProject, reorderScenes } = useProjectContext();
   
   const [activeSceneIndex, setActiveSceneIndex] = useState(0);
   const [copilotInput, setCopilotInput] = useState("");
@@ -105,9 +106,79 @@ export default function ImagesTab(props: ImagesTabProps) {
   const [copilotSummary, setCopilotSummary] = useState<string | null>(null);
   const copilotInputRef = useRef<HTMLTextAreaElement>(null);
 
+  // Scene reorder drag & drop states
+  const [draggedSceneIdx, setDraggedSceneIdx] = useState<number | null>(null);
+  const [dragOverSceneIdx, setDragOverSceneIdx] = useState<number | null>(null);
+  const [dropPosition, setDropPosition] = useState<"before" | "after" | null>(null);
+
+  const handleSceneDragStart = (e: React.DragEvent, index: number) => {
+    setDraggedSceneIdx(index);
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", String(index));
+  };
+
+  const handleSceneDragOver = (e: React.DragEvent, index: number) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    if (draggedSceneIdx === null || draggedSceneIdx === index) {
+      setDragOverSceneIdx(null);
+      setDropPosition(null);
+      return;
+    }
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const midY = rect.top + rect.height / 2;
+    const pos = e.clientY < midY ? "before" : "after";
+    setDragOverSceneIdx(index);
+    setDropPosition(pos);
+  };
+
+  const handleSceneDrop = async (e: React.DragEvent, targetIndex: number) => {
+    e.preventDefault();
+    if (draggedSceneIdx === null || draggedSceneIdx === targetIndex) {
+      setDraggedSceneIdx(null);
+      setDragOverSceneIdx(null);
+      setDropPosition(null);
+      return;
+    }
+
+    const newScenes = [...scenes];
+    const [draggedItem] = newScenes.splice(draggedSceneIdx, 1);
+    
+    let insertIndex = targetIndex;
+    if (dropPosition === "after" && draggedSceneIdx < targetIndex) {
+      insertIndex = targetIndex;
+    } else if (dropPosition === "before" && draggedSceneIdx > targetIndex) {
+      insertIndex = targetIndex;
+    } else if (dropPosition === "after" && draggedSceneIdx > targetIndex) {
+      insertIndex = targetIndex + 1;
+    } else if (dropPosition === "before" && draggedSceneIdx < targetIndex) {
+      insertIndex = targetIndex - 1;
+    }
+    insertIndex = Math.max(0, Math.min(newScenes.length, insertIndex));
+    newScenes.splice(insertIndex, 0, draggedItem);
+
+    const newOrderedIds = newScenes.map((s: any) => s.id);
+
+    // Follow the moved card
+    setActiveSceneIndex(insertIndex);
+    setDraggedSceneIdx(null);
+    setDragOverSceneIdx(null);
+    setDropPosition(null);
+
+    if (reorderScenes) {
+      await reorderScenes(newOrderedIds);
+    }
+  };
+
+  const handleSceneDragEnd = () => {
+    setDraggedSceneIdx(null);
+    setDragOverSceneIdx(null);
+    setDropPosition(null);
+  };
+
   const [aspectRatioValue, setAspectRatioValue] = useState("16:9");
   const [inferenceSteps, setInferenceSteps] = useState(10);
-  const [isGenerating, setIsGenerating] = useState(false);
+  const [submittingSceneIds, setSubmittingSceneIds] = useState<number[]>([]);
   const [isGeneratingAll, setIsGeneratingAll] = useState(false);
   const [cacheBuster, setCacheBuster] = useState(Date.now());
   
@@ -124,6 +195,24 @@ export default function ImagesTab(props: ImagesTabProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const refInputRef = useRef<HTMLInputElement>(null);
 
+  // Reference picker & dropdown states
+  const [isAddRefMenuOpen, setIsAddRefMenuOpen] = useState(false);
+  const [isScenePickerOpen, setIsScenePickerOpen] = useState(false);
+  const addRefMenuRef = useRef<HTMLDivElement>(null);
+
+  // Close add ref dropdown on click outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (addRefMenuRef.current && !addRefMenuRef.current.contains(e.target as Node)) {
+        setIsAddRefMenuOpen(false);
+      }
+    };
+    if (isAddRefMenuOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [isAddRefMenuOpen]);
+
   // Exclusions collapsible state
   const [isExclusionsExpanded, setIsExclusionsExpanded] = useState(false);
 
@@ -133,9 +222,11 @@ export default function ImagesTab(props: ImagesTabProps) {
   // Drag & drop highlight state
   const [isDraggingOver, setIsDraggingOver] = useState(false);
 
-  // Reset selected reference image when switching scenes
+  // Reset selected reference image & close menus when switching scenes
   useEffect(() => {
     setSelectedRefImage(undefined);
+    setIsAddRefMenuOpen(false);
+    setIsScenePickerOpen(false);
   }, [activeSceneIndex]);
 
   // Synchronize aspect ratio with active project
@@ -207,33 +298,90 @@ export default function ImagesTab(props: ImagesTabProps) {
     }
   }, [activeScene?.reference_images]);
 
+  // Derived list of all scene frames and variants available to be picked as references
+  const availableSceneRefs = useMemo(() => {
+    const list: Array<{
+      uniqueKey: string;
+      sceneId: number;
+      sceneNumber: number;
+      imagePath: string;
+      variantTag?: string;
+      promptText?: string;
+    }> = [];
+
+    scenes.forEach((s: any) => {
+      const sceneVariants: string[] = [];
+      if (s.image_path) sceneVariants.push(s.image_path);
+      if (s.images_list) {
+        try {
+          const parsed = typeof s.images_list === "string" ? JSON.parse(s.images_list) : s.images_list;
+          if (Array.isArray(parsed)) {
+            parsed.forEach((p: string) => {
+              if (p && !sceneVariants.includes(p)) sceneVariants.push(p);
+            });
+          }
+        } catch {}
+      }
+
+      sceneVariants.forEach((vPath: string, vIdx: number) => {
+        list.push({
+          uniqueKey: `${s.id}-${vPath}`,
+          sceneId: s.id,
+          sceneNumber: s.scene_number,
+          imagePath: vPath,
+          variantTag: sceneVariants.length > 1 ? `V${vIdx + 1}` : undefined,
+          promptText: s.narration_khmer || s.image_prompt_english || "",
+        });
+      });
+    });
+
+    return list;
+  }, [scenes]);
+
   // Generated scene count calculation
   const generatedScenesCount = useMemo(() => {
     return scenes.filter((s: any) => !!s.image_path).length;
   }, [scenes]);
 
-  // Check if any scene is currently processing
-  const isAnySceneProcessing = useMemo(() => {
-    return scenes.some((s: any) => s.image_status === "processing");
+  // Check if any scene is currently processing or queued
+  const processingScenes = useMemo(() => {
+    return scenes.filter((s: any) => s.image_status === "processing");
   }, [scenes]);
 
-  // Generation status polling (polls if any scene in project is processing or batch generation initiated)
+  const isAnySceneProcessing = processingScenes.length > 0;
+  const activeProcessingScene = processingScenes[0] || null;
+
+  // Active scene specific queue & render state
+  const isActiveSceneSubmitting = activeScene ? submittingSceneIds.includes(activeScene.id) : false;
+  const isActiveSceneProcessing = (activeScene?.image_status === "processing") || isActiveSceneSubmitting;
+  const isActiveSceneRendering = activeProcessingScene?.id === activeScene?.id;
+  const activeSceneQueueIndex = processingScenes.findIndex((s: any) => s.id === activeScene?.id);
+  const isActiveSceneQueued = isActiveSceneProcessing && !isActiveSceneRendering;
+
+  // Automatically refresh cache buster whenever any scene completes or variants count changes
+  const prevGeneratedCountRef = useRef(generatedScenesCount);
+  useEffect(() => {
+    if (generatedScenesCount !== prevGeneratedCountRef.current) {
+      setCacheBuster(Date.now());
+      prevGeneratedCountRef.current = generatedScenesCount;
+    }
+  }, [generatedScenesCount]);
+
+  // Generation status polling (polls if any scene in project is processing, submitting, or batch generation initiated)
   useEffect(() => {
     let interval: NodeJS.Timeout;
-    if (isAnySceneProcessing || isGeneratingAll) {
-      setIsGenerating(true);
+    if (isAnySceneProcessing || isGeneratingAll || submittingSceneIds.length > 0) {
       interval = setInterval(() => {
         if (props.refreshProjectData) props.refreshProjectData();
       }, 1500);
     } else {
-      if (isGenerating || isGeneratingAll) {
+      if (isGeneratingAll) {
         setCacheBuster(Date.now());
       }
-      setIsGenerating(false);
       setIsGeneratingAll(false);
     }
     return () => clearInterval(interval);
-  }, [isAnySceneProcessing, isGeneratingAll, props.refreshProjectData]);
+  }, [isAnySceneProcessing, isGeneratingAll, submittingSceneIds.length, props.refreshProjectData]);
 
   // Toggle engine (Flow MCP vs Draw Things)
   const toggleImageEngine = async () => {
@@ -293,10 +441,13 @@ export default function ImagesTab(props: ImagesTabProps) {
 
         setCopilotSummary((data.change_summary || "Flow adjustment applied.") + refNote);
         setCopilotInput("");
-        if (data.generating) {
-          setIsGenerating(true);
+        if (data.generating && activeScene) {
+          setSubmittingSceneIds(prev => [...prev, activeScene.id]);
         }
         if (props.refreshProjectData) await props.refreshProjectData();
+        if (activeScene) {
+          setSubmittingSceneIds(prev => prev.filter(id => id !== activeScene.id));
+        }
       } else {
         const err = await response.text();
         console.error("Flow adjust error:", err);
@@ -311,7 +462,8 @@ export default function ImagesTab(props: ImagesTabProps) {
   // Standard Generate Frame action
   const handleGenerateFrame = async () => {
     if (!activeScene) return;
-    setIsGenerating(true);
+    const sceneId = activeScene.id;
+    setSubmittingSceneIds(prev => [...prev, sceneId]);
 
     const payload = {
       aspect_ratio: aspectRatioValue,
@@ -320,22 +472,22 @@ export default function ImagesTab(props: ImagesTabProps) {
       model: flowModel,
       count: imageCount,
       image_provider: imageProvider,
+      reference_images: referenceImages,
     };
 
     try {
-      const response = await fetch(`http://localhost:8000/api/scenes/${activeScene.id}/generate-image`, {
+      const response = await fetch(`http://localhost:8000/api/scenes/${sceneId}/generate-image`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
       if (response.ok) {
         if (props.refreshProjectData) await props.refreshProjectData();
-      } else {
-        setIsGenerating(false);
       }
     } catch (error) {
       console.error("Error triggering generation:", error);
-      setIsGenerating(false);
+    } finally {
+      setSubmittingSceneIds(prev => prev.filter(id => id !== sceneId));
     }
   };
 
@@ -471,6 +623,25 @@ export default function ImagesTab(props: ImagesTabProps) {
     }
   };
 
+  // Add an existing scene's image as a reference
+  const handleAddSceneRef = async (sceneImagePath: string) => {
+    if (!activeScene || !sceneImagePath) return;
+    try {
+      const formData = new FormData();
+      formData.append("reference_path", sceneImagePath);
+      const res = await fetch(`http://localhost:8000/api/scenes/${activeScene.id}/reference-image`, {
+        method: "POST",
+        body: formData,
+      });
+      if (res.ok) {
+        setSelectedRefImage(sceneImagePath);
+        if (props.refreshProjectData) await props.refreshProjectData();
+      }
+    } catch (err) {
+      console.error("Error adding scene reference image:", err);
+    }
+  };
+
   // Pin variant as reference
   const handlePinVariantAsRef = async (variantPath: string, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
@@ -483,6 +654,7 @@ export default function ImagesTab(props: ImagesTabProps) {
         body: formData,
       });
       if (res.ok) {
+        setSelectedRefImage(variantPath);
         if (props.refreshProjectData) await props.refreshProjectData();
       }
     } catch (err) {
@@ -552,7 +724,24 @@ export default function ImagesTab(props: ImagesTabProps) {
   const activeVariantIdx = activeScene?.image_path ? imagesList.findIndex((p: string) => p === activeScene.image_path) : -1;
   const effectiveRef = selectedRefImage !== undefined ? selectedRefImage : (activeScene?.image_path || null);
   const effectiveRefVIdx = effectiveRef ? imagesList.findIndex((p: string) => p === effectiveRef) : -1;
+  const effectiveRefScene = effectiveRef ? scenes.find((s: any) => {
+    if (s.image_path === effectiveRef) return true;
+    if (s.images_list) {
+      try {
+        const parsed = typeof s.images_list === "string" ? JSON.parse(s.images_list) : s.images_list;
+        return Array.isArray(parsed) && parsed.includes(effectiveRef);
+      } catch {
+        return false;
+      }
+    }
+    return false;
+  }) : null;
   const refFilename = effectiveRef ? effectiveRef.split("/").pop() : "";
+  const effectiveRefLabel = effectiveRefVIdx >= 0 
+    ? `V${effectiveRefVIdx + 1}` 
+    : (effectiveRefScene 
+        ? `Scene #${String(effectiveRefScene.scene_number).padStart(2, "0")}` 
+        : (refFilename || "Ref Frame"));
 
   return (
     <div className="flex flex-col h-[calc(100vh-56px-48px)] max-h-[calc(100vh-56px-48px)] animate-in fade-in duration-200 select-none">
@@ -600,8 +789,10 @@ export default function ImagesTab(props: ImagesTabProps) {
                 scenes.map((s: any, idx: number) => {
                   const isSelected = activeSceneIndex === idx;
                   const hasImage = !!s.image_path;
-                  const isProcessing = s.image_status === "processing";
+                  const isProcessing = s.image_status === "processing" || submittingSceneIds.includes(s.id);
                   const isFailed = s.image_status === "failed";
+                  const isSceneActiveRendering = activeProcessingScene?.id === s.id;
+                  const sceneQueueIdx = processingScenes.findIndex((ps: any) => ps.id === s.id);
                   
                   // Count variants for this scene
                   let vCount = hasImage ? 1 : 0;
@@ -612,12 +803,25 @@ export default function ImagesTab(props: ImagesTabProps) {
                     } catch {}
                   }
 
+                  const isBeingDragged = draggedSceneIdx === idx;
+                  const isDropTarget = dragOverSceneIdx === idx;
+
                   return (
-                    <button
+                    <div
                       key={s.id || idx}
-                      type="button"
+                      draggable
+                      onDragStart={(e) => handleSceneDragStart(e, idx)}
+                      onDragOver={(e) => handleSceneDragOver(e, idx)}
+                      onDrop={(e) => handleSceneDrop(e, idx)}
+                      onDragEnd={handleSceneDragEnd}
                       onClick={() => setActiveSceneIndex(idx)}
-                      className={`w-full text-left p-2 rounded-lg border transition-all cursor-pointer flex flex-col gap-1.5 ${
+                      className={`w-full text-left p-2 rounded-lg border transition-all cursor-pointer flex flex-col gap-1.5 relative select-none ${
+                        isBeingDragged ? "opacity-30 scale-[0.98] border-dashed border-primary" : ""
+                      } ${
+                        isDropTarget && dropPosition === "before" ? "border-t-2 border-t-primary" : ""
+                      } ${
+                        isDropTarget && dropPosition === "after" ? "border-b-2 border-b-primary" : ""
+                      } ${
                         isSelected
                           ? "bg-primary/10 border-primary text-foreground ring-1 ring-primary/30 shadow-2xs"
                           : hasImage
@@ -628,6 +832,13 @@ export default function ImagesTab(props: ImagesTabProps) {
                       {/* Scene Top: Number & Status Badge */}
                       <div className="flex items-center justify-between gap-1 w-full">
                         <div className="flex items-center gap-1.5">
+                          <span 
+                            className="cursor-grab active:cursor-grabbing text-panel-text/40 hover:text-foreground transition-colors p-0.5" 
+                            title="Drag to reorder sequence"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <GripVertical size={11} />
+                          </span>
                           <span className={`text-[11px] font-bold font-mono ${isSelected ? "text-primary" : "text-foreground"}`}>
                             #{String(s.scene_number || idx + 1).padStart(2, "0")}
                           </span>
@@ -640,10 +851,17 @@ export default function ImagesTab(props: ImagesTabProps) {
 
                         {/* Status indicator badge */}
                         {isProcessing ? (
-                          <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[9px] font-medium bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30 animate-pulse">
-                            <Loader2 size={8} className="animate-spin" />
-                            <span>Rendering</span>
-                          </span>
+                          isSceneActiveRendering ? (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[9px] font-medium bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30 animate-pulse">
+                              <Loader2 size={8} className="animate-spin" />
+                              <span>Rendering</span>
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[9px] font-medium bg-zinc-500/10 text-zinc-400 border border-zinc-500/20">
+                              <Clock size={8} />
+                              <span>In Queue {sceneQueueIdx >= 0 ? `(#${sceneQueueIdx + 1})` : ""}</span>
+                            </span>
+                          )
                         ) : isFailed ? (
                           <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[9px] font-medium bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/30">
                             <span>Failed</span>
@@ -678,7 +896,7 @@ export default function ImagesTab(props: ImagesTabProps) {
                           {s.narration_khmer || s.image_prompt_english || "No script yet..."}
                         </p>
                       </div>
-                    </button>
+                    </div>
                   );
                 })
               )}
@@ -733,7 +951,19 @@ export default function ImagesTab(props: ImagesTabProps) {
                   <span className="text-[12px] font-bold text-foreground">
                     Scene #{String(activeScene?.scene_number || activeSceneIndex + 1).padStart(2, "0")}
                   </span>
-                  {activeScene.image_path ? (
+                  {isActiveSceneProcessing ? (
+                    isActiveSceneRendering ? (
+                      <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[9px] font-medium bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30 animate-pulse">
+                        <Loader2 size={8} className="animate-spin" />
+                        <span>Rendering Frame...</span>
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[9px] font-medium bg-zinc-500/10 text-zinc-400 border border-zinc-500/20">
+                        <Clock size={8} />
+                        <span>In Queue {activeSceneQueueIndex >= 0 ? `(#${activeSceneQueueIndex + 1})` : ""}</span>
+                      </span>
+                    )
+                  ) : activeScene.image_path ? (
                     <span className="px-1.5 py-0.2 rounded text-[9px] font-medium bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
                       Active Frame Ready
                     </span>
@@ -843,33 +1073,87 @@ export default function ImagesTab(props: ImagesTabProps) {
                       <Paperclip size={10} className="text-panel-icon" />
                       Reference Images ({referenceImages.length})
                     </span>
-                    <button
-                      type="button"
-                      onClick={() => refInputRef.current?.click()}
-                      disabled={isUploadingRef}
-                      className="text-[10px] font-medium text-primary hover:text-primary-hover flex items-center gap-1 transition-colors cursor-pointer"
-                    >
-                      {isUploadingRef ? <Loader2 size={10} className="animate-spin" /> : <Plus size={10} />}
-                      <span>Add Ref</span>
-                    </button>
-                    <input 
-                      ref={refInputRef} 
-                      type="file" 
-                      accept="image/*" 
-                      onChange={handleUploadReference} 
-                      className="hidden" 
-                    />
+                    <div className="relative" ref={addRefMenuRef}>
+                      <button
+                        type="button"
+                        onClick={() => setIsAddRefMenuOpen(!isAddRefMenuOpen)}
+                        disabled={isUploadingRef}
+                        className="text-[10px] font-medium text-primary hover:text-primary-hover flex items-center gap-1 transition-colors cursor-pointer"
+                      >
+                        {isUploadingRef ? <Loader2 size={10} className="animate-spin" /> : <Plus size={10} />}
+                        <span>Add Ref</span>
+                      </button>
+
+                      {isAddRefMenuOpen && (
+                        <div className="absolute right-0 top-full mt-1 w-48 bg-card border border-border/80 rounded-xl shadow-lg p-1 z-30 animate-in fade-in duration-100 flex flex-col gap-0.5">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setIsAddRefMenuOpen(false);
+                              refInputRef.current?.click();
+                            }}
+                            className="w-full px-2.5 py-1.5 text-left text-[11px] font-medium text-foreground hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg flex items-center gap-2 transition-colors cursor-pointer"
+                          >
+                            <Upload size={12} className="text-panel-icon" />
+                            <span>Upload from File</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setIsAddRefMenuOpen(false);
+                              setIsScenePickerOpen(true);
+                            }}
+                            className="w-full px-2.5 py-1.5 text-left text-[11px] font-medium text-foreground hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg flex items-center gap-2 transition-colors cursor-pointer"
+                          >
+                            <Layers size={12} className="text-panel-icon" />
+                            <span>From Existing Scene...</span>
+                          </button>
+                        </div>
+                      )}
+
+                      <input 
+                        ref={refInputRef} 
+                        type="file" 
+                        accept="image/*" 
+                        onChange={handleUploadReference} 
+                        className="hidden" 
+                      />
+                    </div>
                   </div>
 
                   {referenceImages.length > 0 && (
                     <div className="flex flex-wrap gap-1.5">
                       {referenceImages.map((refItem, idx) => {
                         const isFlowUuid = !refItem.includes("/");
-                        const filename = isFlowUuid ? `UUID: ${refItem.slice(0, 8)}...` : refItem.split("/").pop();
+                        const matchedScene = scenes.find((s: any) => {
+                          if (s.image_path === refItem) return true;
+                          if (s.images_list) {
+                            try {
+                              const parsed = typeof s.images_list === "string" ? JSON.parse(s.images_list) : s.images_list;
+                              return Array.isArray(parsed) && parsed.includes(refItem);
+                            } catch {
+                              return false;
+                            }
+                          }
+                          return false;
+                        });
+                        const displayName = matchedScene 
+                          ? `Scene #${String(matchedScene.scene_number).padStart(2, "0")}`
+                          : (isFlowUuid ? `UUID: ${refItem.slice(0, 8)}...` : refItem.split("/").pop());
+
+                        const isCopilotActiveRef = effectiveRef === refItem;
+
                         return (
                           <div 
                             key={idx}
-                            className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-zinc-100 dark:bg-zinc-900 text-foreground text-[10px] border border-border/60 font-mono"
+                            onClick={() => setSelectedRefImage(refItem)}
+                            className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[10px] border font-mono transition-all cursor-pointer ${
+                              isCopilotActiveRef
+                                ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/40 ring-1 ring-emerald-500/20"
+                                : "bg-zinc-100 dark:bg-zinc-900 text-foreground border-border/60 hover:border-primary/40"
+                            }`}
+                            title={`Click to set as active Flow Copilot reference (${refItem})`}
                           >
                             {!isFlowUuid && (
                               <img 
@@ -878,10 +1162,21 @@ export default function ImagesTab(props: ImagesTabProps) {
                                 className="w-3.5 h-3.5 rounded-xs object-cover" 
                               />
                             )}
-                            <span className="truncate max-w-[120px]" title={refItem}>{filename}</span>
+                            <span className="truncate max-w-[120px]" title={refItem}>{displayName}</span>
+                            {isCopilotActiveRef && (
+                              <span className="text-[8px] font-sans font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
+                                Active
+                              </span>
+                            )}
                             <button
                               type="button"
-                              onClick={() => handleRemoveReference(refItem)}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleRemoveReference(refItem);
+                                if (effectiveRef === refItem) {
+                                  setSelectedRefImage(undefined);
+                                }
+                              }}
                               className="text-zinc-400 hover:text-red-500 transition-colors ml-0.5 cursor-pointer"
                               title="Remove Reference"
                             >
@@ -919,7 +1214,7 @@ export default function ImagesTab(props: ImagesTabProps) {
                         className="w-3.5 h-3.5 rounded-xs object-cover border border-emerald-500/40 shrink-0"
                       />
                       <span className="font-semibold text-emerald-600 dark:text-emerald-400">
-                        {effectiveRefVIdx >= 0 ? `Ref: V${effectiveRefVIdx + 1}` : "Ref Frame"}
+                        Ref: {effectiveRefLabel}
                       </span>
                       <button
                         type="button"
@@ -993,7 +1288,7 @@ export default function ImagesTab(props: ImagesTabProps) {
 
                       <button
                         type="button"
-                        disabled={!copilotInput.trim() || isCopilotRunning}
+                        disabled={!copilotInput.trim() || isCopilotRunning || isActiveSceneProcessing}
                         onClick={() => handleCopilotSubmit(true)}
                         className="px-2.5 py-0.5 rounded-lg bg-primary hover:bg-primary-hover text-white text-[10px] font-semibold flex items-center gap-1 shadow-2xs disabled:opacity-40 transition-all cursor-pointer"
                       >
@@ -1191,16 +1486,67 @@ export default function ImagesTab(props: ImagesTabProps) {
 
             {/* Viewport Canvas */}
             <div className="flex-1 flex items-center justify-center p-3 overflow-hidden relative min-h-0 bg-zinc-50/20 dark:bg-zinc-950/20">
-              {isGenerating ? (
-                <div className="flex flex-col items-center justify-center text-center p-6 select-none animate-pulse">
-                  <Loader2 size={24} className="mb-2 animate-spin text-primary opacity-80" />
-                  <p className="text-[10.5px] uppercase tracking-widest font-bold text-foreground">
-                    {imageProvider === "flow" ? "Rendering via Google Flow MCP..." : "Synthesizing frame locally..."}
-                  </p>
-                  <p className="text-[9.5px] text-panel-text/70 mt-0.5">
-                    Generating frame variation & updating timeline
-                  </p>
-                </div>
+              {isActiveSceneProcessing ? (
+                isActiveSceneRendering ? (
+                  activeScene?.image_path ? (
+                    <div className="w-full h-full relative group flex items-center justify-center">
+                      <img 
+                        src={`http://localhost:8000/static/${activeScene.image_path}?t=${cacheBuster}`} 
+                        alt={`Scene ${activeScene.scene_number}`} 
+                        className="max-w-full max-h-full object-contain rounded-lg shadow-xs"
+                      />
+                      <div className="absolute inset-0 bg-black/60 backdrop-blur-[2px] rounded-lg flex flex-col items-center justify-center text-center p-4 select-none animate-pulse">
+                        <Loader2 size={24} className="mb-2 animate-spin text-primary" />
+                        <p className="text-[10.5px] uppercase tracking-widest font-bold text-white">
+                          {imageProvider === "flow" ? "Rendering via Google Flow MCP..." : "Synthesizing frame locally..."}
+                        </p>
+                        <p className="text-[9.5px] text-zinc-300 mt-0.5">
+                          Generating frame variation & updating timeline
+                        </p>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col items-center justify-center text-center p-6 select-none animate-pulse">
+                      <Loader2 size={24} className="mb-2 animate-spin text-primary opacity-80" />
+                      <p className="text-[10.5px] uppercase tracking-widest font-bold text-foreground">
+                        {imageProvider === "flow" ? "Rendering via Google Flow MCP..." : "Synthesizing frame locally..."}
+                      </p>
+                      <p className="text-[9.5px] text-panel-text/70 mt-0.5">
+                        Generating frame variation & updating timeline
+                      </p>
+                    </div>
+                  )
+                ) : (
+                  /* Active scene is in queue */
+                  activeScene?.image_path ? (
+                    <div className="w-full h-full relative group flex items-center justify-center">
+                      <img 
+                        src={`http://localhost:8000/static/${activeScene.image_path}?t=${cacheBuster}`} 
+                        alt={`Scene ${activeScene.scene_number}`} 
+                        className="max-w-full max-h-full object-contain rounded-lg shadow-xs"
+                      />
+                      <div className="absolute inset-0 bg-black/55 backdrop-blur-[1px] rounded-lg flex flex-col items-center justify-center text-center p-4 select-none">
+                        <Clock size={24} className="mb-2 text-amber-400 animate-pulse" />
+                        <p className="text-[10.5px] uppercase tracking-widest font-bold text-white">
+                          In Generation Queue {activeSceneQueueIndex >= 0 ? `(Position #${activeSceneQueueIndex + 1})` : ""}
+                        </p>
+                        <p className="text-[9.5px] text-zinc-300 mt-0.5">
+                          Waiting for preceding scene to finish rendering...
+                        </p>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col items-center justify-center text-center p-6 select-none">
+                      <Clock size={26} className="mb-2 text-amber-500 animate-pulse" />
+                      <p className="text-[10.5px] uppercase tracking-widest font-bold text-foreground">
+                        In Generation Queue {activeSceneQueueIndex >= 0 ? `(Position #${activeSceneQueueIndex + 1})` : ""}
+                      </p>
+                      <p className="text-[9.5px] text-panel-text/70 mt-1 max-w-[240px] leading-relaxed">
+                        Waiting for preceding scene to finish rendering...
+                      </p>
+                    </div>
+                  )
+                )
               ) : activeScene?.image_path ? (
                 <div className="w-full h-full relative group flex items-center justify-center">
                   <img 
@@ -1317,31 +1663,49 @@ export default function ImagesTab(props: ImagesTabProps) {
 
           {/* Bottom Action Buttons */}
           <div className="flex gap-2 shrink-0 h-9">
-            {activeScene?.image_status === "processing" ? (
+            {isActiveSceneProcessing ? (
               <button 
                 type="button"
                 onClick={handleStop}
                 className="flex-1 bg-red-600 hover:bg-red-700 text-white rounded-xl text-[12px] font-medium shadow-2xs transition-all flex items-center justify-center gap-2 cursor-pointer"
               >
                 <X size={13} />
-                <span>Stop Rendering</span>
+                <span>
+                  {isActiveSceneQueued 
+                    ? `Cancel Queue ${activeSceneQueueIndex >= 0 ? `(Position #${activeSceneQueueIndex + 1})` : ""}` 
+                    : "Stop Rendering"}
+                </span>
               </button>
             ) : (
               <button 
                 type="button"
                 onClick={handleGenerateFrame}
-                disabled={isGenerating || isGeneratingAll || isAnySceneProcessing || !activeScene}
+                disabled={!activeScene || isActiveSceneSubmitting}
                 className="flex-1 bg-primary hover:bg-primary-hover text-white rounded-xl text-[12px] font-semibold shadow-2xs transition-all flex items-center justify-center gap-2 disabled:opacity-40 cursor-pointer"
               >
-                {isGenerating ? <Loader2 size={13} className="animate-spin" /> : <Wand2 size={13} />}
-                <span>{isGenerating ? "Rendering..." : `Generate Frame (${imageProvider === "flow" ? "Flow" : "Local"})`}</span>
+                {isActiveSceneSubmitting ? (
+                  <>
+                    <Loader2 size={13} className="animate-spin" />
+                    <span>Adding to Queue...</span>
+                  </>
+                ) : isAnySceneProcessing ? (
+                  <>
+                    <Clock size={13} />
+                    <span>Queue Frame ({imageProvider === "flow" ? "Flow" : "Local"})</span>
+                  </>
+                ) : (
+                  <>
+                    <Wand2 size={13} />
+                    <span>Generate Frame ({imageProvider === "flow" ? "Flow" : "Local"})</span>
+                  </>
+                )}
               </button>
             )}
 
             <button 
               type="button"
               onClick={handleTrashAll}
-              disabled={isGenerating || isGeneratingAll || isAnySceneProcessing || !activeScene || !activeScene.image_path}
+              disabled={isActiveSceneProcessing || !activeScene || !activeScene.image_path}
               className="bg-card border border-border/70 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/20 px-3 rounded-xl text-panel-text hover:border-red-300 dark:hover:border-red-800 transition-all flex items-center justify-center disabled:opacity-30 cursor-pointer"
               title="Clear Active Frame for this Scene"
             >
@@ -1374,6 +1738,144 @@ export default function ImagesTab(props: ImagesTabProps) {
             className="max-w-full max-h-full object-contain rounded-xl shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           />
+        </div>
+      )}
+
+      {/* ========================================================= */}
+      {/* SCENE REFERENCE PICKER MODAL WINDOW                       */}
+      {/* ========================================================= */}
+      {isScenePickerOpen && (
+        <div 
+          className="fixed inset-0 z-[120] flex items-center justify-center bg-black/70 backdrop-blur-xs p-4 animate-in fade-in duration-150 select-none"
+          onClick={() => setIsScenePickerOpen(false)}
+        >
+          <div 
+            className="w-full max-w-2xl bg-card border border-border/80 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh] animate-in zoom-in-95 duration-150"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="px-5 py-3.5 border-b border-border/70 flex items-center justify-between bg-panel-header/80">
+              <div className="flex items-center gap-2">
+                <div className="p-1.5 rounded-lg bg-primary/10 text-primary">
+                  <Layers size={15} />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-foreground">Select Reference Frame</h3>
+                  <p className="text-[11px] text-panel-text">
+                    Choose any rendered frame from your project to guide generation for Scene #{String(activeScene?.scene_number || activeSceneIndex + 1).padStart(2, "0")}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsScenePickerOpen(false)}
+                className="p-1 rounded-lg hover:bg-zinc-200/60 dark:hover:bg-zinc-800 text-panel-text hover:text-foreground transition-colors cursor-pointer"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* Modal Content: Grid of Scenes */}
+            <div className="p-5 overflow-y-auto custom-scrollbar flex-1">
+              {availableSceneRefs.length === 0 ? (
+                <div className="py-12 flex flex-col items-center justify-center text-center text-panel-text">
+                  <ImageIcon size={36} className="opacity-30 mb-2" />
+                  <p className="text-xs font-semibold">No rendered scenes available</p>
+                  <p className="text-[11px] text-panel-text/70 mt-1 max-w-[280px]">
+                    Generate images for other scenes first, or upload an image file from your computer.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsScenePickerOpen(false);
+                      refInputRef.current?.click();
+                    }}
+                    className="mt-4 px-3 py-1.5 rounded-xl bg-primary text-white text-xs font-semibold hover:bg-primary-hover transition-colors flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                  >
+                    <Upload size={12} />
+                    <span>Upload Image File</span>
+                  </button>
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3.5">
+                  {availableSceneRefs.map((item: any) => {
+                    const isAlreadyAdded = referenceImages.includes(item.imagePath);
+                    const isCurrentScene = item.sceneId === activeScene?.id;
+
+                    return (
+                      <div
+                        key={item.uniqueKey}
+                        onClick={() => {
+                          if (!isAlreadyAdded) {
+                            handleAddSceneRef(item.imagePath);
+                            setIsScenePickerOpen(false);
+                          }
+                        }}
+                        className={`group relative rounded-xl border p-2 flex flex-col gap-2 transition-all text-left ${
+                          isAlreadyAdded
+                            ? "bg-primary/5 border-primary/40 ring-1 ring-primary/20 opacity-70 cursor-default"
+                            : "bg-card hover:bg-zinc-50 dark:hover:bg-zinc-900 border-border/80 hover:border-primary/60 hover:shadow-md cursor-pointer"
+                        }`}
+                      >
+                        {/* Thumbnail Image Container */}
+                        <div className="w-full aspect-video rounded-lg overflow-hidden relative bg-zinc-100 dark:bg-zinc-950 flex items-center justify-center border border-border/40">
+                          <img
+                            src={`http://localhost:8000/static/${item.imagePath}?t=${cacheBuster}`}
+                            alt={`Scene ${item.sceneNumber}`}
+                            className="w-full h-full object-cover group-hover:scale-102 transition-transform duration-200"
+                          />
+                          {/* Scene Number Overlay Badge */}
+                          <div className="absolute top-1.5 left-1.5 px-1.5 py-0.5 rounded bg-black/75 backdrop-blur-xs text-white text-[9px] font-mono font-bold flex items-center gap-1 shadow-xs">
+                            <span>#{String(item.sceneNumber).padStart(2, "0")}</span>
+                            {item.variantTag && (
+                              <span className="text-zinc-300 font-normal">({item.variantTag})</span>
+                            )}
+                          </div>
+
+                          {/* Added checkmark indicator */}
+                          {isAlreadyAdded && (
+                            <div className="absolute top-1.5 right-1.5 px-1.5 py-0.5 rounded-full bg-emerald-500 text-white text-[9px] font-medium flex items-center gap-1 shadow-xs">
+                              <Check size={9} strokeWidth={3} />
+                              <span>Added</span>
+                            </div>
+                          )}
+
+                          {isCurrentScene && (
+                            <div className="absolute bottom-1.5 left-1.5 px-1.5 py-0.2 rounded bg-primary/80 text-white text-[8px] font-medium">
+                              Current Scene
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Scene Script Snippet */}
+                        <div className="px-0.5">
+                          <p className="text-[10px] text-panel-text line-clamp-2 leading-snug">
+                            {item.promptText || "Scene frame"}
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="px-5 py-3 border-t border-border/70 flex items-center justify-between bg-panel-header/40 text-[11px] text-panel-text">
+              <span>{availableSceneRefs.length} frame(s) available</span>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsScenePickerOpen(false);
+                  refInputRef.current?.click();
+                }}
+                className="text-primary hover:text-primary-hover font-medium flex items-center gap-1 cursor-pointer transition-colors"
+              >
+                <Upload size={11} />
+                <span>Upload from computer instead</span>
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
