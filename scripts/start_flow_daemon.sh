@@ -2,7 +2,7 @@
 set -e
 
 # Resolve gflow binary
-GFLOW_BIN="$(which gflow 2>/dev/null || echo "gflow")"
+GFLOW_BIN="${GFLOW_BIN:-$(which gflow 2>/dev/null || echo "gflow")}"
 
 if [ ! -f "$GFLOW_BIN" ]; then
   echo "Error: gflow binary not found. Please ensure gflow-cli is installed."

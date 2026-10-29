@@ -23,7 +23,9 @@ import {
   ChevronRight, 
   Volume2,
   Clock,
-  GripVertical
+  GripVertical,
+  Target,
+  Crosshair
 } from "lucide-react";
 
 interface ImagesTabProps {
@@ -194,38 +196,50 @@ export default function ImagesTab(props: ImagesTabProps) {
   const [isZoomed, setIsZoomed] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const refInputRef = useRef<HTMLInputElement>(null);
+  const targetFileInputRef = useRef<HTMLInputElement>(null);
+
+  // Target Image states (Base canvas to modify: null = No Target / New Image, string = specific frame)
+  const [selectedTargetImage, setSelectedTargetImage] = useState<string | null | undefined>(undefined);
+  const [isTargetMenuOpen, setIsTargetMenuOpen] = useState(false);
+  const targetMenuRef = useRef<HTMLDivElement>(null);
 
   // Reference picker & dropdown states
   const [isAddRefMenuOpen, setIsAddRefMenuOpen] = useState(false);
   const [isScenePickerOpen, setIsScenePickerOpen] = useState(false);
+  const [scenePickerMode, setScenePickerMode] = useState<"target" | "reference">("reference");
   const addRefMenuRef = useRef<HTMLDivElement>(null);
 
-  // Close add ref dropdown on click outside
+  // Close menus on click outside
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (addRefMenuRef.current && !addRefMenuRef.current.contains(e.target as Node)) {
         setIsAddRefMenuOpen(false);
       }
+      if (targetMenuRef.current && !targetMenuRef.current.contains(e.target as Node)) {
+        setIsTargetMenuOpen(false);
+      }
     };
-    if (isAddRefMenuOpen) {
+    if (isAddRefMenuOpen || isTargetMenuOpen) {
       document.addEventListener("mousedown", handleClickOutside);
     }
     return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [isAddRefMenuOpen]);
+  }, [isAddRefMenuOpen, isTargetMenuOpen]);
 
   // Exclusions collapsible state
   const [isExclusionsExpanded, setIsExclusionsExpanded] = useState(false);
 
-  // Active Reference Image for Copilot Adjustments (clicked variant or default active frame)
+  // Active Reference Image for Copilot Adjustments
   const [selectedRefImage, setSelectedRefImage] = useState<string | null | undefined>(undefined);
 
   // Drag & drop highlight state
   const [isDraggingOver, setIsDraggingOver] = useState(false);
 
-  // Reset selected reference image & close menus when switching scenes
+  // Reset selected target/reference & close menus when switching scenes
   useEffect(() => {
+    setSelectedTargetImage(undefined);
     setSelectedRefImage(undefined);
     setIsAddRefMenuOpen(false);
+    setIsTargetMenuOpen(false);
     setIsScenePickerOpen(false);
   }, [activeSceneIndex]);
 
@@ -405,7 +419,7 @@ export default function ImagesTab(props: ImagesTabProps) {
     setIsCopilotRunning(true);
     setCopilotSummary(null);
 
-    const refToUse = selectedRefImage !== undefined ? selectedRefImage : (activeScene.image_path || null);
+    const targetToUse = selectedTargetImage !== undefined ? selectedTargetImage : (activeScene.image_path || null);
 
     try {
       const response = await fetch(`http://localhost:8000/api/scenes/${activeScene.id}/flow-adjust`, {
@@ -413,7 +427,9 @@ export default function ImagesTab(props: ImagesTabProps) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           instruction: copilotInput.trim(),
-          reference_image: refToUse,
+          target_image: targetToUse,
+          reference_images: referenceImages,
+          reference_image: targetToUse,
           generate_image: generateImage,
           refine_prompt_text: !generateImage,
           model: flowModel,
@@ -435,11 +451,10 @@ export default function ImagesTab(props: ImagesTabProps) {
           });
         }
 
-        const refNote = data.referenced_asset_name
-          ? ` (ref: @${data.referenced_asset_name})`
-          : (refToUse ? ` (ref: ${refToUse.split("/").pop()})` : "");
+        const targetNote = targetToUse ? ` (target: ${targetToUse.split("/").pop()})` : " (new canvas)";
+        const refNote = referenceImages.length > 0 ? ` [${referenceImages.length} refs]` : "";
 
-        setCopilotSummary((data.change_summary || "Flow adjustment applied.") + refNote);
+        setCopilotSummary((data.change_summary || "Flow adjustment applied.") + targetNote + refNote);
         setCopilotInput("");
         if (data.generating && activeScene) {
           setSubmittingSceneIds(prev => [...prev, activeScene.id]);
@@ -465,6 +480,8 @@ export default function ImagesTab(props: ImagesTabProps) {
     const sceneId = activeScene.id;
     setSubmittingSceneIds(prev => [...prev, sceneId]);
 
+    const targetToUse = selectedTargetImage !== undefined ? selectedTargetImage : (activeScene.image_path || null);
+
     const payload = {
       aspect_ratio: aspectRatioValue,
       guidance_scale: 7.5,
@@ -472,6 +489,7 @@ export default function ImagesTab(props: ImagesTabProps) {
       model: flowModel,
       count: imageCount,
       image_provider: imageProvider,
+      target_image: targetToUse,
       reference_images: referenceImages,
     };
 
@@ -623,6 +641,33 @@ export default function ImagesTab(props: ImagesTabProps) {
     }
   };
 
+  // Upload Local Image File directly as Target
+  const handleUploadTarget = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !activeScene) return;
+    setIsUploading(true);
+    const formData = new FormData();
+    formData.append("file", file);
+    try {
+      const res = await fetch(`http://localhost:8000/api/scenes/${activeScene.id}/upload-image`, {
+        method: "POST",
+        body: formData,
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.image_path) {
+          setSelectedTargetImage(data.image_path);
+        }
+        if (props.refreshProjectData) await props.refreshProjectData();
+      }
+    } catch (err) {
+      console.error("Error uploading target image:", err);
+    } finally {
+      setIsUploading(false);
+      if (targetFileInputRef.current) targetFileInputRef.current.value = "";
+    }
+  };
+
   // Add an existing scene's image as a reference
   const handleAddSceneRef = async (sceneImagePath: string) => {
     if (!activeScene || !sceneImagePath) return;
@@ -722,26 +767,63 @@ export default function ImagesTab(props: ImagesTabProps) {
   if (!activeProject) return null;
 
   const activeVariantIdx = activeScene?.image_path ? imagesList.findIndex((p: string) => p === activeScene.image_path) : -1;
-  const effectiveRef = selectedRefImage !== undefined ? selectedRefImage : (activeScene?.image_path || null);
-  const effectiveRefVIdx = effectiveRef ? imagesList.findIndex((p: string) => p === effectiveRef) : -1;
-  const effectiveRefScene = effectiveRef ? scenes.find((s: any) => {
-    if (s.image_path === effectiveRef) return true;
+  // Target Image resolution: null = explicitly no target (generate new), string = specific target path, undefined = default to active frame
+  const effectiveTarget = selectedTargetImage !== undefined ? selectedTargetImage : (activeScene?.image_path || null);
+  const effectiveTargetVIdx = effectiveTarget ? imagesList.findIndex((p: string) => p === effectiveTarget) : -1;
+  const effectiveTargetScene = effectiveTarget ? scenes.find((s: any) => {
+    if (s.image_path === effectiveTarget) return true;
     if (s.images_list) {
       try {
         const parsed = typeof s.images_list === "string" ? JSON.parse(s.images_list) : s.images_list;
-        return Array.isArray(parsed) && parsed.includes(effectiveRef);
+        return Array.isArray(parsed) && parsed.includes(effectiveTarget);
       } catch {
         return false;
       }
     }
     return false;
   }) : null;
-  const refFilename = effectiveRef ? effectiveRef.split("/").pop() : "";
-  const effectiveRefLabel = effectiveRefVIdx >= 0 
-    ? `V${effectiveRefVIdx + 1}` 
-    : (effectiveRefScene 
-        ? `Scene #${String(effectiveRefScene.scene_number).padStart(2, "0")}` 
-        : (refFilename || "Ref Frame"));
+  const targetFilename = effectiveTarget ? effectiveTarget.split("/").pop() : "";
+  const effectiveTargetLabel = effectiveTargetVIdx >= 0 
+    ? `V${effectiveTargetVIdx + 1}` 
+    : (effectiveTargetScene 
+        ? `Scene #${String(effectiveTargetScene.scene_number).padStart(2, "0")}` 
+        : (targetFilename || "Target Frame"));
+
+  // Helper to format any image reference path into a human readable badge label
+  const getImageLabel = (path: string) => {
+    if (!path) return "";
+    const vIdx = imagesList.findIndex((p: string) => p === path);
+    const matched = scenes.find((s: any) => {
+      if (s.image_path === path) return true;
+      if (s.images_list) {
+        try {
+          const parsed = typeof s.images_list === "string" ? JSON.parse(s.images_list) : s.images_list;
+          return Array.isArray(parsed) && parsed.includes(path);
+        } catch {
+          return false;
+        }
+      }
+      return false;
+    });
+    if (vIdx >= 0) return `V${vIdx + 1}`;
+    if (matched) return `Scene #${String(matched.scene_number).padStart(2, "0")}`;
+    if (!path.includes("/")) return `UUID: ${path.slice(0, 8)}...`;
+    return path.split("/").pop() || "Image";
+  };
+
+  // Dynamic placeholder guiding the user on Target vs Reference usage
+  const copilotPlaceholder = useMemo(() => {
+    if (effectiveTarget && referenceImages.length > 0) {
+      return `e.g. "Change the color of the shirt of this girl in @Target based on the outfit from @Ref 1, keep same pose..."`;
+    }
+    if (effectiveTarget) {
+      return `e.g. "Modify @Target: make lighting warmer, add a coffee cup beside the girl..."`;
+    }
+    if (referenceImages.length > 0) {
+      return `e.g. "Generate a new scene showing stickman girl at the cafe, using character style from @Ref 1..."`;
+    }
+    return "Tell Flow what to generate or adjust...";
+  }, [effectiveTarget, referenceImages.length]);
 
   return (
     <div className="flex flex-col h-[calc(100vh-56px-48px)] max-h-[calc(100vh-56px-48px)] animate-in fade-in duration-200 select-none">
@@ -1142,18 +1224,18 @@ export default function ImagesTab(props: ImagesTabProps) {
                           ? `Scene #${String(matchedScene.scene_number).padStart(2, "0")}`
                           : (isFlowUuid ? `UUID: ${refItem.slice(0, 8)}...` : refItem.split("/").pop());
 
-                        const isCopilotActiveRef = effectiveRef === refItem;
+                        const isTarget = effectiveTarget === refItem;
 
                         return (
                           <div 
                             key={idx}
-                            onClick={() => setSelectedRefImage(refItem)}
+                            onClick={() => setSelectedTargetImage(refItem)}
                             className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[10px] border font-mono transition-all cursor-pointer ${
-                              isCopilotActiveRef
-                                ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/40 ring-1 ring-emerald-500/20"
+                              isTarget
+                                ? "bg-primary/10 text-primary border-primary/40 ring-1 ring-primary/20 font-bold"
                                 : "bg-zinc-100 dark:bg-zinc-900 text-foreground border-border/60 hover:border-primary/40"
                             }`}
-                            title={`Click to set as active Flow Copilot reference (${refItem})`}
+                            title={`Click to set as Target Image to modify (${refItem})`}
                           >
                             {!isFlowUuid && (
                               <img 
@@ -1163,9 +1245,9 @@ export default function ImagesTab(props: ImagesTabProps) {
                               />
                             )}
                             <span className="truncate max-w-[120px]" title={refItem}>{displayName}</span>
-                            {isCopilotActiveRef && (
-                              <span className="text-[8px] font-sans font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
-                                Active
+                            {isTarget && (
+                              <span className="text-[8px] font-sans font-bold uppercase tracking-wider text-primary">
+                                Target
                               </span>
                             )}
                             <button
@@ -1173,8 +1255,8 @@ export default function ImagesTab(props: ImagesTabProps) {
                               onClick={(e) => {
                                 e.stopPropagation();
                                 handleRemoveReference(refItem);
-                                if (effectiveRef === refItem) {
-                                  setSelectedRefImage(undefined);
+                                if (effectiveTarget === refItem) {
+                                  setSelectedTargetImage(undefined);
                                 }
                               }}
                               className="text-zinc-400 hover:text-red-500 transition-colors ml-0.5 cursor-pointer"
@@ -1192,9 +1274,9 @@ export default function ImagesTab(props: ImagesTabProps) {
               </div>
 
               {/* ======================================================= */}
-              {/* FLOW COPILOT (CLEAN SLEEK PROMPT BOX)                    */}
+              {/* FLOW COPILOT (TARGET VS REFERENCE SPACE & PROMPT BOX)    */}
               {/* ======================================================= */}
-              <div className="pt-2.5 border-t border-border/50 shrink-0 space-y-1.5">
+              <div className="pt-2.5 border-t border-border/50 shrink-0 space-y-2">
                 
                 {/* Copilot Header */}
                 <div className="flex items-center justify-between">
@@ -1205,32 +1287,219 @@ export default function ImagesTab(props: ImagesTabProps) {
                     </span>
                   </div>
 
-                  {/* Reference Attachment Tag */}
-                  {effectiveRef ? (
-                    <div className="flex items-center gap-1.5 px-1.5 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/30 text-[9.5px]">
-                      <img 
-                        src={`http://localhost:8000/static/${effectiveRef}?t=${cacheBuster}`}
-                        alt="Reference thumbnail"
-                        className="w-3.5 h-3.5 rounded-xs object-cover border border-emerald-500/40 shrink-0"
-                      />
-                      <span className="font-semibold text-emerald-600 dark:text-emerald-400">
-                        Ref: {effectiveRefLabel}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => setSelectedRefImage(null)}
-                        className="text-panel-text hover:text-red-500 ml-1 cursor-pointer"
-                        title="Detach reference frame"
-                      >
-                        <X size={9} />
-                      </button>
+                  {/* Mode Badge */}
+                  <span className="text-[9px] font-mono text-panel-text">
+                    {effectiveTarget ? "Image-to-Image Adjustment" : "Prompt-Driven Generation"}
+                  </span>
+                </div>
+
+                {/* 1. Dedicated Target Image Selector Card */}
+                <div className="relative" ref={targetMenuRef}>
+                  {effectiveTarget ? (
+                    <div className="p-2 rounded-xl bg-primary/5 border border-primary/30 flex items-center justify-between gap-2 transition-all">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <img 
+                          src={`http://localhost:8000/static/${effectiveTarget}?t=${cacheBuster}`}
+                          alt="Target Frame"
+                          className="w-7 h-7 rounded-lg object-cover border border-primary/40 shrink-0 shadow-2xs"
+                        />
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-[9px] font-bold uppercase tracking-wider text-primary flex items-center gap-1">
+                              <Crosshair size={10} /> Target to Modify
+                            </span>
+                            <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-primary/10 text-primary font-bold">
+                              {effectiveTargetLabel}
+                            </span>
+                          </div>
+                          <p className="text-[9.5px] text-panel-text truncate">Preserve composition & adjust selected elements</p>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-1 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => setIsTargetMenuOpen(!isTargetMenuOpen)}
+                          className="px-2 py-0.5 rounded-lg text-[9.5px] font-semibold text-primary hover:bg-primary/10 transition-colors cursor-pointer border border-primary/25 flex items-center gap-0.5"
+                          title="Change target image"
+                        >
+                          <span>Change</span>
+                          <span className="text-[8px]">▾</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedTargetImage(null)}
+                          className="p-1 rounded-lg text-panel-text hover:text-red-500 hover:bg-red-500/10 transition-colors cursor-pointer"
+                          title="Clear Target: Generate completely new image from scratch without matching layout"
+                        >
+                          <X size={12} />
+                        </button>
+                      </div>
                     </div>
                   ) : (
-                    <span className="text-[9px] text-panel-text/60">
-                      Text-to-Image Mode
-                    </span>
+                    <div className="p-2 rounded-xl bg-zinc-100/70 dark:bg-zinc-900/60 border border-border/80 flex items-center justify-between gap-2 transition-all">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <div className="w-7 h-7 rounded-lg bg-zinc-200/60 dark:bg-zinc-800 flex items-center justify-center text-panel-text shrink-0">
+                          <Sparkles size={13} className="text-amber-500" />
+                        </div>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-[9px] font-bold uppercase tracking-wider text-panel-text flex items-center gap-1">
+                              <Crosshair size={10} /> Target: None
+                            </span>
+                            <span className="text-[8.5px] px-1.5 py-0.2 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 font-semibold font-mono">
+                              New Canvas
+                            </span>
+                          </div>
+                          <p className="text-[9.5px] text-panel-text/70 truncate">Generates a fresh scene from scratch using references as guides</p>
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => setIsTargetMenuOpen(!isTargetMenuOpen)}
+                        className="px-2.5 py-1 rounded-lg text-[9.5px] font-semibold text-foreground bg-card border border-border/80 hover:border-primary/50 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors cursor-pointer flex items-center gap-1 shadow-2xs"
+                      >
+                        <Target size={11} className="text-primary" />
+                        <span>Set Target</span>
+                        <span className="text-[8px]">▾</span>
+                      </button>
+                    </div>
                   )}
+
+                  {/* Target Selection Dropdown Menu */}
+                  {isTargetMenuOpen && (
+                    <div className="absolute right-0 top-full mt-1.5 w-64 bg-card border border-border/80 rounded-xl shadow-xl p-1.5 z-40 animate-in fade-in duration-100 flex flex-col gap-1">
+                      <div className="px-2 py-1 text-[9px] font-bold uppercase tracking-wider text-panel-text border-b border-border/40">
+                        Select Target to Modify
+                      </div>
+
+                      {activeScene?.image_path && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedTargetImage(activeScene.image_path);
+                            setIsTargetMenuOpen(false);
+                          }}
+                          className={`w-full px-2 py-1.5 text-left text-[11px] font-medium rounded-lg flex items-center gap-2 transition-colors cursor-pointer ${
+                            effectiveTarget === activeScene.image_path
+                              ? "bg-primary/10 text-primary font-semibold"
+                              : "text-foreground hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                          }`}
+                        >
+                          <img src={`http://localhost:8000/static/${activeScene.image_path}?t=${cacheBuster}`} className="w-5 h-5 rounded object-cover" />
+                          <span className="truncate">Current Active Frame</span>
+                        </button>
+                      )}
+
+                      {/* Scene Variations */}
+                      {imagesList.map((vPath, idx) => (
+                        <button
+                          key={idx}
+                          type="button"
+                          onClick={() => {
+                            setSelectedTargetImage(vPath);
+                            setIsTargetMenuOpen(false);
+                          }}
+                          className={`w-full px-2 py-1.5 text-left text-[11px] font-medium rounded-lg flex items-center gap-2 transition-colors cursor-pointer ${
+                            effectiveTarget === vPath
+                              ? "bg-primary/10 text-primary font-semibold"
+                              : "text-foreground hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                          }`}
+                        >
+                          <img src={`http://localhost:8000/static/${vPath}?t=${cacheBuster}`} className="w-5 h-5 rounded object-cover" />
+                          <span className="truncate">Variation V{idx + 1}</span>
+                        </button>
+                      ))}
+
+                      <div className="border-t border-border/40 my-0.5" />
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsTargetMenuOpen(false);
+                          setScenePickerMode("target");
+                          setIsScenePickerOpen(true);
+                        }}
+                        className="w-full px-2 py-1.5 text-left text-[11px] font-medium text-foreground hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg flex items-center gap-2 transition-colors cursor-pointer"
+                      >
+                        <Layers size={13} className="text-panel-icon" />
+                        <span>From Existing Scene...</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsTargetMenuOpen(false);
+                          targetFileInputRef.current?.click();
+                        }}
+                        className="w-full px-2 py-1.5 text-left text-[11px] font-medium text-foreground hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg flex items-center gap-2 transition-colors cursor-pointer"
+                      >
+                        <Upload size={13} className="text-panel-icon" />
+                        <span>Upload Target Image File...</span>
+                      </button>
+
+                      <div className="border-t border-border/40 my-0.5" />
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedTargetImage(null);
+                          setIsTargetMenuOpen(false);
+                        }}
+                        className="w-full px-2 py-1.5 text-left text-[11px] font-medium text-amber-600 dark:text-amber-400 hover:bg-amber-500/10 rounded-lg flex items-center gap-2 transition-colors cursor-pointer"
+                      >
+                        <Sparkles size={13} />
+                        <span>✕ No Target (Generate New Image)</span>
+                      </button>
+                    </div>
+                  )}
+
+                  <input 
+                    ref={targetFileInputRef}
+                    type="file"
+                    accept="image/*"
+                    onChange={handleUploadTarget}
+                    className="hidden"
+                  />
                 </div>
+
+                {/* 2. Quick Mention Pills (@Target, @Ref 1, @Ref 2) */}
+                {(effectiveTarget || referenceImages.length > 0) && (
+                  <div className="flex items-center gap-1.5 flex-wrap px-0.5">
+                    <span className="text-[9px] text-panel-text/60 font-mono">Insert:</span>
+                    {effectiveTarget && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCopilotInput(prev => prev.includes("@Target") ? prev : (prev ? `${prev} @Target` : "@Target "));
+                          copilotInputRef.current?.focus();
+                        }}
+                        className="px-2 py-0.5 rounded-md bg-primary/10 hover:bg-primary/20 text-primary border border-primary/30 text-[9.5px] font-mono font-bold transition-all cursor-pointer flex items-center gap-1 shadow-2xs"
+                        title="Insert @Target in prompt"
+                      >
+                        <Crosshair size={9} />
+                        <span>@Target ({effectiveTargetLabel})</span>
+                      </button>
+                    )}
+                    {referenceImages.map((refItem, idx) => (
+                      <button
+                        key={idx}
+                        type="button"
+                        onClick={() => {
+                          const tag = `@Ref ${idx + 1}`;
+                          setCopilotInput(prev => prev.includes(tag) ? prev : (prev ? `${prev} ${tag}` : `${tag} `));
+                          copilotInputRef.current?.focus();
+                        }}
+                        className="px-2 py-0.5 rounded-md bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 text-[9.5px] font-mono font-medium transition-all cursor-pointer flex items-center gap-1 shadow-2xs"
+                        title={`Insert @Ref ${idx + 1} (${getImageLabel(refItem)}) in prompt`}
+                      >
+                        <Paperclip size={9} />
+                        <span>@Ref {idx + 1} ({getImageLabel(refItem)})</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
 
                 {/* Copilot Feedback Banner */}
                 {copilotSummary && (
@@ -1265,7 +1534,7 @@ export default function ImagesTab(props: ImagesTabProps) {
                         }
                       }
                     }}
-                    placeholder="Tell Flow what to adjust (e.g. 'Make mammoth friendly, add stickman rider')..."
+                    placeholder={copilotPlaceholder}
                     className="w-full px-2.5 pt-2 pb-1 bg-transparent text-[11.5px] text-foreground outline-none resize-none leading-relaxed placeholder:text-panel-text/50 disabled:opacity-50"
                   />
 
@@ -1472,14 +1741,44 @@ export default function ImagesTab(props: ImagesTabProps) {
                 />
 
                 {activeScene?.image_path && (
-                  <button
-                    type="button"
-                    onClick={() => setIsZoomed(true)}
-                    className="p-1 rounded-md hover:bg-zinc-200/50 dark:hover:bg-zinc-800 text-panel-text hover:text-foreground transition-colors cursor-pointer"
-                    title="Zoom in Lightbox"
-                  >
-                    <Maximize2 size={11} />
-                  </button>
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedTargetImage(activeScene.image_path!)}
+                      className={`px-2 py-0.5 rounded-md text-[9.5px] font-medium transition-colors flex items-center gap-1 cursor-pointer ${
+                        effectiveTarget === activeScene.image_path
+                          ? "bg-primary text-white font-bold shadow-2xs"
+                          : "bg-zinc-200/60 dark:bg-zinc-800 hover:bg-zinc-300 dark:hover:bg-zinc-700 text-foreground"
+                      }`}
+                      title="Set active frame as Target Image to modify in Copilot"
+                    >
+                      <Crosshair size={9} />
+                      <span>{effectiveTarget === activeScene.image_path ? "Active Target" : "Set Target"}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={(e) => handlePinVariantAsRef(activeScene.image_path!, e)}
+                      className={`px-2 py-0.5 rounded-md text-[9.5px] font-medium transition-colors flex items-center gap-1 cursor-pointer ${
+                        referenceImages.includes(activeScene.image_path!)
+                          ? "bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 font-semibold"
+                          : "bg-zinc-200/60 dark:bg-zinc-800 hover:bg-zinc-300 dark:hover:bg-zinc-700 text-foreground"
+                      }`}
+                      title="Add active frame as reference guide"
+                    >
+                      <Paperclip size={9} />
+                      <span>{referenceImages.includes(activeScene.image_path!) ? "In Refs" : "Add Ref"}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setIsZoomed(true)}
+                      className="p-1 rounded-md hover:bg-zinc-200/50 dark:hover:bg-zinc-800 text-panel-text hover:text-foreground transition-colors cursor-pointer"
+                      title="Zoom in Lightbox"
+                    >
+                      <Maximize2 size={11} />
+                    </button>
+                  </>
                 )}
               </div>
             </div>
@@ -1590,12 +1889,32 @@ export default function ImagesTab(props: ImagesTabProps) {
                     <div className="flex items-center gap-1.5">
                       <button
                         type="button"
-                        onClick={(e) => handlePinVariantAsRef(activeScene.image_path!, e)}
-                        className="px-2 py-0.5 rounded text-[9.5px] font-medium text-panel-text hover:text-foreground bg-zinc-200/50 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-750 transition-colors flex items-center gap-1 cursor-pointer"
-                        title="Pin active frame as reference image for Flow Copilot"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedTargetImage(activeScene.image_path!);
+                        }}
+                        className={`px-2 py-0.5 rounded text-[9.5px] font-medium transition-colors flex items-center gap-1 cursor-pointer ${
+                          effectiveTarget === activeScene.image_path
+                            ? "bg-primary text-white font-bold shadow-2xs"
+                            : "text-panel-text hover:text-foreground bg-zinc-200/50 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-750"
+                        }`}
+                        title="Set active frame as Target Image to modify in Copilot"
                       >
-                        <Pin size={9} />
-                        <span>Pin as Ref</span>
+                        <Crosshair size={9} />
+                        <span>{effectiveTarget === activeScene.image_path ? "Active Target" : "Set Target"}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => handlePinVariantAsRef(activeScene.image_path!, e)}
+                        className={`px-2 py-0.5 rounded text-[9.5px] font-medium transition-colors flex items-center gap-1 cursor-pointer ${
+                          referenceImages.includes(activeScene.image_path!)
+                            ? "bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 font-semibold"
+                            : "text-panel-text hover:text-foreground bg-zinc-200/50 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-750"
+                        }`}
+                        title="Add active frame as reference guide"
+                      >
+                        <Paperclip size={9} />
+                        <span>{referenceImages.includes(activeScene.image_path!) ? "In Refs" : "Add Ref"}</span>
                       </button>
                       <button
                         type="button"
@@ -1614,16 +1933,21 @@ export default function ImagesTab(props: ImagesTabProps) {
                 <div className="flex items-center gap-2 overflow-x-auto custom-scrollbar py-0.5">
                   {imagesList.map((variantPath, vIdx) => {
                     const isActiveVariant = activeScene.image_path === variantPath;
+                    const isTarget = effectiveTarget === variantPath;
+                    const isRef = referenceImages.includes(variantPath);
+
                     return (
                       <div
                         key={vIdx}
                         onClick={() => handleSetActiveVariant(variantPath)}
-                        className={`relative group shrink-0 w-14 h-14 rounded-lg overflow-hidden border-2 cursor-pointer transition-all ${
+                        className={`relative group shrink-0 w-16 h-16 rounded-lg overflow-hidden border-2 cursor-pointer transition-all ${
                           isActiveVariant 
                             ? "border-emerald-500 shadow-xs ring-2 ring-emerald-500/30" 
-                            : "border-border/70 hover:border-zinc-400 opacity-75 hover:opacity-100"
+                            : isTarget
+                              ? "border-primary ring-2 ring-primary/30"
+                              : "border-border/70 hover:border-zinc-400 opacity-80 hover:opacity-100"
                         }`}
-                        title={`Click to activate Variant ${vIdx + 1}`}
+                        title={`Variant ${vIdx + 1} - Click to activate`}
                       >
                         <img 
                           src={`http://localhost:8000/static/${variantPath}?t=${cacheBuster}`} 
@@ -1632,26 +1956,59 @@ export default function ImagesTab(props: ImagesTabProps) {
                         />
                         
                         {/* Variant Number Tag */}
-                        <div className="absolute bottom-0.5 left-0.5 px-1 py-0.2 rounded bg-black/70 text-white text-[8px] font-mono">
-                          V{vIdx + 1}
+                        <div className="absolute bottom-0.5 left-0.5 px-1 py-0.2 rounded bg-black/75 backdrop-blur-xs text-white text-[8px] font-mono font-bold flex items-center gap-0.5">
+                          <span>V{vIdx + 1}</span>
+                          {isTarget && <span className="text-primary font-sans">🎯</span>}
+                          {isRef && <span className="text-emerald-400 font-sans">📎</span>}
                         </div>
 
-                        {/* Active Selection Checkmark Badge */}
-                        {isActiveVariant ? (
-                          <div className="absolute top-0.5 right-0.5 bg-emerald-500 text-white rounded-full p-0.5 shadow-xs">
-                            <Check size={8} strokeWidth={3} />
-                          </div>
-                        ) : (
-                          /* Micro delete button strictly in corner, non-overlapping with main thumbnail area */
-                          <button
-                            type="button"
-                            onClick={(e) => handleDeleteVariant(variantPath, e)}
-                            className="absolute top-0.5 right-0.5 p-0.5 rounded bg-black/60 hover:bg-red-600 text-white/80 hover:text-white opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer z-10"
-                            title={`Delete V${vIdx + 1}`}
-                          >
-                            <Trash2 size={8} />
-                          </button>
-                        )}
+                        {/* Top Action Badges & Hover Controls */}
+                        <div className="absolute top-0.5 right-0.5 flex items-center gap-0.5">
+                          {isActiveVariant && (
+                            <div className="bg-emerald-500 text-white rounded-full p-0.5 shadow-xs">
+                              <Check size={8} strokeWidth={3} />
+                            </div>
+                          )}
+
+                          {/* Quick Set Target Button on Hover */}
+                          {!isTarget && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setSelectedTargetImage(variantPath);
+                              }}
+                              className="p-0.5 rounded bg-black/70 hover:bg-primary text-white opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer z-10"
+                              title={`Set V${vIdx + 1} as Copilot Target Image`}
+                            >
+                              <Crosshair size={9} />
+                            </button>
+                          )}
+
+                          {/* Quick Add Ref Button on Hover */}
+                          {!isRef && (
+                            <button
+                              type="button"
+                              onClick={(e) => handlePinVariantAsRef(variantPath, e)}
+                              className="p-0.5 rounded bg-black/70 hover:bg-emerald-600 text-white opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer z-10"
+                              title={`Add V${vIdx + 1} to Reference Guides`}
+                            >
+                              <Paperclip size={9} />
+                            </button>
+                          )}
+
+                          {/* Delete variant (only for non-active variant) */}
+                          {!isActiveVariant && (
+                            <button
+                              type="button"
+                              onClick={(e) => handleDeleteVariant(variantPath, e)}
+                              className="p-0.5 rounded bg-black/70 hover:bg-red-600 text-white opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer z-10"
+                              title={`Delete V${vIdx + 1}`}
+                            >
+                              <Trash2 size={8} />
+                            </button>
+                          )}
+                        </div>
                       </div>
                     );
                   })}
@@ -1756,13 +2113,17 @@ export default function ImagesTab(props: ImagesTabProps) {
             {/* Modal Header */}
             <div className="px-5 py-3.5 border-b border-border/70 flex items-center justify-between bg-panel-header/80">
               <div className="flex items-center gap-2">
-                <div className="p-1.5 rounded-lg bg-primary/10 text-primary">
-                  <Layers size={15} />
+                <div className={`p-1.5 rounded-lg ${scenePickerMode === "target" ? "bg-primary/10 text-primary" : "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"}`}>
+                  {scenePickerMode === "target" ? <Target size={16} /> : <Layers size={16} />}
                 </div>
                 <div>
-                  <h3 className="text-sm font-bold text-foreground">Select Reference Frame</h3>
+                  <h3 className="text-sm font-bold text-foreground">
+                    {scenePickerMode === "target" ? "Select Target Image (Base to Modify)" : "Select Reference Guide"}
+                  </h3>
                   <p className="text-[11px] text-panel-text">
-                    Choose any rendered frame from your project to guide generation for Scene #{String(activeScene?.scene_number || activeSceneIndex + 1).padStart(2, "0")}
+                    {scenePickerMode === "target" 
+                      ? "Choose any rendered frame from your project as the base image to modify slightly in Flow Copilot" 
+                      : `Choose any rendered frame from your project to guide generation for Scene #${String(activeScene?.scene_number || activeSceneIndex + 1).padStart(2, "0")}`}
                   </p>
                 </div>
               </div>
@@ -1788,7 +2149,11 @@ export default function ImagesTab(props: ImagesTabProps) {
                     type="button"
                     onClick={() => {
                       setIsScenePickerOpen(false);
-                      refInputRef.current?.click();
+                      if (scenePickerMode === "target") {
+                        targetFileInputRef.current?.click();
+                      } else {
+                        refInputRef.current?.click();
+                      }
                     }}
                     className="mt-4 px-3 py-1.5 rounded-xl bg-primary text-white text-xs font-semibold hover:bg-primary-hover transition-colors flex items-center gap-1.5 cursor-pointer shadow-2xs"
                   >
@@ -1800,20 +2165,28 @@ export default function ImagesTab(props: ImagesTabProps) {
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-3.5">
                   {availableSceneRefs.map((item: any) => {
                     const isAlreadyAdded = referenceImages.includes(item.imagePath);
+                    const isSelectedTarget = effectiveTarget === item.imagePath;
                     const isCurrentScene = item.sceneId === activeScene?.id;
+
+                    const isHighlighted = scenePickerMode === "target" ? isSelectedTarget : isAlreadyAdded;
 
                     return (
                       <div
                         key={item.uniqueKey}
                         onClick={() => {
-                          if (!isAlreadyAdded) {
-                            handleAddSceneRef(item.imagePath);
+                          if (scenePickerMode === "target") {
+                            setSelectedTargetImage(item.imagePath);
                             setIsScenePickerOpen(false);
+                          } else {
+                            if (!isAlreadyAdded) {
+                              handleAddSceneRef(item.imagePath);
+                              setIsScenePickerOpen(false);
+                            }
                           }
                         }}
                         className={`group relative rounded-xl border p-2 flex flex-col gap-2 transition-all text-left ${
-                          isAlreadyAdded
-                            ? "bg-primary/5 border-primary/40 ring-1 ring-primary/20 opacity-70 cursor-default"
+                          isHighlighted
+                            ? "bg-primary/5 border-primary/50 ring-1 ring-primary/20 shadow-xs cursor-default"
                             : "bg-card hover:bg-zinc-50 dark:hover:bg-zinc-900 border-border/80 hover:border-primary/60 hover:shadow-md cursor-pointer"
                         }`}
                       >
@@ -1832,8 +2205,15 @@ export default function ImagesTab(props: ImagesTabProps) {
                             )}
                           </div>
 
-                          {/* Added checkmark indicator */}
-                          {isAlreadyAdded && (
+                          {/* Target or Added indicator badge */}
+                          {scenePickerMode === "target" && isSelectedTarget && (
+                            <div className="absolute top-1.5 right-1.5 px-1.5 py-0.5 rounded-full bg-primary text-white text-[9px] font-medium flex items-center gap-1 shadow-xs">
+                              <Target size={9} strokeWidth={3} />
+                              <span>Target</span>
+                            </div>
+                          )}
+
+                          {scenePickerMode === "reference" && isAlreadyAdded && (
                             <div className="absolute top-1.5 right-1.5 px-1.5 py-0.5 rounded-full bg-emerald-500 text-white text-[9px] font-medium flex items-center gap-1 shadow-xs">
                               <Check size={9} strokeWidth={3} />
                               <span>Added</span>
@@ -1867,12 +2247,16 @@ export default function ImagesTab(props: ImagesTabProps) {
                 type="button"
                 onClick={() => {
                   setIsScenePickerOpen(false);
-                  refInputRef.current?.click();
+                  if (scenePickerMode === "target") {
+                    targetFileInputRef.current?.click();
+                  } else {
+                    refInputRef.current?.click();
+                  }
                 }}
                 className="text-primary hover:text-primary-hover font-medium flex items-center gap-1 cursor-pointer transition-colors"
               >
                 <Upload size={11} />
-                <span>Upload from computer instead</span>
+                <span>Upload {scenePickerMode === "target" ? "target" : "reference"} from computer instead</span>
               </button>
             </div>
           </div>

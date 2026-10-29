@@ -69,6 +69,8 @@ async def process_task(task: GenerationTask):
                     count = int(task.payload.get("count", 1))
                     instructions = task.payload.get("instruction") or task.payload.get("instructions")
 
+                    target_image = task.payload.get("target_image")
+
                     # Resolve reference images (merge payload and stored scene references)
                     refs = []
                     if task.payload.get("reference_images"):
@@ -85,6 +87,12 @@ async def process_task(task: GenerationTask):
                                     refs.append(r)
                         except Exception:
                             pass
+
+                    # If target_image is specified, ensure it is at index 0 (primary img2img base)
+                    if target_image:
+                        if target_image in refs:
+                            refs.remove(target_image)
+                        refs.insert(0, target_image)
 
                     render_result = await loop.run_in_executor(
                         None,
@@ -170,9 +178,12 @@ async def process_task(task: GenerationTask):
                     }
                     width, height = ar_map.get(aspect_ratio, (576, 1024))
 
+                    target_image = task.payload.get("target_image")
                     init_image_path = None
-                    if scene.image_path:
-                        init_image_path = os.path.join(workspace_dir, scene.image_path)
+                    if target_image:
+                        init_candidate = target_image if os.path.isabs(target_image) else os.path.join(workspace_dir, target_image)
+                        if os.path.exists(init_candidate):
+                            init_image_path = init_candidate
 
                     save_path = await loop.run_in_executor(
                         None, 

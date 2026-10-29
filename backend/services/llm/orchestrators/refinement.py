@@ -84,12 +84,18 @@ def refine_scene_prompt_and_script(
     video_concept: str = "",
     theme_era: str = "",
     theme_region: str = "cambodia",
-    scene_staging: str = "studio"
+    scene_staging: str = "studio",
+    target_info: dict = None,
+    reference_images_info: list = None
 ) -> dict:
     """
     Intelligent Scene Copilot: takes the current scene's image prompt, Khmer voiceover narration,
     and negative constraints, applies user adjustment instructions, and updates both the visual
     prompt and Khmer script while strictly adhering to Whatly stickman style guidelines.
+    Supports distinguishing between:
+    - Target Image: The base composition/subject to keep and modify slightly.
+    - Reference Images: Auxiliary guides to borrow style, outfits, characters, or props from.
+    - No Target: Generating a completely new scene from scratch guided by references.
     """
     system_prompt = (
         "You are an expert Creative Director & Prompt Engineer for YouTube explainer animations (Whatly stickman style).\n"
@@ -103,6 +109,18 @@ def refine_scene_prompt_and_script(
         "- STRICTLY NO text, NO words, NO letters, NO labels, NO watermarks on the image.\n"
         "- Keep prompts concrete and physical (under 55 words).\n"
         "- NO gradients, NO 3D render, NO photorealism.\n\n"
+
+        "TARGET IMAGE VS. REFERENCE GUIDES SEMANTICS:\n"
+        "1. TARGET IMAGE (if specified): This is the base image whose composition, characters, and staging MUST BE PRESERVED. "
+        "The user's instruction should modify this target image slightly (e.g. changing shirt color, adding a prop, adjusting expression) "
+        "while keeping the overall scene geometry, camera angle, and background intact.\n"
+        "2. REFERENCE IMAGES (if specified): These are auxiliary reference materials (e.g. style guides, outfit references, character designs). "
+        "The user borrows attributes from these references (e.g. 'outfit from Ref #1') to apply onto the Target Image or new scene.\n"
+        "3. NO TARGET SPECIFIED: If Target Image is 'None / Not set', the user wants to generate a COMPLETELY NEW IMAGE from scratch. "
+        "Do NOT force preservation of the old scene layout; construct a fresh visual prompt fulfilling the user instruction, "
+        "using any Reference Images purely for character identity, outfit, or art style.\n"
+        "4. In the user instruction, terms like '@Target', 'the target', or 'this girl' refer to the Target Image. "
+        "Terms like '@Ref 1', 'Ref #1', 'this reference', or scene numbers refer to the Reference Images.\n\n"
 
         "BROAD FRAMING & COMPOSITION DIRECTIVE:\n"
         "- Prioritize broad panoramic views, wide-angle establishing shots, high-angle aerial bird's-eye views, or educational 2D visual diagrams.\n"
@@ -128,6 +146,20 @@ def refine_scene_prompt_and_script(
         "}"
     )
 
+    # Build multimodal role descriptions
+    target_desc = "None (Generating a completely new scene from scratch - do not lock to prior layout)"
+    if target_info and target_info.get("label"):
+        target_desc = f"{target_info.get('label')} - {target_info.get('description', 'Base frame to preserve and modify')}"
+
+    refs_desc = "None"
+    if reference_images_info and len(reference_images_info) > 0:
+        ref_lines = []
+        for r in reference_images_info:
+            r_label = r.get("label", "Reference")
+            r_desc = r.get("description", "Style / Attribute guide")
+            ref_lines.append(f"- {r_label}: {r_desc}")
+        refs_desc = "\n".join(ref_lines)
+
     user_content = (
         f"--- CONTEXT ---\n"
         f"Video Concept: {video_concept or 'Educational Explainer'}\n"
@@ -139,9 +171,13 @@ def refine_scene_prompt_and_script(
         f"Current Visual Prompt (English): {existing_prompt or '(none)'}\n"
         f"Current Voiceover (Khmer): {existing_narration or '(none)'}\n"
         f"Current Exclusions (Negative): {existing_negative_prompt or '(none)'}\n\n"
+        f"--- IMAGE ROLES ---\n"
+        f"🎯 Target Image (Base to Modify): {target_desc}\n"
+        f"📎 Reference Guides (Borrow Style/Outfit/Props): \n{refs_desc}\n\n"
         f"--- USER ADJUSTMENT REQUEST ---\n"
         f"Instruction: {user_instruction}\n\n"
-        f"Update the prompt and voiceover script intelligently to reflect the user's idea."
+        f"Apply the modification request intelligently based on whether a Target Image exists (modify target while borrowing from references) "
+        f"or if Target is None (generate a completely new scene guided by references)."
     )
 
     raw_response = generate_text(db, system_prompt, user_content, json_mode=True)

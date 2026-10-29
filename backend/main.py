@@ -151,7 +151,9 @@ class SceneRefine(BaseModel):
 
 class FlowAdjustPayload(BaseModel):
     instruction: str
-    reference_image: Optional[str] = None
+    target_image: Optional[str] = None
+    reference_images: Optional[List[str]] = None
+    reference_image: Optional[str] = None  # Backwards compatibility
     refine_prompt_text: bool = False
     generate_image: bool = True
     model: Optional[str] = "nano2"
@@ -174,6 +176,7 @@ class ImageGeneratePayload(BaseModel):
     model: Optional[str] = "nano2"
     count: Optional[int] = 1
     image_provider: Optional[str] = None
+    target_image: Optional[str] = None
     reference_images: Optional[List[str]] = None
 
 class SetActiveImagePayload(BaseModel):
@@ -1086,6 +1089,69 @@ async def flow_adjust_scene_endpoint(scene_id: int, payload: FlowAdjustPayload, 
     change_summary = f"Flow Scene Adjustment: {payload.instruction}"
 
     # Only mutate the base visual prompt and Khmer script if explicitly requested (e.g. Refine Text Only)
+    from .services.flow_engine import find_flow_asset_for_image
+
+    # Resolve target image (0 or 1): base image to modify
+    target_image_path = None
+    if payload.target_image is not None:
+        target_image_path = payload.target_image.strip() if payload.target_image else None
+    elif payload.reference_image is not None:
+        target_image_path = payload.reference_image.strip() if payload.reference_image else None
+    else:
+        # Default target fallback to active scene image if nothing specified
+        target_image_path = scene.image_path
+
+    resolved_target = None
+    target_asset_info = None
+    target_info = None
+    if target_image_path:
+        target_asset_info = find_flow_asset_for_image(target_image_path)
+        if os.path.isabs(target_image_path) and os.path.exists(target_image_path):
+            resolved_target = target_image_path
+        else:
+            full_target = os.path.join(workspace_dir, target_image_path)
+            resolved_target = full_target if os.path.exists(full_target) else target_image_path
+        target_label = target_asset_info.get("display_name") if target_asset_info else os.path.basename(target_image_path)
+        target_info = {
+            "path": resolved_target,
+            "label": f"Target Image ({target_label})",
+            "description": "Base frame to modify slightly while preserving scene geometry and characters"
+        }
+
+    # Resolve reference guides (0 to N): style, outfit, and prop references
+    raw_refs = []
+    if payload.reference_images:
+        raw_refs.extend(payload.reference_images)
+    if scene.reference_images:
+        try:
+            stored_refs = json.loads(scene.reference_images)
+            for r in stored_refs:
+                if r and r not in raw_refs:
+                    raw_refs.append(r)
+        except Exception:
+            pass
+
+    # Exclude target from references
+    if target_image_path:
+        raw_refs = [r for r in raw_refs if r != target_image_path and r != resolved_target]
+
+    resolved_refs = []
+    reference_images_info = []
+    for idx, ref in enumerate(raw_refs):
+        if not ref:
+            continue
+        abs_r = ref if (os.path.isabs(ref) and os.path.exists(ref)) else os.path.join(workspace_dir, ref)
+        candidate_r = abs_r if os.path.exists(abs_r) else ref
+        if candidate_r not in resolved_refs:
+            resolved_refs.append(candidate_r)
+            r_asset = find_flow_asset_for_image(ref)
+            r_name = r_asset.get("display_name") if r_asset else os.path.basename(ref)
+            reference_images_info.append({
+                "path": candidate_r,
+                "label": f"Ref #{idx+1} ({r_name})",
+                "description": "Visual reference guide for style, outfit, or attributes"
+            })
+
     if payload.refine_prompt_text:
         from .services.llm.orchestrators.refinement import refine_scene_prompt_and_script
         result = refine_scene_prompt_and_script(
@@ -1098,7 +1164,9 @@ async def flow_adjust_scene_endpoint(scene_id: int, payload: FlowAdjustPayload, 
             video_concept=video_concept,
             theme_era=theme_era,
             theme_region=theme_region,
-            scene_staging=scene_staging
+            scene_staging=scene_staging,
+            target_info=target_info,
+            reference_images_info=reference_images_info
         )
         scene.image_prompt_english = result.get("image_prompt_english", current_positive)
         scene.narration_khmer = result.get("narration_khmer", current_narration)
@@ -1114,52 +1182,23 @@ async def flow_adjust_scene_endpoint(scene_id: int, payload: FlowAdjustPayload, 
 
     sync_project_json(scene.project_id, db)
 
-    # 3. Resolve active reference image from clicked variant or scene active frame
-    from .services.flow_engine import find_flow_asset_for_image
-    ref_image_path = payload.reference_image or scene.image_path
-    resolved_refs = []
-    ref_asset_name = None
-
-    if ref_image_path:
-        asset_info = find_flow_asset_for_image(ref_image_path)
-        if asset_info:
-            ref_asset_name = asset_info.get("display_name")
-        
-        # Resolve to absolute local file path for flow.google.com compatibility
-        if os.path.isabs(ref_image_path) and os.path.exists(ref_image_path):
-            resolved_refs.append(ref_image_path)
-        else:
-            full_ref = os.path.join(workspace_dir, ref_image_path)
-            if os.path.exists(full_ref):
-                resolved_refs.append(full_ref)
-            else:
-                resolved_refs.append(ref_image_path)
-
-    # Also merge any stored scene reference images
-    if scene.reference_images:
-        try:
-            stored_refs = json.loads(scene.reference_images)
-            for r in stored_refs:
-                if not r:
-                    continue
-                abs_r = r if os.path.isabs(r) and os.path.exists(r) else os.path.join(workspace_dir, r)
-                target_r = abs_r if os.path.exists(abs_r) else r
-                if target_r not in resolved_refs:
-                    resolved_refs.append(target_r)
-        except Exception:
-            pass
-
     # 4. Trigger immediate image generation via Flow MCP / queue
     generating = False
     if payload.generate_image:
-        if ref_asset_name:
-            gen_prompt = f"Using reference visual '{ref_asset_name}': {payload.instruction}. Base style: {scene.image_prompt_english}"
+        ref_summary = ", ".join([r["label"] for r in reference_images_info]) if reference_images_info else "none"
+        if resolved_target:
+            t_name = target_asset_info.get("display_name") if target_asset_info else os.path.basename(target_image_path)
+            gen_prompt = f"Modify target image '{t_name}': {payload.instruction}. Borrow visual styling from references: {ref_summary}. Base scene: {scene.image_prompt_english}"
         else:
-            gen_prompt = f"{scene.image_prompt_english}. Change: {payload.instruction}"
+            gen_prompt = f"Create new scene from scratch: {payload.instruction}. Incorporate styling and characters from references: {ref_summary}. Scene context: {scene.image_prompt_english}"
+
+        # Place target image at position 0 so Flow treats it as primary img2img canvas
+        flow_refs = ([resolved_target] if resolved_target else []) + [r for r in resolved_refs if r != resolved_target]
 
         task_payload = {
             "prompt": gen_prompt,
             "instruction": payload.instruction,
+            "target_image": resolved_target,
             "style": project.illustration_style,
             "negative_prompt": scene.negative_prompt,
             "aspect_ratio": payload.aspect_ratio or project.aspect_ratio or "16:9",
@@ -1168,7 +1207,7 @@ async def flow_adjust_scene_endpoint(scene_id: int, payload: FlowAdjustPayload, 
             "model": payload.model or "nano2",
             "count": payload.count or 1,
             "image_provider": payload.image_provider or "flow",
-            "reference_images": resolved_refs,
+            "reference_images": flow_refs,
         }
 
         task = GenerationTask(
@@ -1188,8 +1227,8 @@ async def flow_adjust_scene_endpoint(scene_id: int, payload: FlowAdjustPayload, 
         "image_prompt_english": scene.image_prompt_english,
         "narration_khmer": scene.narration_khmer,
         "negative_prompt_english": scene.negative_prompt,
-        "reference_image": ref_image_path,
-        "referenced_asset_name": ref_asset_name,
+        "target_image": target_image_path,
+        "reference_images": [r["path"] for r in reference_images_info],
         "change_summary": change_summary,
         "generating": generating
     }
@@ -1206,18 +1245,39 @@ async def generate_scene_image(scene_id: int, payload: ImageGeneratePayload, db:
         return {"status": "already_queued"}
 
     project = db.query(Project).filter(Project.id == scene.project_id).first()
-        
+    setting = db.query(Setting).first()
+
+    # Resolve target image and references
+    target_img = payload.target_image
+    refs = []
+    if payload.reference_images:
+        refs.extend(payload.reference_images)
+    if scene.reference_images:
+        try:
+            stored_refs = json.loads(scene.reference_images)
+            for r in stored_refs:
+                if r and r not in refs:
+                    refs.append(r)
+        except Exception:
+            pass
+
+    if target_img and target_img in refs:
+        refs.remove(target_img)
+    if target_img:
+        refs.insert(0, target_img)
+
     task_payload = {
         "prompt": scene.image_prompt_english,
         "style": project.illustration_style,
         "negative_prompt": scene.negative_prompt,
-        "aspect_ratio": payload.aspect_ratio or "16:9",
+        "aspect_ratio": payload.aspect_ratio or project.aspect_ratio or "16:9",
         "guidance_scale": payload.guidance_scale or 7.5,
         "inference_steps": payload.inference_steps or 10,
         "model": payload.model or "nano2",
         "count": payload.count or 1,
-        "image_provider": payload.image_provider,
-        "reference_images": payload.reference_images,
+        "image_provider": payload.image_provider or (setting.image_provider if setting else "local") or "local",
+        "target_image": target_img,
+        "reference_images": refs,
     }
     
     task = GenerationTask(
