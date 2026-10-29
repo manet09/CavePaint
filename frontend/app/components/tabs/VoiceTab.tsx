@@ -77,6 +77,8 @@ function AutoResizeTextarea({
     <textarea
       ref={ref}
       value={val}
+      draggable={false}
+      onMouseDown={(e) => e.stopPropagation()}
       onChange={(e) => setVal(e.target.value)}
       onBlur={() => {
         if (val !== (defaultValue || "")) {
@@ -84,7 +86,7 @@ function AutoResizeTextarea({
         }
       }}
       placeholder={placeholder}
-      className={`${className} overflow-hidden resize-none`}
+      className={`${className} overflow-hidden resize-none select-text cursor-text`}
       rows={1}
     />
   );
@@ -256,6 +258,7 @@ export default function VoiceTab({ activeProject, refreshProjectData }: VoiceTab
   const [draggedSceneIdx, setDraggedSceneIdx] = useState<number | null>(null);
   const [dragOverSceneIdx, setDragOverSceneIdx] = useState<number | null>(null);
   const [dropPosition, setDropPosition] = useState<"before" | "after" | null>(null);
+  const [dragHandleActiveIdx, setDragHandleActiveIdx] = useState<number | null>(null);
 
   const handleSceneDragStart = (e: React.DragEvent, index: number) => {
     setDraggedSceneIdx(index);
@@ -315,6 +318,7 @@ export default function VoiceTab({ activeProject, refreshProjectData }: VoiceTab
     setDraggedSceneIdx(null);
     setDragOverSceneIdx(null);
     setDropPosition(null);
+    setDragHandleActiveIdx(null);
 
     if (reorderScenes) {
       await reorderScenes(newOrderedIds);
@@ -325,6 +329,7 @@ export default function VoiceTab({ activeProject, refreshProjectData }: VoiceTab
     setDraggedSceneIdx(null);
     setDragOverSceneIdx(null);
     setDropPosition(null);
+    setDragHandleActiveIdx(null);
   };
 
   // Navigation sub-tab in Voice Studio
@@ -1530,12 +1535,12 @@ export default function VoiceTab({ activeProject, refreshProjectData }: VoiceTab
                 return (
                   <div
                     key={scene.id}
-                    draggable
+                    draggable={dragHandleActiveIdx === idx}
                     onDragStart={(e) => handleSceneDragStart(e, idx)}
                     onDragOver={(e) => handleSceneDragOver(e, idx)}
                     onDrop={(e) => handleSceneDrop(e, idx)}
                     onDragEnd={handleSceneDragEnd}
-                    className={`p-3 rounded-lg border transition-all flex flex-col gap-2 relative select-none ${
+                    className={`p-3 rounded-lg border transition-all flex flex-col gap-2 relative ${
                       isBeingDragged ? "opacity-30 scale-[0.98] border-dashed border-primary" : ""
                     } ${
                       isDropTarget && dropPosition === "before" ? "border-t-2 border-t-primary" : ""
@@ -1558,8 +1563,14 @@ export default function VoiceTab({ activeProject, refreshProjectData }: VoiceTab
                       
                       <div className="flex items-center gap-1.5">
                         <span 
-                          className="cursor-grab active:cursor-grabbing text-panel-text/40 hover:text-foreground transition-colors p-0.5" 
+                          className="cursor-grab active:cursor-grabbing text-panel-text/40 hover:text-foreground transition-colors p-0.5 select-none" 
                           title="Drag to reorder sequence"
+                          onMouseEnter={() => setDragHandleActiveIdx(idx)}
+                          onMouseLeave={() => {
+                            if (draggedSceneIdx === null) setDragHandleActiveIdx(null);
+                          }}
+                          onMouseDown={() => setDragHandleActiveIdx(idx)}
+                          onTouchStart={() => setDragHandleActiveIdx(idx)}
                           onClick={(e) => e.stopPropagation()}
                         >
                           <GripVertical size={12} />
@@ -1691,12 +1702,12 @@ export default function VoiceTab({ activeProject, refreshProjectData }: VoiceTab
                     </div>
 
                     {/* Auto-Resizing Khmer Voiceover Text (Two-Way Sync to Brainstorming & Images tabs) */}
-                    <div>
+                    <div className="select-text cursor-text" onMouseDown={(e) => e.stopPropagation()}>
                       <AutoResizeTextarea
                         defaultValue={scene.narration_khmer || ""}
                         onBlur={(val) => updateSingleScene(scene.id, { narration_khmer: val })}
                         placeholder="Khmer voiceover narration..."
-                        className="w-full bg-transparent text-[12.5px] text-foreground leading-relaxed outline-none border-b border-transparent focus:border-primary/50 transition-colors py-0.5"
+                        className="w-full bg-transparent text-[12.5px] text-foreground leading-relaxed outline-none border-b border-transparent focus:border-primary/50 transition-colors py-0.5 select-text cursor-text"
                       />
                     </div>
 

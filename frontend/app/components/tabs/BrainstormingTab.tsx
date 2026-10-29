@@ -521,6 +521,8 @@ function AutoResizeTextarea({
     <textarea
       ref={ref}
       value={val}
+      draggable={false}
+      onMouseDown={(e) => e.stopPropagation()}
       onChange={(e) => setVal(e.target.value)}
       onBlur={() => {
         if (val !== (defaultValue || "")) {
@@ -528,7 +530,7 @@ function AutoResizeTextarea({
         }
       }}
       placeholder={placeholder}
-      className={`${className} overflow-hidden resize-none`}
+      className={`${className} overflow-hidden resize-none select-text cursor-text`}
       rows={1}
     />
   );
@@ -541,6 +543,7 @@ export default function BrainstormingTab({ activeProject, refreshProjectData }: 
   const [draggedSceneIdx, setDraggedSceneIdx] = useState<number | null>(null);
   const [dragOverSceneIdx, setDragOverSceneIdx] = useState<number | null>(null);
   const [dropPosition, setDropPosition] = useState<"before" | "after" | null>(null);
+  const [dragHandleActiveIdx, setDragHandleActiveIdx] = useState<number | null>(null);
 
   const handleSceneDragStart = (e: React.DragEvent, index: number) => {
     setDraggedSceneIdx(index);
@@ -594,6 +597,7 @@ export default function BrainstormingTab({ activeProject, refreshProjectData }: 
     setDraggedSceneIdx(null);
     setDragOverSceneIdx(null);
     setDropPosition(null);
+    setDragHandleActiveIdx(null);
 
     if (reorderScenes) {
       await reorderScenes(newOrderedIds);
@@ -604,6 +608,7 @@ export default function BrainstormingTab({ activeProject, refreshProjectData }: 
     setDraggedSceneIdx(null);
     setDragOverSceneIdx(null);
     setDropPosition(null);
+    setDragHandleActiveIdx(null);
   };
 
   // Custom dropdown popovers state & click-outside refs
@@ -1748,12 +1753,12 @@ Do not wrap in extra conversational markdown text. RETURN ONLY VALID JSON:
                 return (
                   <div 
                     key={scene.id || scene.scene_number} 
-                    draggable
+                    draggable={dragHandleActiveIdx === idx}
                     onDragStart={(e) => handleSceneDragStart(e, idx)}
                     onDragOver={(e) => handleSceneDragOver(e, idx)}
                     onDrop={(e) => handleSceneDrop(e, idx)}
                     onDragEnd={handleSceneDragEnd}
-                    className={`group bg-card rounded-xl p-3.5 border transition-all shadow-2xs space-y-2 relative select-none ${
+                    className={`group bg-card rounded-xl p-3.5 border transition-all shadow-2xs space-y-2 relative ${
                       isBeingDragged ? "opacity-30 scale-[0.98] border-dashed border-primary" : ""
                     } ${
                       isDropTarget && dropPosition === "before" ? "border-t-2 border-t-primary" : ""
@@ -1767,8 +1772,14 @@ Do not wrap in extra conversational markdown text. RETURN ONLY VALID JSON:
                     <div className="flex items-center justify-between pb-1 border-b border-border/30">
                       <div className="flex items-center gap-1.5">
                         <span 
-                          className="cursor-grab active:cursor-grabbing text-panel-text/40 hover:text-foreground transition-colors p-0.5" 
+                          className="cursor-grab active:cursor-grabbing text-panel-text/40 hover:text-foreground transition-colors p-0.5 select-none" 
                           title="Drag to reorder sequence"
+                          onMouseEnter={() => setDragHandleActiveIdx(idx)}
+                          onMouseLeave={() => {
+                            if (draggedSceneIdx === null) setDragHandleActiveIdx(null);
+                          }}
+                          onMouseDown={() => setDragHandleActiveIdx(idx)}
+                          onTouchStart={() => setDragHandleActiveIdx(idx)}
                           onClick={(e) => e.stopPropagation()}
                         >
                           <GripVertical size={12} />
@@ -1788,28 +1799,28 @@ Do not wrap in extra conversational markdown text. RETURN ONLY VALID JSON:
                   </div>
 
                   {/* Khmer Voiceover - Fully Displayed (AutoResize) */}
-                  <div>
-                    <label className="text-[9px] font-semibold text-panel-text uppercase tracking-wider block mb-0.5">
+                  <div className="select-text cursor-text" onMouseDown={(e) => e.stopPropagation()}>
+                    <label className="text-[9px] font-semibold text-panel-text uppercase tracking-wider block mb-0.5 select-none">
                       Voiceover (Khmer)
                     </label>
                     <AutoResizeTextarea
                       defaultValue={scene.narration_khmer || ""}
                       onBlur={(val) => updateSingleScene(scene.id, { narration_khmer: val })}
                       placeholder="Khmer voiceover narration..."
-                      className="w-full bg-transparent text-[13px] text-foreground leading-relaxed outline-none border-b border-border/30 focus:border-primary transition-colors py-0.5"
+                      className="w-full bg-transparent text-[13px] text-foreground leading-relaxed outline-none border-b border-border/30 focus:border-primary transition-colors py-0.5 select-text cursor-text"
                     />
                   </div>
 
                   {/* English Visual Prompt - Fully Displayed (AutoResize) */}
-                  <div>
-                    <label className="text-[9px] font-semibold text-panel-text uppercase tracking-wider block mb-0.5">
+                  <div className="select-text cursor-text" onMouseDown={(e) => e.stopPropagation()}>
+                    <label className="text-[9px] font-semibold text-panel-text uppercase tracking-wider block mb-0.5 select-none">
                       Stickman Visual Prompt (English)
                     </label>
                     <AutoResizeTextarea
                       defaultValue={scene.image_prompt_english || ""}
                       onBlur={(val) => updateSingleScene(scene.id, { image_prompt_english: val })}
                       placeholder="Stickman visual prompt in English..."
-                      className="w-full bg-transparent font-mono text-[11px] text-foreground/80 leading-relaxed outline-none border-b border-border/30 focus:border-primary transition-colors py-0.5"
+                      className="w-full bg-transparent font-mono text-[11px] text-foreground/80 leading-relaxed outline-none border-b border-border/30 focus:border-primary transition-colors py-0.5 select-text cursor-text"
                     />
                   </div>
 

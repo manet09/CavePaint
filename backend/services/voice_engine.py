@@ -349,32 +349,75 @@ def compile_master_voiceover(project_id: int, db_session):
         return
         
     scenes = db_session.query(Scene).filter(Scene.project_id == project_id).order_by(Scene.scene_number.asc()).all()
-    
+    if not scenes:
+        print(f"compile_master_voiceover: No scenes found for project {project_id}.")
+        return
+
     workspace_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "workspace"))
+    extension = "mp3" if (project.audio_format and project.audio_format.lower() == "mp3") else "wav"
     
-    segments = []
+    # 1. First pass: determine base sample rate from the first existing audio segment
     base_sample_rate = 22050
+    for scene in scenes:
+        cand_path = None
+        if scene.audio_path:
+            p = os.path.join(workspace_dir, scene.audio_path)
+            if os.path.exists(p):
+                cand_path = p
+        if not cand_path:
+            padded = f"{int(scene.scene_number):03d}"
+            p = os.path.join(workspace_dir, project.slug, f"scene_{padded}.{extension}")
+            if os.path.exists(p):
+                cand_path = p
+        if cand_path:
+            try:
+                info = sf.info(cand_path)
+                if info.samplerate > 0:
+                    base_sample_rate = info.samplerate
+                    break
+            except Exception:
+                pass
+
+    segments = []
+    has_real_audio = False
     
     for scene in scenes:
+        cand_path = None
         if scene.audio_path:
-            padded_scene_number = f"{int(scene.scene_number):03d}"
-            extension = "mp3" if (project.audio_format and project.audio_format.lower() == "mp3") else "wav"
-            expected_audio_path = os.path.join(project.slug, f"scene_{padded_scene_number}.{extension}")
-            full_path = os.path.join(workspace_dir, expected_audio_path)
-            if os.path.exists(full_path):
-                try:
-                    data, sr = sf.read(full_path)
-                    segments.append(data)
-                    base_sample_rate = sr
-                except Exception as e:
-                    print(f"Error reading {full_path}: {e}")
+            p = os.path.join(workspace_dir, scene.audio_path)
+            if os.path.exists(p):
+                cand_path = p
+        if not cand_path:
+            padded = f"{int(scene.scene_number):03d}"
+            p = os.path.join(workspace_dir, project.slug, f"scene_{padded}.{extension}")
+            if os.path.exists(p):
+                cand_path = p
+                
+        if cand_path:
+            try:
+                data, sr = sf.read(cand_path)
+                # Convert to mono if stereo
+                if data.ndim > 1:
+                    data = data.mean(axis=1)
+                # Resample if sample rate doesn't match base_sample_rate
+                if sr != base_sample_rate:
+                    import scipy.signal
+                    num_samples = int(len(data) * base_sample_rate / sr)
+                    data = scipy.signal.resample(data, num_samples).astype(np.float32)
+                segments.append(data.astype(np.float32))
+                has_real_audio = True
+            except Exception as e:
+                print(f"Error reading {cand_path}: {e}")
+                segments.append(np.zeros(int(3.0 * base_sample_rate), dtype=np.float32))
+        else:
+            # 3.0s placeholder silence for uncoupled/missing audio scene to maintain timeline synchronization
+            segments.append(np.zeros(int(3.0 * base_sample_rate), dtype=np.float32))
                     
-    if segments:
+    if segments and has_real_audio:
         master_audio = np.concatenate(segments, axis=0)
         
         project_dir = os.path.join(workspace_dir, project.slug)
         os.makedirs(project_dir, exist_ok=True)
-        extension = "mp3" if (project.audio_format and project.audio_format.lower() == "mp3") else "wav"
         master_path = os.path.join(project_dir, f"master_voiceover.{extension}")
         
         try:
@@ -383,6 +426,7 @@ def compile_master_voiceover(project_id: int, db_session):
             project.master_audio_path = rel_master_path
             db_session.commit()
             print(f"Master voiceover compiled and saved to {master_path}")
+            return master_path
         except Exception as e:
             print(f"Failed to write master voiceover: {e}")
             db_session.rollback()

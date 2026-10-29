@@ -1,4 +1,5 @@
 import os
+import time
 import json
 import shutil
 import glob
@@ -82,6 +83,10 @@ def get_project_coupling_status(project, db) -> Dict[str, Any]:
         rel_aud_path = f"{slug}/{canonical_aud_name}" if has_canonical_audio else (scene.audio_path or "")
         aud_full_path = canonical_aud_full if has_canonical_audio else (os.path.join(WORKSPACE_DIR, scene.audio_path) if scene.audio_path else "")
 
+        aud_mtime = int(os.path.getmtime(aud_full_path) * 1000) if (audio_exists and os.path.exists(aud_full_path)) else 0
+        img_full_path = os.path.join(WORKSPACE_DIR, rel_img_path) if rel_img_path else ""
+        img_mtime = int(os.path.getmtime(img_full_path) * 1000) if (image_exists and os.path.exists(img_full_path)) else 0
+
         duration = get_audio_duration(aud_full_path) if audio_exists else 0.0
         
         # Volume override
@@ -105,14 +110,42 @@ def get_project_coupling_status(project, db) -> Dict[str, Any]:
             "coupling_status": coupling_status,
             "image_path": rel_img_path,
             "image_exists": image_exists,
+            "image_mtime": img_mtime,
             "audio_path": rel_aud_path,
             "audio_exists": audio_exists,
             "audio_status": scene.audio_status or "idle",
+            "audio_mtime": aud_mtime,
             "duration": round(duration, 3),
             "volume": vol,
             "narration_khmer": scene.narration_khmer or "",
             "image_prompt_english": scene.image_prompt_english or "",
         })
+
+    # Check for master voiceover timeline file
+    audio_fmt = project.audio_format or "wav"
+    canonical_master_name = f"master_voiceover.{audio_fmt}"
+    canonical_master_full = os.path.join(project_dir, canonical_master_name)
+    master_exists = os.path.exists(canonical_master_full)
+    master_mtime = os.path.getmtime(canonical_master_full) if master_exists else 0.0
+
+    # Calculate latest scene audio timestamp
+    latest_scene_mtime = 0.0
+    for s_item in scenes_data:
+        if s_item.get("audio_mtime", 0) > 0:
+            latest_scene_mtime = max(latest_scene_mtime, s_item["audio_mtime"] / 1000.0)
+
+    # Auto-compile master voiceover if missing or outdated and at least one scene has audio
+    has_any_audio = any(s_item["audio_exists"] for s_item in scenes_data)
+    if has_any_audio and (not master_exists or master_mtime < latest_scene_mtime):
+        try:
+            from .voice_engine import compile_master_voiceover
+            compile_master_voiceover(project.id, db)
+            master_exists = os.path.exists(canonical_master_full)
+            master_mtime = os.path.getmtime(canonical_master_full) if master_exists else time.time()
+        except Exception as e:
+            print(f"Error auto-compiling master voiceover in get_project_coupling_status: {e}")
+
+    cache_buster = int(max(master_mtime, latest_scene_mtime, time.time() if not master_exists else 0) * 1000)
 
     # Check for final output video
     final_video_name = "final_output.mp4"
@@ -149,6 +182,9 @@ def get_project_coupling_status(project, db) -> Dict[str, Any]:
         "bgm_files": bgm_files,
         "timeline_data": timeline_data,
         "render_job": job,
+        "master_audio_path": f"{slug}/{canonical_master_name}" if master_exists else None,
+        "master_audio_exists": master_exists,
+        "audio_cache_buster": cache_buster,
         "scenes": scenes_data
     }
 

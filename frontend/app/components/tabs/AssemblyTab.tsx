@@ -31,12 +31,14 @@ import {
   ZoomOut,
   FileAudio,
   X,
-  GripVertical
+  GripVertical,
+  RefreshCw
 } from "lucide-react";
 import Link from "next/link";
 
 interface AssemblyTabProps {
   activeProject: Project;
+  refreshProjectData?: () => Promise<void>;
 }
 
 interface SceneCouplingItem {
@@ -45,9 +47,11 @@ interface SceneCouplingItem {
   coupling_status: "ready" | "missing_audio" | "missing_image" | "uncoupled";
   image_path: string;
   image_exists: boolean;
+  image_mtime?: number;
   audio_path: string;
   audio_exists: boolean;
   audio_status: string;
+  audio_mtime?: number;
   duration: number;
   volume: number;
   narration_khmer: string;
@@ -116,7 +120,7 @@ const BG_PRESETS = [
   { label: "Transparent", value: "transparent" },
 ];
 
-export default function AssemblyTab({ activeProject }: AssemblyTabProps) {
+export default function AssemblyTab({ activeProject, refreshProjectData }: AssemblyTabProps) {
   const { reorderScenes } = useProjectContext();
   const [scenesData, setScenesData] = useState<SceneCouplingItem[]>([]);
   const [bgmFiles, setBgmFiles] = useState<BgmFile[]>([]);
@@ -128,6 +132,12 @@ export default function AssemblyTab({ activeProject }: AssemblyTabProps) {
   const [isLoadingStatus, setIsLoadingStatus] = useState<boolean>(true);
   const [isUploadingBgm, setIsUploadingBgm] = useState<boolean>(false);
 
+  // Master Voiceover & Auto-sync state
+  const [masterAudioPath, setMasterAudioPath] = useState<string | null>(null);
+  const [masterAudioExists, setMasterAudioExists] = useState<boolean>(false);
+  const [audioCacheBuster, setAudioCacheBuster] = useState<number>(() => Date.now());
+  const [isSyncing, setIsSyncing] = useState<boolean>(false);
+
   const sceneIdsOrder = useMemo(() => {
     return (activeProject.scenes || []).map((s) => `${s.id}:${s.scene_number}`).join(",");
   }, [activeProject.scenes]);
@@ -136,6 +146,7 @@ export default function AssemblyTab({ activeProject }: AssemblyTabProps) {
   const [draggedSceneIdx, setDraggedSceneIdx] = useState<number | null>(null);
   const [dragOverSceneIdx, setDragOverSceneIdx] = useState<number | null>(null);
   const [dropPosition, setDropPosition] = useState<"before" | "after" | null>(null);
+  const [dragHandleActiveIdx, setDragHandleActiveIdx] = useState<number | null>(null);
 
   const handleSceneDragStart = (e: React.DragEvent, index: number) => {
     setDraggedSceneIdx(index);
@@ -195,6 +206,7 @@ export default function AssemblyTab({ activeProject }: AssemblyTabProps) {
     setDraggedSceneIdx(null);
     setDragOverSceneIdx(null);
     setDropPosition(null);
+    setDragHandleActiveIdx(null);
 
     if (reorderScenes) {
       await reorderScenes(newOrderedIds);
@@ -205,6 +217,7 @@ export default function AssemblyTab({ activeProject }: AssemblyTabProps) {
     setDraggedSceneIdx(null);
     setDragOverSceneIdx(null);
     setDropPosition(null);
+    setDragHandleActiveIdx(null);
   };
   
   // Timeline zoom level (pixels per second)
@@ -277,14 +290,16 @@ export default function AssemblyTab({ activeProject }: AssemblyTabProps) {
   const slug = activeProject.slug || `project-${activeProject.id}`;
   const aspectRatio = activeProject.aspect_ratio || "16:9";
 
-  const getAssetUrl = (path: string) => {
+  const getAssetUrl = (path: string, timestamp?: number) => {
     if (!path) return "";
     const cleanPath = path.startsWith("/") ? path.slice(1) : path;
-    return `http://localhost:8000/static/${cleanPath}`;
+    const t = timestamp !== undefined ? timestamp : audioCacheBuster;
+    return `http://localhost:8000/static/${cleanPath}${t ? `?t=${t}` : ""}`;
   };
 
   // Fetch assembly coupling status & timeline
-  const fetchAssemblyStatus = useCallback(async () => {
+  const fetchAssemblyStatus = useCallback(async (showIndicator = false) => {
+    if (showIndicator) setIsSyncing(true);
     try {
       const res = await fetch(`http://localhost:8000/api/projects/${activeProject.id}/assembly-status`);
       if (res.ok) {
@@ -294,6 +309,16 @@ export default function AssemblyTab({ activeProject }: AssemblyTabProps) {
         setTotalDuration(data.total_duration || 0);
         setCoupledCount(data.coupled_count || 0);
         setHasFinalVideo(data.has_final_video || false);
+        if (data.master_audio_path) {
+          setMasterAudioPath(data.master_audio_path);
+          setMasterAudioExists(Boolean(data.master_audio_exists));
+        } else {
+          setMasterAudioPath(null);
+          setMasterAudioExists(false);
+        }
+        if (data.audio_cache_buster) {
+          setAudioCacheBuster(data.audio_cache_buster);
+        }
         if (data.render_job) setRenderJob(data.render_job);
 
         // Load timeline configuration from server if exists
@@ -343,11 +368,45 @@ export default function AssemblyTab({ activeProject }: AssemblyTabProps) {
       console.error("Failed to load assembly status:", err);
     } finally {
       setIsLoadingStatus(false);
+      if (showIndicator) {
+        setTimeout(() => setIsSyncing(false), 500);
+      }
     }
   }, [activeProject.id, sceneIdsOrder]);
 
   useEffect(() => {
     fetchAssemblyStatus();
+  }, [fetchAssemblyStatus]);
+
+  // Auto-sync polling whenever any scene is currently processing audio in the background
+  const isAnySceneProcessing = useMemo(() => {
+    return scenesData.some(s => s.audio_status === "processing" || s.audio_status === "pending");
+  }, [scenesData]);
+
+  useEffect(() => {
+    if (!isAnySceneProcessing) return;
+    const interval = setInterval(() => {
+      fetchAssemblyStatus();
+    }, 2000);
+    return () => clearInterval(interval);
+  }, [isAnySceneProcessing, fetchAssemblyStatus]);
+
+  // Auto-refresh when tab gains focus or visibility (e.g. user generated voice in Voice tab and switched here)
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") {
+        fetchAssemblyStatus();
+      }
+    };
+    const handleFocus = () => {
+      fetchAssemblyStatus();
+    };
+    window.addEventListener("visibilitychange", handleVisibility);
+    window.addEventListener("focus", handleFocus);
+    return () => {
+      window.removeEventListener("visibilitychange", handleVisibility);
+      window.removeEventListener("focus", handleFocus);
+    };
   }, [fetchAssemblyStatus]);
 
   // Poll render status if rendering
@@ -410,7 +469,7 @@ export default function AssemblyTab({ activeProject }: AssemblyTabProps) {
     let accumulated = 0;
     return scenesData.map(s => {
       const start = accumulated;
-      const dur = s.coupling_status === "ready" ? s.duration : 3.0;
+      const dur = (s.audio_exists && s.duration > 0) ? s.duration : (s.coupling_status === "ready" ? s.duration : 3.0);
       accumulated += dur;
       return {
         ...s,
@@ -458,6 +517,29 @@ export default function AssemblyTab({ activeProject }: AssemblyTabProps) {
     return timeline.bgm_clips.find(c => c.id === selectedBgmId) || null;
   }, [timeline.bgm_clips, selectedBgmId]);
 
+  // Master voiceover track URL
+  const masterAudioUrl = useMemo(() => {
+    if (masterAudioPath && masterAudioExists) {
+      return getAssetUrl(masterAudioPath, audioCacheBuster);
+    }
+    return null;
+  }, [masterAudioPath, masterAudioExists, audioCacheBuster]);
+
+  // Keep master audio element loaded with current master audio url
+  useEffect(() => {
+    const voiceAudio = voiceAudioRef.current;
+    if (!voiceAudio || !masterAudioUrl) return;
+    if (voiceAudio.src !== masterAudioUrl) {
+      const wasPlaying = isPlaying;
+      const prevTime = currentTime;
+      voiceAudio.src = masterAudioUrl;
+      voiceAudio.currentTime = Math.min(prevTime, voiceAudio.duration || prevTime);
+      if (wasPlaying) {
+        voiceAudio.play().catch(() => {});
+      }
+    }
+  }, [masterAudioUrl]);
+
   // -------------------------------------------------------------
   // AUDIO SYNCHRONIZATION ENGINE (Voiceover + Multi-Clip BGM Preview)
   // -------------------------------------------------------------
@@ -468,30 +550,39 @@ export default function AssemblyTab({ activeProject }: AssemblyTabProps) {
 
     // 1. VOICEOVER SYNCHRONIZATION
     if (voiceAudio) {
-      if (currentScene && currentScene.audio_exists && currentScene.audio_path) {
-        const sceneAudioUrl = getAssetUrl(currentScene.audio_path);
-        const expectedSceneTime = Math.max(0, currentTime - currentScene.timeline_start);
-        const sceneVolume = timeline.scene_volumes[String(currentScene.scene_number)] ?? 1.0;
+      if (masterAudioUrl) {
+        // Continuous master voiceover: dynamically adjust volume per scene without touching src
+        const sceneVolume = currentScene 
+          ? (timeline.scene_volumes[String(currentScene.scene_number)] ?? 1.0) 
+          : 1.0;
         voiceAudio.volume = Math.min(1.0, Math.max(0.0, sceneVolume));
+      } else {
+        // Fallback for individual scene tracks if master audio is not compiled
+        if (currentScene && currentScene.audio_exists && currentScene.audio_path) {
+          const sceneAudioUrl = getAssetUrl(currentScene.audio_path, currentScene.audio_mtime);
+          const expectedSceneTime = Math.max(0, currentTime - currentScene.timeline_start);
+          const sceneVolume = timeline.scene_volumes[String(currentScene.scene_number)] ?? 1.0;
+          voiceAudio.volume = Math.min(1.0, Math.max(0.0, sceneVolume));
 
-        if (voiceAudio.src !== sceneAudioUrl) {
-          voiceAudio.src = sceneAudioUrl;
-          voiceAudio.currentTime = expectedSceneTime;
-          if (isPlaying) {
-            voiceAudio.play().catch(() => {});
+          if (voiceAudio.src !== sceneAudioUrl) {
+            voiceAudio.src = sceneAudioUrl;
+            voiceAudio.currentTime = expectedSceneTime;
+            if (isPlaying) {
+              voiceAudio.play().catch(() => {});
+            }
+          } else {
+            if (Math.abs(voiceAudio.currentTime - expectedSceneTime) > 0.4) {
+              voiceAudio.currentTime = expectedSceneTime;
+            }
+            if (isPlaying && voiceAudio.paused) {
+              voiceAudio.play().catch(() => {});
+            } else if (!isPlaying && !voiceAudio.paused) {
+              voiceAudio.pause();
+            }
           }
         } else {
-          if (Math.abs(voiceAudio.currentTime - expectedSceneTime) > 0.3) {
-            voiceAudio.currentTime = expectedSceneTime;
-          }
-          if (isPlaying && voiceAudio.paused) {
-            voiceAudio.play().catch(() => {});
-          } else if (!isPlaying && !voiceAudio.paused) {
-            voiceAudio.pause();
-          }
+          if (!voiceAudio.paused) voiceAudio.pause();
         }
-      } else {
-        if (!voiceAudio.paused) voiceAudio.pause();
       }
     }
 
@@ -529,7 +620,7 @@ export default function AssemblyTab({ activeProject }: AssemblyTabProps) {
         if (!bgmAudio.paused) bgmAudio.pause();
       }
     }
-  }, [currentTime, isPlaying, currentSceneAtPlayhead, timeline.bgm_clips, timeline.master_bgm_volume, timeline.ducking, timeline.scene_volumes]);
+  }, [currentTime, isPlaying, currentSceneAtPlayhead, timeline.bgm_clips, timeline.master_bgm_volume, timeline.ducking, timeline.scene_volumes, masterAudioUrl]);
 
   // Master Play / Pause toggler
   const togglePlay = () => {
@@ -545,15 +636,37 @@ export default function AssemblyTab({ activeProject }: AssemblyTabProps) {
     setIsPlaying(true);
     const startTimestamp = performance.now() - (currentTime * 1000);
 
-    playheadIntervalRef.current = setInterval(() => {
-      const elapsed = (performance.now() - startTimestamp) / 1000;
-      if (elapsed >= maxTimelineDuration) {
-        stopPlayback();
-        setCurrentTime(0);
-      } else {
-        setCurrentTime(elapsed);
+    const voiceAudio = voiceAudioRef.current;
+    if (voiceAudio && masterAudioUrl) {
+      if (currentTime < (voiceAudio.duration || totalDuration || maxTimelineDuration)) {
+        voiceAudio.currentTime = currentTime;
+        voiceAudio.play().catch(() => {});
       }
-    }, 40);
+    }
+
+    if (playheadIntervalRef.current) clearInterval(playheadIntervalRef.current);
+
+    playheadIntervalRef.current = setInterval(() => {
+      const vAudio = voiceAudioRef.current;
+      // When master audio is available and active, its clock is the source of truth
+      if (vAudio && masterAudioUrl && !vAudio.paused && !vAudio.ended && vAudio.duration > 0) {
+        const audioT = vAudio.currentTime;
+        if (audioT >= maxTimelineDuration) {
+          stopPlayback();
+          setCurrentTime(0);
+        } else {
+          setCurrentTime(audioT);
+        }
+      } else {
+        const elapsed = (performance.now() - startTimestamp) / 1000;
+        if (elapsed >= maxTimelineDuration) {
+          stopPlayback();
+          setCurrentTime(0);
+        } else {
+          setCurrentTime(elapsed);
+        }
+      }
+    }, 35);
   };
 
   const stopPlayback = () => {
@@ -569,18 +682,59 @@ export default function AssemblyTab({ activeProject }: AssemblyTabProps) {
   const handleSeek = (time: number) => {
     const clamped = Math.max(0, Math.min(maxTimelineDuration, time));
     setCurrentTime(clamped);
+
+    const voiceAudio = voiceAudioRef.current;
+    if (voiceAudio && masterAudioUrl) {
+      if (clamped < (voiceAudio.duration || totalDuration || maxTimelineDuration)) {
+        voiceAudio.currentTime = clamped;
+      }
+    }
+
+    const bgmAudio = bgmAudioRef.current;
+    if (bgmAudio) {
+      const activeClip = timeline.bgm_clips.find(
+        c => clamped >= c.start_time && clamped < (c.start_time + c.duration)
+      );
+      if (activeClip) {
+        const offsetWithinClip = clamped - activeClip.start_time;
+        const expectedBgmTime = (activeClip.media_offset || 0) + offsetWithinClip;
+        bgmAudio.currentTime = expectedBgmTime;
+      }
+    }
+
     if (isPlaying) {
       if (playheadIntervalRef.current) clearInterval(playheadIntervalRef.current);
       const startTimestamp = performance.now() - (clamped * 1000);
-      playheadIntervalRef.current = setInterval(() => {
-        const elapsed = (performance.now() - startTimestamp) / 1000;
-        if (elapsed >= maxTimelineDuration) {
-          stopPlayback();
-          setCurrentTime(0);
+
+      if (voiceAudio && masterAudioUrl) {
+        if (clamped < (voiceAudio.duration || totalDuration || maxTimelineDuration)) {
+          voiceAudio.currentTime = clamped;
+          voiceAudio.play().catch(() => {});
         } else {
-          setCurrentTime(elapsed);
+          voiceAudio.pause();
         }
-      }, 40);
+      }
+
+      playheadIntervalRef.current = setInterval(() => {
+        const vAudio = voiceAudioRef.current;
+        if (vAudio && masterAudioUrl && !vAudio.paused && !vAudio.ended && vAudio.duration > 0) {
+          const audioT = vAudio.currentTime;
+          if (audioT >= maxTimelineDuration) {
+            stopPlayback();
+            setCurrentTime(0);
+          } else {
+            setCurrentTime(audioT);
+          }
+        } else {
+          const elapsed = (performance.now() - startTimestamp) / 1000;
+          if (elapsed >= maxTimelineDuration) {
+            stopPlayback();
+            setCurrentTime(0);
+          } else {
+            setCurrentTime(elapsed);
+          }
+        }
+      }, 35);
     }
   };
 
@@ -601,7 +755,8 @@ export default function AssemblyTab({ activeProject }: AssemblyTabProps) {
 
     setAuditioningSceneId(scene.id);
     if (singleAuditionAudioRef.current) {
-      singleAuditionAudioRef.current.src = getAssetUrl(scene.audio_path);
+      const freshUrl = getAssetUrl(scene.audio_path, scene.audio_mtime || audioCacheBuster);
+      singleAuditionAudioRef.current.src = freshUrl;
       const vol = timeline.scene_volumes[String(scene.scene_number)] ?? 1.0;
       singleAuditionAudioRef.current.volume = Math.min(1.0, Math.max(0.0, vol));
       singleAuditionAudioRef.current.currentTime = 0;
@@ -1107,7 +1262,20 @@ export default function AssemblyTab({ activeProject }: AssemblyTabProps) {
         <div className="w-full lg:w-[380px] shrink-0 flex flex-col gap-2 bg-card border border-border rounded-xl p-3.5 shadow-sm h-[480px]">
           <div className="flex items-center justify-between pb-1.5 border-b border-border/40">
             <div>
-              <h3 className="text-xs font-bold text-foreground uppercase tracking-wider">Voice Lines</h3>
+              <div className="flex items-center gap-2">
+                <h3 className="text-xs font-bold text-foreground uppercase tracking-wider">Voice Lines</h3>
+                <button
+                  onClick={() => {
+                    fetchAssemblyStatus(true);
+                    if (refreshProjectData) refreshProjectData();
+                  }}
+                  disabled={isSyncing}
+                  className="p-1 rounded hover:bg-muted text-foreground/60 hover:text-foreground transition-colors cursor-pointer"
+                  title="Auto-sync and refresh audio lines"
+                >
+                  <RefreshCw size={11} className={isSyncing ? "animate-spin text-primary" : ""} />
+                </button>
+              </div>
               <p className="text-[10px] text-foreground/50">Audition & individual speech gain</p>
             </div>
             
@@ -1153,7 +1321,7 @@ export default function AssemblyTab({ activeProject }: AssemblyTabProps) {
                 return (
                   <div
                     key={scene.id}
-                    draggable
+                    draggable={dragHandleActiveIdx === idx}
                     onDragStart={(e) => handleSceneDragStart(e, idx)}
                     onDragOver={(e) => handleSceneDragOver(e, idx)}
                     onDrop={(e) => handleSceneDrop(e, idx)}
@@ -1189,6 +1357,12 @@ export default function AssemblyTab({ activeProject }: AssemblyTabProps) {
                           <span 
                             className="cursor-grab active:cursor-grabbing text-white/70 hover:text-white transition-colors" 
                             title="Drag to reorder sequence"
+                            onMouseEnter={() => setDragHandleActiveIdx(idx)}
+                            onMouseLeave={() => {
+                              if (draggedSceneIdx === null) setDragHandleActiveIdx(null);
+                            }}
+                            onMouseDown={() => setDragHandleActiveIdx(idx)}
+                            onTouchStart={() => setDragHandleActiveIdx(idx)}
                             onClick={(e) => e.stopPropagation()}
                           >
                             <GripVertical size={9} />
