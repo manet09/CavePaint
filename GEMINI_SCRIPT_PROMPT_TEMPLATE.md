@@ -1,6 +1,8 @@
-# 🎬 CavePaint — Gemini Script Generation Prompt Template
+# 🎬 CavePaint — Gemini Script & Music Prompt Generation Template
 
-Use this template in the **Gemini Web UI** (or Claude / ChatGPT) to turn any video idea into a deeply researched, fact-backed, and entertaining **Khmer narrative script** ready to paste straight into CavePaint.
+Use this template in the **Gemini Web UI** (or Claude / ChatGPT) to turn any video idea into:
+1. An **AI Background Music Prompt** custom-tailored for **Google Music (MusicFX / MusicLM)** — 100% instrumental with no lyrics, aligned with your topic.
+2. A deeply researched, fact-backed, and entertaining **Khmer narrative script** ready to paste straight into CavePaint.
 
 ---
 
@@ -8,8 +10,11 @@ Use this template in the **Gemini Web UI** (or Claude / ChatGPT) to turn any vid
 1. Copy the **Master Prompt Template** below.
 2. Fill in the **`[INPUT CONFIGURATION]`** placeholders (Title, Brief, Duration, Era, Region, Tone).
 3. Paste into **Gemini Web UI** (`gemini.google.com`).
-4. Copy Gemini's output directly into **CavePaint Studio (Brainstorming Tab > Narrative Script)**.
+4. Gemini will output two clean sections:
+   - **🎵 Google Music Prompt**: Copy this and paste into **Google MusicFX** (`aitestkitchen.withgoogle.com`) or your AI music tool to generate instrumental background audio.
+   - **📜 Khmer Narrative Script**: Copy the script directly into **CavePaint Studio (Brainstorming Tab > Narrative Script)**.
 5. Click **"Auto-Break"** in CavePaint to automatically convert each line into a scene!
+6. In CavePaint's **Assembly Tab**, import your generated background music onto the Music track!
 
 ---
 
@@ -18,7 +23,7 @@ Use this template in the **Gemini Web UI** (or Claude / ChatGPT) to turn any vid
 ```markdown
 You are an award-winning YouTube creative director, screenwriter, and educational explainer storyteller (specializing in the fast-paced, witty, and engaging style of channels like Whatly, Kurzgesagt, and OverSimplified).
 
-Your mission is to perform deep factual research on my video topic, identify key evidence, and write a complete, end-to-end, highly entertaining narrative script written in natural, spoken Khmer (ភាសាខ្មែរ).
+Your mission is to perform deep factual research on my video topic, identify key evidence, write a complete, end-to-end, highly entertaining narrative script written in natural, spoken Khmer (ភាសាខ្មែរ), AND create an optimized English prompt to generate matching instrumental background music in Google Music (MusicFX).
 
 ---
 
@@ -66,10 +71,27 @@ Before writing a single line of script, conduct thorough, authoritative research
 
 ---
 
+### STEP 3: BACKGROUND MUSIC PROMPT (FOR GOOGLE MUSIC / MUSICFX):
+Craft a tailor-made prompt in English to generate background music for this video using **Google Music (MusicFX / MusicLM)**:
+1. **STRICTLY INSTRUMENTAL (NO LYRICS / NO VOCALS)**:
+   - Must explicitly specify: `instrumental only, strictly no lyrics, no vocals, no singing, clean background audio`.
+2. **Align with Topic, Era & Region**:
+   - Match the video's historical setting, cultural atmosphere, and narrative vibe (e.g. traditional instruments like bamboo flutes or acoustic xylophones subtly blended with cinematic strings for history; or curious, rhythmic acoustic pizzicato / synth-pads for science & explainers).
+3. **Voiceover-Friendly Dynamics**:
+   - Moderate tempo (75-105 BPM), unobtrusive rhythm, balanced dynamic range so it sits gently under narration without drowning out the voice.
+4. **Prompt Format**:
+   - Provide a single, ready-to-paste paragraph combining: `[Genre / Style], [Specific Instruments], [Mood / Atmosphere], [Tempo / BPM], background music for documentary voiceover, instrumental only, strictly no lyrics, no vocals`.
+
+---
+
 ### STRICT OUTPUT FORMAT:
-Return ONLY the raw Khmer narrative script as plain text. 
-Do NOT output your research notes, thinking process, greetings, markdown headers, or conversational text.
-Start immediately with the first line of the Khmer voiceover script, one sentence per line ending with `។`.
+Output EXACTLY the two sections below and nothing else (no greetings, no research notes, no conversational chat):
+
+### 🎵 GOOGLE MUSIC PROMPT:
+[The complete ready-to-copy English prompt for Google MusicFX / MusicLM with genre, instruments, tempo, mood, and strict no-vocal/instrumental constraints.]
+
+### 📜 KHMER NARRATIVE SCRIPT:
+[The raw Khmer voiceover script starting immediately on the next line. One sentence per line, each strictly ending with the Khmer full-stop sign (។). Zero speaker labels, zero stage directions.]
 ```
 
 ---
@@ -79,7 +101,7 @@ Start immediately with the first line of the Khmer voiceover script, one sentenc
 ```markdown
 You are an award-winning YouTube creative director, screenwriter, and educational explainer storyteller (specializing in the fast-paced, witty, and engaging style of channels like Whatly, Kurzgesagt, and OverSimplified).
 
-Your mission is to perform deep factual research on my video topic, identify key evidence, and write a complete, end-to-end, highly entertaining narrative script written in natural, spoken Khmer (ភាសាខ្មែរ).
+Your mission is to perform deep factual research on my video topic, identify key evidence, write a complete, end-to-end, highly entertaining narrative script written in natural, spoken Khmer (ភាសាខ្មែរ), AND create an optimized English prompt to generate matching instrumental background music in Google Music (MusicFX).
 
 ### [INPUT CONFIGURATION]
 - **Video Title / Topic**: ការពិតដ៏គួរឱ្យភ្ញាក់ផ្អើលអំពីប្រព័ន្ធធារាសាស្ត្រសម័យអង្គរ (The Mind-Blowing Secret of Angkor's Water Grid)
@@ -107,8 +129,41 @@ Before writing, thoroughly research the hydraulic engineering and environmental 
    - Rule 2: Put every sentence on its own separate line (1 sentence = 1 visual scene).
    - Rule 3: Zero speaker labels or parentheticals in narration.
 
+### STEP 3: BACKGROUND MUSIC PROMPT (FOR GOOGLE MUSIC / MUSICFX):
+Generate a Google Music prompt that:
+1. Is strictly instrumental (no lyrics, no vocals, no singing).
+2. Uses subtle traditional Southeast Asian / Khmer acoustic instruments (soft roneat xylophone notes, gentle bamboo flute, organic percussion) layered over warm cinematic atmospheric strings.
+3. Has a curious, intriguing, and awe-inspiring tone at ~85-95 BPM.
+4. Is mixed as subtle background music suitable for spoken voiceover.
+
 ### STRICT OUTPUT FORMAT:
-Return ONLY the raw Khmer narrative script as plain text. 
-Do NOT output your research notes, thinking process, greetings, markdown headers, or commentary. 
-Start immediately with the first line of the Khmer voiceover script, one sentence per line ending with `។`.
+Output EXACTLY the two sections below and nothing else:
+
+### 🎵 GOOGLE MUSIC PROMPT:
+[Ready-to-copy English prompt for Google MusicFX, instrumental only, no lyrics]
+
+### 📜 KHMER NARRATIVE SCRIPT:
+[Raw Khmer voiceover script, 1 sentence per line ending with `។`]
 ```
+
+---
+
+## 🌟 3. Example of Expected Gemini Output
+
+When you run the prompt in Gemini Web UI, it will generate an output structured like this:
+
+### 🎵 GOOGLE MUSIC PROMPT:
+```text
+Atmospheric historical documentary background music, subtle ancient Khmer acoustic textures with delicate roneat ek xylophone, soft bamboo flute melodies, layered over warm cinematic strings and gentle organic percussion, intriguing and awe-inspiring mood, steady mid-tempo 90 BPM, balanced unobtrusive mix designed for voiceover narration, instrumental only, strictly no lyrics, no vocals, high production quality.
+```
+
+### 📜 KHMER NARRATIVE SCRIPT:
+```text
+តើអ្នកធ្លាប់ឆ្ងល់ទេថា ហេតុអ្វីបានជាបុព្វបុរសខ្មែរអាចសាងសង់ទីក្រុងដ៏ធំសម្បើមនៅកណ្ដាលព្រៃស្ដុកបាន?។
+អាថ៌កំបាំងពិតប្រាកដមិនមែននៅត្រង់តែប្រាសាទថ្មនោះទេ គឺស្ថិតនៅលើប្រព័ន្ធគ្រប់គ្រងទឹកដ៏អស្ចារ្យ។។
+យោងតាមកំណត់ត្រារបស់លោក Zhou Daguan ក្នុងឆ្នាំ 1296 ទីក្រុងអង្គរមានអាងស្តុកទឹក ឬបារាយណ៍យក្សដែលអាចផ្ទុកទឹកបានរាប់សិបលានម៉ែត្រគូប។។
+បច្ចេកវិទ្យាស្កេនឡាស៊ែរ LiDAR របស់ Greater Angkor Project បានបង្ហាញថា អង្គរជា hydraulic city ធំបំផុតនៅលើពិភពលោកក្នុងយុគសម័យកណ្តាល។។
+ប៉ុន្តែនៅពេលដែលបម្រែបម្រួលអាកាសធាតុបង្កឱ្យមានគ្រោះរាំងស្ងួតរាប់ទសវត្សរ៍ បន្ទាប់មកដោយទឹកជំនន់មហាសាល ប្រព័ន្ធទឹកដ៏ស្មុគស្មាញនេះក៏ត្រូវខូចខាត។។
+```
+
+

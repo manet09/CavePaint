@@ -273,6 +273,7 @@ async def process_task(task: GenerationTask):
             
             rel_save_path = os.path.relpath(save_path, workspace_dir).replace("\\", "/")
             scene.audio_path = rel_save_path
+            scene.audio_text = text or scene.narration_khmer
             scene.audio_status = "completed"
             db.commit()
             
@@ -321,6 +322,7 @@ async def process_task(task: GenerationTask):
             
             rel_save_path = os.path.relpath(save_path, workspace_dir).replace("\\", "/")
             scene.audio_path = rel_save_path
+            scene.audio_text = text or scene.narration_khmer
             
             if character_id:
                 scene.character_id = character_id

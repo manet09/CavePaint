@@ -78,6 +78,7 @@ class Scene(Base):
     negative_prompt = Column(Text, nullable=True)
     user_refinement_prompt = Column(Text, nullable=True)
     audio_path = Column(String, nullable=True)
+    audio_text = Column(Text, nullable=True)
     image_path = Column(String, nullable=True)
     images_list = Column(Text, default="[]")  # JSON string of relative paths
     reference_images = Column(Text, default="[]")  # JSON string of reference paths or Flow media UUIDs
@@ -229,6 +230,18 @@ except Exception:
 try:
     with engine.begin() as conn:
         conn.execute(text("ALTER TABLE projects ADD COLUMN is_pinned BOOLEAN NOT NULL DEFAULT 0;"))
+except Exception:
+    pass
+
+try:
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE scenes ADD COLUMN audio_text TEXT;"))
+except Exception:
+    pass
+
+try:
+    with engine.begin() as conn:
+        conn.execute(text("UPDATE scenes SET audio_text = narration_khmer WHERE audio_path IS NOT NULL AND (audio_text IS NULL OR audio_text = '');"))
 except Exception:
     pass
 

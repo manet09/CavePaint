@@ -34,6 +34,7 @@ class SceneBase(BaseModel):
     negative_prompt: Optional[str] = None
     user_refinement_prompt: Optional[str] = None
     audio_path: Optional[str] = None
+    audio_text: Optional[str] = None
     image_path: Optional[str] = None
     images_list: Optional[str] = "[]"
     reference_images: Optional[str] = "[]"
@@ -48,6 +49,7 @@ class SceneUpdate(BaseModel):
     character_id: Optional[int] = None
     character_name: Optional[str] = None
     audio_status: Optional[str] = None
+    audio_text: Optional[str] = None
 
 class SceneOut(SceneBase):
     id: int
@@ -603,14 +605,23 @@ async def update_scene(scene_id: int, payload: SceneUpdate, db: Session = Depend
         
     update_data = payload.model_dump(exclude_unset=True)
 
-    # Invalidate audio if narration changed and audio was completed
-    if "narration_khmer" in update_data and update_data["narration_khmer"] != scene.narration_khmer:
-        if scene.audio_status == "completed":
-            scene.audio_status = "outdated"
+    # Invalidate audio if narration changed or character changed and audio exists
+    if "narration_khmer" in update_data:
+        new_text = (update_data["narration_khmer"] or "").strip()
+        orig_text = (scene.audio_text or scene.narration_khmer or "").strip()
+        if new_text != orig_text:
+            if scene.audio_status == "completed" or scene.audio_path:
+                scene.audio_status = "outdated"
+        elif scene.audio_text and new_text == (scene.audio_text or "").strip() and scene.audio_path:
+            # If user restored text back to match audio, restore status to completed
+            scene.audio_status = "completed"
 
     # Resolve character name if character_id changed
     if "character_id" in update_data:
         char_id = update_data["character_id"]
+        if char_id != scene.character_id:
+            if scene.audio_status == "completed" or scene.audio_path:
+                scene.audio_status = "outdated"
         if char_id is not None:
             char = db.query(Character).filter(Character.id == char_id).first()
             scene.character_id = char_id
@@ -712,6 +723,7 @@ async def parse_project_scenes(project_id: int, db: Session = Depends(get_db)):
 
 class ScriptSegmentPayload(BaseModel):
     long_script: str
+    split_mode: Optional[str] = "enter"
 
 @app.post("/api/projects/{project_id}/segment-script")
 async def segment_project_script(project_id: int, payload: ScriptSegmentPayload, db: Session = Depends(get_db)):
@@ -720,16 +732,40 @@ async def segment_project_script(project_id: int, payload: ScriptSegmentPayload,
         raise HTTPException(status_code=404, detail="Project not found")
 
     long_script = payload.long_script or ""
+    split_mode = payload.split_mode or "enter"
     clean_script = re.sub(r"\(.*?\)", "", long_script)
-    chunks = [c.strip() for c in re.split(r"[។\n]+", clean_script) if c.strip()]
+    
+    if split_mode == "enter":
+        raw_lines = [l.strip() for l in clean_script.split("\n") if l.strip()]
+        chunks = []
+        for line in raw_lines:
+            trimmed = re.sub(r"[\s\u200B\uFEFF]+$", "", line).strip()
+            if not trimmed:
+                continue
+            if trimmed.endswith("។") or trimmed.endswith("៕"):
+                chunks.append(trimmed)
+            else:
+                chunks.append(f"{trimmed}។")
+    else:
+        # Split strictly by Khmer full stop ។ or ៕
+        raw_chunks = [re.sub(r"\n+", " ", c).strip() for c in re.split(r"[។៕]+", clean_script) if c.strip()]
+        chunks = []
+        for c in raw_chunks:
+            trimmed = re.sub(r"[\s\u200B\uFEFF]+$", "", c).strip()
+            if not trimmed:
+                continue
+            if trimmed.endswith("។") or trimmed.endswith("៕"):
+                chunks.append(trimmed)
+            else:
+                chunks.append(f"{trimmed}។")
     
     scenes = db.query(Scene).filter(Scene.project_id == project_id).order_by(Scene.scene_number).all()
     
     for i, chunk in enumerate(chunks):
         if i < len(scenes):
-            if scenes[i].narration_khmer != chunk:
+            if (scenes[i].narration_khmer or "").strip() != chunk.strip():
                 scenes[i].narration_khmer = chunk
-                if scenes[i].audio_status == "completed":
+                if scenes[i].audio_status == "completed" or scenes[i].audio_path:
                     scenes[i].audio_status = "outdated"
         else:
             new_scene = Scene(
@@ -1797,6 +1833,9 @@ async def assign_project_character(project_id: int, character_id: Optional[int] 
         char_name = char.name
 
     for scene in project.scenes:
+        if scene.character_id != character_id:
+            if scene.audio_status == "completed" or scene.audio_path:
+                scene.audio_status = "outdated"
         scene.character_id = character_id
         scene.character_name = char_name
 

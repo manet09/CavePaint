@@ -635,7 +635,34 @@ export default function BrainstormingTab({ activeProject, refreshProjectData }: 
   const [characterAttire, setCharacterAttire] = useState("");
   const [sceneStaging, setSceneStaging] = useState<"studio" | "environment">("studio");
   const [customSetting, setCustomSetting] = useState("");
-  const [splitMode, setSplitMode] = useState<"enter" | "sentence" | "beat">("enter");
+  const [splitMode, setSplitMode] = useState<"enter" | "sentence">(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("script_split_mode");
+      if (saved === "enter" || saved === "sentence") return saved;
+    }
+    return "enter";
+  });
+
+  const handleSetSplitMode = (mode: "enter" | "sentence") => {
+    setSplitMode(mode);
+    try {
+      localStorage.setItem("script_split_mode", mode);
+    } catch {}
+    if (mode === "enter" && scriptText.trim()) {
+      const lines = scriptText.split("\n").map((l) => {
+        const trimmed = l.replace(/[\s\u200B\uFEFF]+$/g, "");
+        if (!trimmed.trim()) return l;
+        return trimmed.endsWith("។") || trimmed.endsWith("៕") ? trimmed : `${trimmed}។`;
+      });
+      const formatted = lines.join("\n");
+      if (formatted !== scriptText) {
+        setScriptText(formatted);
+        if (activeProject?.id) {
+          updateActiveProject({ script_narrative: formatted });
+        }
+      }
+    }
+  };
 
   // Batching controller state (Option A: sentence-based, -1 = All Scenes)
   const [batchSize, setBatchSize] = useState(5);
@@ -687,36 +714,52 @@ export default function BrainstormingTab({ activeProject, refreshProjectData }: 
 
   // Sentence / Visual Beat parser:
   // - "enter": split strictly by line breaks (Enter key). Each line is one scene.
-  // - "sentence": standard split by Khmer full stop (។) and newlines
-  // - "beat": also splits on commas, semicolons, and clause markers
+  //   For every line that has no ។, append ។ automatically; lines with ។ remain unchanged.
+  // - "sentence": split strictly by Khmer full stop (។) and Bariyoosan (៕).
   const sentences = useMemo(() => {
     if (!scriptText.trim()) return [];
     const clean = scriptText.replace(/\(.*?\)/g, "").trim();
-    let regex: RegExp;
     if (splitMode === "enter") {
-      regex = /\n+/;
-    } else if (splitMode === "beat") {
-      regex = /[។\n,;៖]+/;
+      const rawLines = clean
+        .split(/\n+/)
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0);
+      return rawLines.map((s) => {
+        const trimmed = s.replace(/[\s\u200B\uFEFF]+$/g, "");
+        return trimmed.endsWith("។") || trimmed.endsWith("៕") ? trimmed : `${trimmed}។`;
+      });
     } else {
-      regex = /[។\n]+/;
+      const rawSentences = clean
+        .split(/[។៕]+/)
+        .map((s) => s.replace(/\n+/g, " ").replace(/[\s\u200B\uFEFF]+$/g, "").trim())
+        .filter((s) => s.length > 0);
+      return rawSentences.map((s) => (s.endsWith("។") || s.endsWith("៕") ? s : `${s}។`));
     }
-    return clean
-      .split(regex)
-      .map((s) => s.trim())
-      .filter((s) => s.length > 0);
   }, [scriptText, splitMode]);
 
-  // Auto-break Khmer sentences (។) into separate lines (Enter)
+  // Auto-break or format Khmer sentences into lines
   const handleAutoBreakToLines = async () => {
     if (!scriptText.trim()) return;
-    const formatted = scriptText
-      .replace(/([។])\s*/g, "$1\n")
-      .split("\n")
-      .map((l) => l.trim())
-      .filter((l) => l.length > 0)
-      .join("\n");
+    let formatted: string;
+    if (splitMode === "enter") {
+      // For every line that has no ។, append ។ at the end; lines already having ។ remain the way they are
+      const lines = scriptText
+        .split("\n")
+        .map((l) => l.replace(/[\s\u200B\uFEFF]+$/g, "").trim())
+        .filter((l) => l.length > 0)
+        .map((l) => (l.endsWith("។") || l.endsWith("៕") ? l : `${l}។`));
+      formatted = lines.join("\n");
+    } else {
+      // Split script into separate lines at every Khmer full stop (។ / ៕)
+      formatted = scriptText
+        .replace(/([។៕])\s*/g, "$1\n")
+        .split("\n")
+        .map((l) => l.replace(/[\s\u200B\uFEFF]+$/g, "").trim())
+        .filter((l) => l.length > 0)
+        .map((l) => (l.endsWith("។") || l.endsWith("៕") ? l : `${l}។`))
+        .join("\n");
+    }
     setScriptText(formatted);
-    setSplitMode("enter");
     if (activeProject?.id) {
       await updateActiveProject({ script_narrative: formatted });
     }
@@ -744,8 +787,20 @@ export default function BrainstormingTab({ activeProject, refreshProjectData }: 
   // Auto-save script changes on blur
   const handleScriptBlur = async () => {
     if (!activeProject?.id) return;
-    if (scriptText !== (activeProject.script_narrative || "")) {
-      await updateActiveProject({ script_narrative: scriptText });
+    let textToSave = scriptText;
+    if (splitMode === "enter" && scriptText.trim()) {
+      const lines = scriptText.split("\n").map((l) => {
+        const trimmed = l.replace(/[\s\u200B\uFEFF]+$/g, "");
+        if (!trimmed.trim()) return l;
+        return (trimmed.endsWith("។") || trimmed.endsWith("៕")) ? trimmed : `${trimmed}។`;
+      });
+      textToSave = lines.join("\n");
+      if (textToSave !== scriptText) {
+        setScriptText(textToSave);
+      }
+    }
+    if (textToSave !== (activeProject.script_narrative || "")) {
+      await updateActiveProject({ script_narrative: textToSave });
     }
   };
 
@@ -827,8 +882,138 @@ export default function BrainstormingTab({ activeProject, refreshProjectData }: 
     }
   };
 
+  // Build the complete YouTube Thumbnail Frontier Prompt for ChatGPT / Claude / Gemini
+  const generateThumbnailPrompt = () => {
+    const eraObj = ERA_OPTIONS.find((e) => e.id === selectedEra) || ERA_OPTIONS[0];
+    const regionObj = REGION_OPTIONS.find((r) => r.id === selectedRegion) || REGION_OPTIONS[0];
+    const eraSetting = getEraRegionSetting(selectedEra, selectedRegion);
+    const moodObj = MOOD_OPTIONS.find((m) => m.id === selectedMood) || MOOD_OPTIONS[0];
+    const ratioObj = ASPECT_RATIO_OPTIONS.find((r) => r.id === selectedAspectRatio) || ASPECT_RATIO_OPTIONS[0];
+
+    if (sentences.length === 0) {
+      return "No script sentences detected. Please paste your Khmer script first.";
+    }
+
+    const attireText = characterAttire.trim() || `${eraSetting.attire}, ${eraSetting.hair}`;
+    const backdropSpec = moodObj.id === "pure_white" 
+      ? "seamless Pure Studio White background" 
+      : `seamless ${moodObj.label} (${moodObj.desc}) background`;
+
+    return `You are the Lead YouTube Creative Director and Thumbnail Strategist for top educational explainer channels (specializing in the signature high-engagement visual storytelling of channels like Whatly, Kurzgesagt, and OverSimplified).
+
+Your mission is to analyze the complete video script below, identify its core paradox, and generate high-CTR **YouTube Thumbnail Image Prompts** for our 2D vector stickman diffusion engine (FLUX.1 / Imagen).
+
+---
+
+### 🚨 RULE 1: MANDATORY WHITE BACKGROUND (UNLESS SPECIFIED OTHERWISE):
+- The background MUST be: "${backdropSpec}".
+- A crisp, clean, seamless pure studio white canvas (signature YouTube animated explainer aesthetic).
+- DO NOT draw dark night skies, full-bleed scenic landscapes, or dark color fills unless explicitly asked. The canvas background must remain clean, seamless white.
+
+---
+
+### 🚨 RULE 2: MANDATORY 50/50 ASYMMETRICAL OFFSET (MASSIVE SPACE FOR TEXT):
+- The creator will add large bold graphic text / titles in post-production.
+- **ALL visual elements, characters, props, and action MUST be clustered strictly on ONE half of the frame (e.g. the right 50% or 60%)**.
+- **The opposite half (the left 40% to 50% of the entire widescreen canvas) MUST be completely empty, open, pure white space** with ZERO characters, ZERO props, and ZERO background elements.
+- This guarantees a huge, unobstructed clean white area for large thumbnail typography!
+
+---
+
+### 🚨 RULE 3: HOW TO MAKE THE CHARACTER HALF ENGAGING (NOT BORING):
+Even though the background is white and half the canvas is empty, the character half must tell a dramatic, exciting, and funny story:
+- **Expressive 2D Stickman Characters**: Round circle heads, simple skin tone, large white cartoon eyes with black dot pupils, and thin black stick limbs.
+- **Extreme Cartoon Facial Emotions**: Wide jaw-dropped shock, frantic panic with sweat drops, smug mastermind smirk, or wide-eyed confusion.
+- **Scale & Story Conflict**: Show a clear visual contrast (e.g. a tiny, clever stickman with an advanced tool/smirk standing next to an oversized, bulky caveman/brute who is sweating or dropping a rock in confusion).
+- **Subtle Grounding**: Include a subtle floor contact shadow so characters stand firmly on the studio floor (not awkwardly floating).
+- **STRICTLY ZERO TEXT IN AI IMAGE GENERATION**: The image generator must NOT generate letters, words, or captions. All text will be added by the creator later.
+
+---
+
+### 4 PROVEN EXPLAINER THUMBNAIL STORYTELLING FORMULAS (ON WHITE BACKGROUND):
+Choose the formulas that best dramatize THIS specific script's story within the character half:
+1. **The Scale Paradox (Brains vs Brawn)**: A tiny, clever stickman with an advanced innovation/tool confronting a colossal, bulky rival/brute who is confused, sweating, or struggling.
+2. **The Mystery Lineup ("The Last One Standing")**: 2 or 3 characters standing together where one is clearly the odd one out or where rival figures are dissolving into fading dotted ghost outlines.
+3. **The Cataclysm / Struggle Dilemma**: One character shivering or struggling under an exaggerated situation, while the clever stickman stands comfortably with the solution.
+4. **The Split Comparison**: Two characters side-by-side on the character half showcasing an extreme "Before vs After" or "Them vs Us" contrast.
+
+---
+
+### CORE FLUX PROMPT STRUCTURE:
+"Minimalist 2D flat vector animated explainer illustration, clean thick bold black marker outlines, flat vibrant solid colors, ${backdropSpec}, [DRAMATIC CHARACTER ACTION CONFINED STRICTLY TO THE RIGHT HALF OF THE FRAME], [THE ENTIRE LEFT HALF OF THE FRAME IS COMPLETELY EMPTY OPEN PURE WHITE SPACE RESERVED FOR TITLE TEXT OVERLAY], subtle floor contact shadow, ${ratioObj.desc}, strictly no text, zero 3D rendering, zero photorealism"
+
+---
+
+### PROJECT CONFIGURATION & CONTEXT:
+- Era: ${eraSetting.eraTitle}.
+- Cultural Region: ${regionObj.label} (${regionObj.desc}).
+- Cultural Directives: ${eraSetting.culturalDirectives}.
+- Character Attire & Hair: ${attireText}.
+- Authentic Key Props: ${eraSetting.props}.
+- Background: ${backdropSpec}.
+- Video Framing / Aspect Ratio: ${ratioObj.label} (${ratioObj.desc}).
+${customSetting.trim() ? `- Key Story Elements: ${customSetting.trim()}\n` : ""}
+### COMPLETE VIDEO SCRIPT TO ANALYZE:
+"""
+${scriptText}
+"""
+
+---
+
+### STRICT OUTPUT FORMAT (COPY-READY PROMPTS ONLY):
+Do NOT output greetings, conversational intros, script analysis commentary, or suggested hook text (the creator will write their own text).
+Provide ONLY the 3 options in this exact format, with every prompt in its own code block ready for 1-click copying:
+
+### 🎨 Option 1: [Short Title] (⭐ Top Recommended)
+**Scene & Text Space**: [1 short sentence describing the character action on the right half, and confirming the left half is empty open white space for text]
+
+**Prompt to copy:**
+\`\`\`text
+[The exact 40-65 word FLUX.1 vector prompt, describing the character action on the right, specifying the entire left half is empty open pure white space for text overlay, ${backdropSpec}, subtle floor contact shadow, ${ratioObj.desc}, strictly no text, zero 3D rendering, zero photorealism]
+\`\`\`
+
+**Negative prompt:**
+\`\`\`text
+text, words, letters, labels, alphabet, captions, watermark, dark background, night sky, scenic landscape, clutter, comic book, gritty, realistic, muscular, detailed anatomy, 3D, render, photorealistic
+\`\`\`
+
+---
+
+### 🎨 Option 2: [Short Title]
+**Scene & Text Space**: [1 short sentence describing the character action on the right half, and confirming the left half is empty open white space for text]
+
+**Prompt to copy:**
+\`\`\`text
+[The exact 40-65 word FLUX.1 vector prompt, describing the character action on the right, specifying the entire left half is empty open pure white space for text overlay, ${backdropSpec}, subtle floor contact shadow, ${ratioObj.desc}, strictly no text, zero 3D rendering, zero photorealism]
+\`\`\`
+
+**Negative prompt:**
+\`\`\`text
+text, words, letters, labels, alphabet, captions, watermark, dark background, night sky, scenic landscape, clutter, comic book, gritty, realistic, muscular, detailed anatomy, 3D, render, photorealistic
+\`\`\`
+
+---
+
+### 🎨 Option 3: [Short Title]
+**Scene & Text Space**: [1 short sentence describing the character action on the right half, and confirming the left half is empty open white space for text]
+
+**Prompt to copy:**
+\`\`\`text
+[The exact 40-65 word FLUX.1 vector prompt, describing the character action on the right, specifying the entire left half is empty open pure white space for text overlay, ${backdropSpec}, subtle floor contact shadow, ${ratioObj.desc}, strictly no text, zero 3D rendering, zero photorealism]
+\`\`\`
+
+**Negative prompt:**
+\`\`\`text
+text, words, letters, labels, alphabet, captions, watermark, dark background, night sky, scenic landscape, clutter, comic book, gritty, realistic, muscular, detailed anatomy, 3D, render, photorealistic
+\`\`\``;
+  };
+
   // Build the complete frontier prompt for ChatGPT/Claude
   const generatePrompt = (batchIdx: number = selectedBatchIndex) => {
+    if (batchIdx === -2) {
+      return generateThumbnailPrompt();
+    }
+
     const eraObj = ERA_OPTIONS.find((e) => e.id === selectedEra) || ERA_OPTIONS[0];
     const regionObj = REGION_OPTIONS.find((r) => r.id === selectedRegion) || REGION_OPTIONS[0];
     const eraSetting = getEraRegionSetting(selectedEra, selectedRegion);
@@ -1056,28 +1241,63 @@ Do not wrap in extra conversational markdown text. RETURN ONLY VALID JSON:
         {/* ======================================================= */}
         <div className="lg:col-span-6 flex flex-col h-full pr-1">
           {/* Header Bar */}
-          <div className="h-8 shrink-0 flex items-center justify-between">
-            <div className="flex items-center gap-2.5">
-              <div className="flex items-center gap-2">
+          <div className="h-8 shrink-0 flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="flex items-center gap-2 shrink-0">
                 <PenLine size={14} strokeWidth={1.8} className="text-primary" />
-                <span className="text-[12px] font-bold text-foreground uppercase tracking-wider">
+                <span className="text-[12px] font-bold text-foreground uppercase tracking-wider truncate">
                   Narrative Script (Khmer)
                 </span>
               </div>
-              <span className="text-[10px] font-semibold text-panel-text bg-zinc-100 dark:bg-zinc-800 px-2 py-0.5 rounded-md">
-                {sentences.length} {sentences.length === 1 ? "Line" : "Lines"}
+              <span className="text-[10px] font-semibold text-panel-text bg-zinc-100 dark:bg-zinc-800 px-2 py-0.5 rounded-md shrink-0">
+                {sentences.length} {splitMode === "enter" ? (sentences.length === 1 ? "Line" : "Lines") : (sentences.length === 1 ? "Sentence" : "Sentences")}
               </span>
             </div>
 
-            {/* Auto-Break to Lines */}
-            <button
-              type="button"
-              onClick={handleAutoBreakToLines}
-              className="text-[10px] font-medium text-primary hover:text-primary-hover bg-primary/10 hover:bg-primary/15 px-2.5 py-1 rounded-lg flex items-center gap-1.5 cursor-pointer transition-all border border-primary/20 shadow-2xs"
-              title="Automatically split sentences into separate lines at every Khmer full stop (។)"
-            >
-              <CornerDownLeft size={11} /> Auto-Break
-            </button>
+            {/* Split Mode Options & Auto-Break */}
+            <div className="flex items-center gap-1.5 shrink-0">
+              {/* Mode Selector */}
+              <div className="flex items-center bg-zinc-100 dark:bg-zinc-800/90 p-0.5 rounded-lg border border-border/60 text-[10.5px]">
+                <button
+                  type="button"
+                  onClick={() => handleSetSplitMode("enter")}
+                  className={`px-2 py-0.5 rounded-md font-medium transition-all cursor-pointer ${
+                    splitMode === "enter"
+                      ? "bg-card text-foreground shadow-2xs font-semibold"
+                      : "text-panel-text hover:text-foreground"
+                  }`}
+                  title="Break sentences by line (Enter). Automatically appends '។' to lines without it."
+                >
+                  By Enter ↵
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSetSplitMode("sentence")}
+                  className={`px-2 py-0.5 rounded-md font-medium transition-all cursor-pointer ${
+                    splitMode === "sentence"
+                      ? "bg-card text-foreground shadow-2xs font-semibold"
+                      : "text-panel-text hover:text-foreground"
+                  }`}
+                  title="Break sentences by Khmer full stop (។)"
+                >
+                  By ។
+                </button>
+              </div>
+
+              {/* Auto-Break to Lines */}
+              <button
+                type="button"
+                onClick={handleAutoBreakToLines}
+                className="text-[10px] font-medium text-primary hover:text-primary-hover bg-primary/10 hover:bg-primary/15 px-2.5 py-1 rounded-lg flex items-center gap-1.5 cursor-pointer transition-all border border-primary/20 shadow-2xs"
+                title={
+                  splitMode === "enter"
+                    ? "Format lines: auto-append '។' to any line missing it"
+                    : "Automatically split sentences into separate lines at every Khmer full stop (។)"
+                }
+              >
+                <CornerDownLeft size={11} /> Auto-Break
+              </button>
+            </div>
           </div>
 
           {/* Clean Writing Paper / Canvas (Box only where necessary!) */}
@@ -1088,8 +1308,8 @@ Do not wrap in extra conversational markdown text. RETURN ONLY VALID JSON:
               onBlur={handleScriptBlur}
               placeholder={
                 splitMode === "enter"
-                  ? "Type or paste your narrative script here. Each new line (Enter ↵) becomes an individual scene..."
-                  : "Paste your research script here... (Separate sentences with ។, commas, or newlines)"
+                  ? "Type or paste your narrative script here. Each line (Enter ↵) becomes an individual sentence/scene (missing '។' is appended automatically)..."
+                  : "Paste your research script here... Each Khmer full stop (។) breaks into a separate sentence/scene."
               }
               className="w-full h-full bg-transparent text-[15px] text-foreground leading-relaxed placeholder:text-zinc-400/40 focus:outline-none resize-none custom-scrollbar"
             />
@@ -1397,15 +1617,15 @@ Do not wrap in extra conversational markdown text. RETURN ONLY VALID JSON:
           </div>
 
           {/* Prompt Action Bar (Target Batches + Copy) */}
-          <div className="pt-2 flex items-center justify-between gap-2 shrink-0 border-t border-border/40">
-            {/* Left: Compact Batch Stepper & Popover (No horizontal scrolling!) */}
-            <div className="flex items-center gap-2 min-w-0">
-              <span className="text-[11px] font-semibold text-panel-text uppercase tracking-wider shrink-0">
+          <div className="pt-2 flex flex-wrap items-center justify-between gap-y-2 gap-x-2 shrink-0 border-t border-border/40">
+            {/* Left: Compact Batch Stepper & Popover */}
+            <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+              <span className="text-[10px] font-bold text-panel-text uppercase tracking-wider shrink-0 mr-0.5">
                 Target:
               </span>
               
               {batches.length > 0 ? (
-                <div className="flex items-center gap-1.5 shrink-0">
+                <div className="flex items-center gap-1.5 flex-wrap">
                   {/* All Scenes Button */}
                   <button
                     type="button"
@@ -1419,20 +1639,41 @@ Do not wrap in extra conversational markdown text. RETURN ONLY VALID JSON:
                     All ({sentences.length})
                   </button>
 
+                  {/* Thumbnail Option Button */}
+                  <button
+                    type="button"
+                    onClick={() => setSelectedBatchIndex(-2)}
+                    className={`px-2.5 py-1 rounded-lg text-[11px] font-medium transition-all cursor-pointer flex items-center gap-1.5 ${
+                      selectedBatchIndex === -2
+                        ? "bg-amber-500 text-white font-semibold shadow-2xs ring-1 ring-amber-400"
+                        : "bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30 hover:bg-amber-500/20"
+                    }`}
+                    title="Generate Frontier Prompt for YouTube Thumbnail"
+                  >
+                    <Sparkles size={11} className={selectedBatchIndex === -2 ? "text-white" : "text-amber-500"} />
+                    <span>Thumbnail</span>
+                  </button>
+
                   {/* Batch Dropdown */}
                   <div className="relative" ref={batchDropdownRef}>
                     <button
                       type="button"
                       onClick={() => setOpenDropdown(openDropdown === "batch" ? null : "batch")}
                       className={`flex items-center gap-1.5 bg-card hover:bg-zinc-100 dark:hover:bg-zinc-800 border rounded-lg px-2.5 py-1 text-[11px] font-semibold cursor-pointer transition-colors shadow-2xs ${
-                        selectedBatchIndex >= 0 ? "border-primary text-primary font-bold" : "border-border/70 text-panel-text hover:text-foreground"
+                        selectedBatchIndex >= 0 
+                          ? "border-primary text-primary font-bold" 
+                          : selectedBatchIndex === -2
+                            ? "border-amber-500/50 text-amber-600 dark:text-amber-400 font-bold"
+                            : "border-border/70 text-panel-text hover:text-foreground"
                       }`}
                       title="Select target batch"
                     >
                       <span>
-                        {selectedBatchIndex >= 0 && batches[selectedBatchIndex]
-                          ? `B${selectedBatchIndex + 1} (${batches[selectedBatchIndex].start}–${batches[selectedBatchIndex].end})`
-                          : `Batches (1–${batches.length})`}
+                        {selectedBatchIndex === -2
+                          ? "Thumbnail"
+                          : selectedBatchIndex >= 0 && batches[selectedBatchIndex]
+                            ? `B${selectedBatchIndex + 1} (${batches[selectedBatchIndex].start}–${batches[selectedBatchIndex].end})`
+                            : `Batches (${batches.length})`}
                       </span>
                       <ChevronDown size={11} className={`transition-transform duration-150 ${openDropdown === "batch" ? "rotate-180 text-primary" : "text-panel-text"}`} />
                     </button>
@@ -1458,6 +1699,24 @@ Do not wrap in extra conversational markdown text. RETURN ONLY VALID JSON:
                         >
                           <span>All Scenes (1–{sentences.length})</span>
                           {selectedBatchIndex === -1 && <Check size={12} className="text-primary" />}
+                        </button>
+
+                        {/* Thumbnail Option */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedBatchIndex(-2);
+                            setOpenDropdown(null);
+                          }}
+                          className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-left text-[11px] mb-1.5 transition-colors cursor-pointer ${
+                            selectedBatchIndex === -2 ? "bg-amber-500/15 text-amber-600 dark:text-amber-400 font-bold" : "text-foreground/85 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                          }`}
+                        >
+                          <span className="flex items-center gap-1.5">
+                            <Sparkles size={12} className="text-amber-500" />
+                            <span>YouTube Thumbnail Prompt</span>
+                          </span>
+                          {selectedBatchIndex === -2 && <Check size={12} className="text-amber-500" />}
                         </button>
 
                         {/* Grid of Batches */}
@@ -1498,12 +1757,11 @@ Do not wrap in extra conversational markdown text. RETURN ONLY VALID JSON:
                     <button
                       type="button"
                       onClick={() => setOpenDropdown(openDropdown === "batchSize" ? null : "batchSize")}
-                      className={`flex items-center gap-1.5 bg-card hover:bg-zinc-100 dark:hover:bg-zinc-800 border rounded-lg px-2 py-1 text-[11px] font-semibold text-foreground cursor-pointer transition-colors shadow-2xs ${
+                      className={`flex items-center gap-1 bg-card hover:bg-zinc-100 dark:hover:bg-zinc-800 border rounded-lg px-2 py-1 text-[11px] font-semibold text-foreground cursor-pointer transition-colors shadow-2xs ${
                         openDropdown === "batchSize" ? "border-primary ring-1 ring-primary/30" : "border-border/70"
                       }`}
-                      title="Choose scenes per batch"
+                      title={`Choose scenes per batch (current: ${batchSize})`}
                     >
-                      <span className="text-panel-text font-normal text-[11px]">Size:</span>
                       <span>{batchSize}/batch</span>
                       <ChevronDown size={11} className={`text-panel-text ml-0.5 transition-transform duration-150 ${openDropdown === "batchSize" ? "rotate-180 text-primary" : ""}`} />
                     </button>
@@ -1547,7 +1805,7 @@ Do not wrap in extra conversational markdown text. RETURN ONLY VALID JSON:
             </div>
 
             {/* Right: Action Buttons (Preview + Copy Prompt with Merged Stepper) */}
-            <div className="flex items-center gap-2 shrink-0">
+            <div className="flex items-center gap-2 shrink-0 ml-auto">
               <button
                 type="button"
                 onClick={() => setIsPreviewOpen(true)}
@@ -1560,20 +1818,24 @@ Do not wrap in extra conversational markdown text. RETURN ONLY VALID JSON:
               </button>
 
               {/* Merged Stepper Copy Button */}
-              <div className="flex items-center rounded-lg shadow-2xs overflow-hidden border border-primary/40 bg-primary h-8">
+              <div className={`flex items-center rounded-lg shadow-2xs overflow-hidden border ${
+                selectedBatchIndex === -2 ? "border-amber-500/50 bg-amber-600" : "border-primary/40 bg-primary"
+              } h-8 transition-colors`}>
                 {/* Prev Batch Button */}
                 <button
                   type="button"
                   onClick={() => {
-                    if (selectedBatchIndex > 0) {
+                    if (selectedBatchIndex === -2) {
+                      setSelectedBatchIndex(batches.length > 0 ? batches.length - 1 : -1);
+                    } else if (selectedBatchIndex > 0) {
                       setSelectedBatchIndex(selectedBatchIndex - 1);
                     } else if (selectedBatchIndex === 0) {
                       setSelectedBatchIndex(-1);
                     }
                   }}
                   disabled={selectedBatchIndex === -1 || sentences.length === 0}
-                  className="h-full px-2 bg-primary hover:bg-primary-hover active:bg-primary text-white disabled:opacity-35 disabled:pointer-events-none transition-colors cursor-pointer border-r border-white/20 flex items-center justify-center"
-                  title={selectedBatchIndex > 0 ? `Previous batch (B${selectedBatchIndex})` : "Previous (All scenes)"}
+                  className="h-full px-2 bg-transparent hover:bg-white/10 active:bg-black/10 text-white disabled:opacity-35 disabled:pointer-events-none transition-colors cursor-pointer border-r border-white/20 flex items-center justify-center"
+                  title={selectedBatchIndex > 0 ? `Previous batch (B${selectedBatchIndex})` : selectedBatchIndex === -2 ? "Previous batch" : "Previous (All scenes)"}
                 >
                   <ChevronLeft size={13} strokeWidth={2.5} />
                 </button>
@@ -1583,7 +1845,7 @@ Do not wrap in extra conversational markdown text. RETURN ONLY VALID JSON:
                   type="button"
                   onClick={handleCopyPrompt}
                   disabled={sentences.length === 0}
-                  className={`h-full px-3.5 bg-primary hover:bg-primary-hover active:bg-primary text-white font-semibold text-[11.5px] flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-40 disabled:pointer-events-none ${
+                  className={`h-full px-3.5 bg-transparent hover:bg-white/10 active:bg-black/10 text-white font-semibold text-[11.5px] flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-40 disabled:pointer-events-none ${
                     isCopied ? "bg-emerald-600 hover:bg-emerald-600" : ""
                   }`}
                   title="Copy prompt for current target"
@@ -1596,7 +1858,13 @@ Do not wrap in extra conversational markdown text. RETURN ONLY VALID JSON:
                   ) : (
                     <>
                       <Copy size={13} />
-                      <span>Copy {selectedBatchIndex === -1 ? `All (${sentences.length})` : `B${selectedBatchIndex + 1}`}</span>
+                      <span>
+                        {selectedBatchIndex === -2
+                          ? "Copy Thumbnail"
+                          : selectedBatchIndex === -1
+                            ? `Copy All (${sentences.length})`
+                            : `Copy B${selectedBatchIndex + 1}`}
+                      </span>
                     </>
                   )}
                 </button>
@@ -1606,14 +1874,16 @@ Do not wrap in extra conversational markdown text. RETURN ONLY VALID JSON:
                   type="button"
                   onClick={() => {
                     if (selectedBatchIndex === -1) {
-                      setSelectedBatchIndex(0);
-                    } else if (selectedBatchIndex < batches.length - 1) {
+                      setSelectedBatchIndex(batches.length > 0 ? 0 : -2);
+                    } else if (selectedBatchIndex >= 0 && selectedBatchIndex < batches.length - 1) {
                       setSelectedBatchIndex(selectedBatchIndex + 1);
+                    } else if (selectedBatchIndex === batches.length - 1) {
+                      setSelectedBatchIndex(-2);
                     }
                   }}
-                  disabled={selectedBatchIndex >= batches.length - 1 || sentences.length === 0}
-                  className="h-full px-2 bg-primary hover:bg-primary-hover active:bg-primary text-white disabled:opacity-35 disabled:pointer-events-none transition-colors cursor-pointer border-l border-white/20 flex items-center justify-center"
-                  title={selectedBatchIndex < batches.length - 1 ? `Next batch (B${selectedBatchIndex + 2})` : "Next batch"}
+                  disabled={selectedBatchIndex === -2 || sentences.length === 0}
+                  className="h-full px-2 bg-transparent hover:bg-white/10 active:bg-black/10 text-white disabled:opacity-35 disabled:pointer-events-none transition-colors cursor-pointer border-l border-white/20 flex items-center justify-center"
+                  title={selectedBatchIndex < batches.length - 1 ? `Next batch (B${selectedBatchIndex + 2})` : selectedBatchIndex >= 0 ? "Next (Thumbnail)" : "Next batch"}
                 >
                   <ChevronRight size={13} strokeWidth={2.5} />
                 </button>
@@ -1890,10 +2160,16 @@ Do not wrap in extra conversational markdown text. RETURN ONLY VALID JSON:
             {/* Modal Header */}
             <div className="h-12 px-5 border-b border-border flex items-center justify-between shrink-0 bg-card">
               <div className="flex items-center gap-2">
-                <Eye size={15} className="text-primary" />
+                <Eye size={15} className={selectedBatchIndex === -2 ? "text-amber-500" : "text-primary"} />
                 <div>
-                  <h3 className="text-[13px] font-bold text-foreground">Frontier Prompt Preview</h3>
-                  <p className="text-[10px] text-panel-text">Exact text formatted for ChatGPT / Claude web chat</p>
+                  <h3 className="text-[13px] font-bold text-foreground">
+                    {selectedBatchIndex === -2 ? "Thumbnail Frontier Prompt Preview" : "Frontier Prompt Preview"}
+                  </h3>
+                  <p className="text-[10px] text-panel-text">
+                    {selectedBatchIndex === -2 
+                      ? "Complete video context & style directives formatted for YouTube Thumbnail generation in ChatGPT / Claude / Gemini" 
+                      : "Exact text formatted for ChatGPT / Claude web chat"}
+                  </p>
                 </div>
               </div>
               <button
@@ -1935,6 +2211,22 @@ Do not wrap in extra conversational markdown text. RETURN ONLY VALID JSON:
                   B{idx + 1} ({b.start}–{b.end})
                 </button>
               ))}
+
+              {/* Thumbnail Frontier Tab Button */}
+              <div className="h-4 w-px bg-border/80 mx-1" />
+              <button
+                type="button"
+                onClick={() => setSelectedBatchIndex(-2)}
+                className={`px-2.5 py-1 rounded-lg text-[11px] font-medium transition-all cursor-pointer flex items-center gap-1.5 ${
+                  selectedBatchIndex === -2
+                    ? "bg-amber-500 text-white font-semibold shadow-2xs ring-1 ring-amber-400"
+                    : "bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30 hover:bg-amber-500/20"
+                }`}
+                title="YouTube Thumbnail Prompt for Web LLM"
+              >
+                <Sparkles size={11} className={selectedBatchIndex === -2 ? "text-white" : "text-amber-500"} />
+                <span>Thumbnail</span>
+              </button>
             </div>
 
             {/* Prompt Text Body */}
@@ -1946,19 +2238,23 @@ Do not wrap in extra conversational markdown text. RETURN ONLY VALID JSON:
             <div className="p-3 bg-card border-t border-border flex items-center justify-end shrink-0">
 
               {/* Stepper Copy Button inside Modal */}
-              <div className="flex items-center rounded-lg shadow-2xs overflow-hidden border border-primary/40 bg-primary h-8">
+              <div className={`flex items-center rounded-lg shadow-2xs overflow-hidden border ${
+                selectedBatchIndex === -2 ? "border-amber-500/50 bg-amber-600" : "border-primary/40 bg-primary"
+              } h-8 transition-colors`}>
                 <button
                   type="button"
                   onClick={() => {
-                    if (selectedBatchIndex > 0) {
+                    if (selectedBatchIndex === -2) {
+                      setSelectedBatchIndex(batches.length > 0 ? batches.length - 1 : -1);
+                    } else if (selectedBatchIndex > 0) {
                       setSelectedBatchIndex(selectedBatchIndex - 1);
                     } else if (selectedBatchIndex === 0) {
                       setSelectedBatchIndex(-1);
                     }
                   }}
                   disabled={selectedBatchIndex === -1}
-                  className="h-full px-2.5 bg-primary hover:bg-primary-hover active:bg-primary text-white disabled:opacity-35 disabled:pointer-events-none transition-colors cursor-pointer border-r border-white/20 flex items-center justify-center"
-                  title="Previous batch"
+                  className="h-full px-2.5 bg-transparent hover:bg-white/10 active:bg-black/10 text-white disabled:opacity-35 disabled:pointer-events-none transition-colors cursor-pointer border-r border-white/20 flex items-center justify-center"
+                  title={selectedBatchIndex > 0 ? `Previous batch (B${selectedBatchIndex})` : selectedBatchIndex === -2 ? "Previous batch" : "Previous (All scenes)"}
                 >
                   <ChevronLeft size={13} strokeWidth={2.5} />
                 </button>
@@ -1966,7 +2262,7 @@ Do not wrap in extra conversational markdown text. RETURN ONLY VALID JSON:
                 <button
                   type="button"
                   onClick={handleCopyPrompt}
-                  className={`h-full px-4 bg-primary hover:bg-primary-hover active:bg-primary text-white font-semibold text-[11.5px] flex items-center gap-1.5 transition-colors cursor-pointer ${
+                  className={`h-full px-4 bg-transparent hover:bg-white/10 active:bg-black/10 text-white font-semibold text-[11.5px] flex items-center gap-1.5 transition-colors cursor-pointer ${
                     isCopied ? "bg-emerald-600 hover:bg-emerald-600" : ""
                   }`}
                   title="Copy prompt for current target"
@@ -1979,7 +2275,13 @@ Do not wrap in extra conversational markdown text. RETURN ONLY VALID JSON:
                   ) : (
                     <>
                       <Copy size={13} />
-                      <span>Copy {selectedBatchIndex === -1 ? `All (${sentences.length})` : `B${selectedBatchIndex + 1}`}</span>
+                      <span>
+                        {selectedBatchIndex === -2
+                          ? "Copy Thumbnail Prompt"
+                          : selectedBatchIndex === -1
+                            ? `Copy All (${sentences.length})`
+                            : `Copy B${selectedBatchIndex + 1}`}
+                      </span>
                     </>
                   )}
                 </button>
@@ -1988,14 +2290,16 @@ Do not wrap in extra conversational markdown text. RETURN ONLY VALID JSON:
                   type="button"
                   onClick={() => {
                     if (selectedBatchIndex === -1) {
-                      setSelectedBatchIndex(0);
-                    } else if (selectedBatchIndex < batches.length - 1) {
+                      setSelectedBatchIndex(batches.length > 0 ? 0 : -2);
+                    } else if (selectedBatchIndex >= 0 && selectedBatchIndex < batches.length - 1) {
                       setSelectedBatchIndex(selectedBatchIndex + 1);
+                    } else if (selectedBatchIndex === batches.length - 1) {
+                      setSelectedBatchIndex(-2);
                     }
                   }}
-                  disabled={selectedBatchIndex >= batches.length - 1}
-                  className="h-full px-2.5 bg-primary hover:bg-primary-hover active:bg-primary text-white disabled:opacity-35 disabled:pointer-events-none transition-colors cursor-pointer border-l border-white/20 flex items-center justify-center"
-                  title="Next batch"
+                  disabled={selectedBatchIndex === -2}
+                  className="h-full px-2.5 bg-transparent hover:bg-white/10 active:bg-black/10 text-white disabled:opacity-35 disabled:pointer-events-none transition-colors cursor-pointer border-l border-white/20 flex items-center justify-center"
+                  title={selectedBatchIndex < batches.length - 1 ? `Next batch (B${selectedBatchIndex + 2})` : selectedBatchIndex >= 0 ? "Next (Thumbnail)" : "Next batch"}
                 >
                   <ChevronRight size={13} strokeWidth={2.5} />
                 </button>

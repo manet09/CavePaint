@@ -2079,7 +2079,13 @@ export default function AssemblyTab({ activeProject, refreshProjectData }: Assem
                         e.stopPropagation();
                         setSelectedBgmId(clip.id);
                         setSelectedTextId(null);
-                        setBgmContextMenu({ visible: true, x: e.clientX, y: e.clientY, clipId: clip.id });
+                        const menuWidth = 260;
+                        const menuHeight = 280;
+                        const safeX = Math.max(12, Math.min(e.clientX, window.innerWidth - menuWidth - 12));
+                        const safeY = (e.clientY + menuHeight > window.innerHeight - 12)
+                          ? Math.max(12, e.clientY - menuHeight)
+                          : Math.max(12, e.clientY);
+                        setBgmContextMenu({ visible: true, x: safeX, y: safeY, clipId: clip.id });
                       }}
                       style={{
                         position: "absolute",
@@ -2178,9 +2184,22 @@ export default function AssemblyTab({ activeProject, refreshProjectData }: Assem
 
         return (
           <div
+            ref={(el) => {
+              if (el) {
+                const rect = el.getBoundingClientRect();
+                if (rect.bottom > window.innerHeight - 12) {
+                  const adjustedTop = Math.max(12, window.innerHeight - rect.height - 12);
+                  el.style.top = `${adjustedTop}px`;
+                }
+                if (rect.right > window.innerWidth - 12) {
+                  const adjustedLeft = Math.max(12, window.innerWidth - rect.width - 12);
+                  el.style.left = `${adjustedLeft}px`;
+                }
+              }
+            }}
             style={{ top: `${bgmContextMenu.y}px`, left: `${bgmContextMenu.x}px` }}
             onClick={(e) => e.stopPropagation()}
-            className="fixed z-50 bg-card border border-border rounded-xl shadow-2xl p-3 flex flex-col gap-2.5 w-64 animate-in fade-in zoom-in-95 duration-150"
+            className="fixed z-50 bg-card border border-border rounded-xl shadow-2xl p-3 flex flex-col gap-2.5 w-64 max-h-[calc(100vh-24px)] overflow-y-auto animate-in fade-in zoom-in-95 duration-150"
           >
             <div className="flex items-center justify-between pb-1.5 border-b border-border/40">
               <span className="text-xs font-bold text-foreground truncate max-w-[140px]">{targetClip.filename}</span>

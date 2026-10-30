@@ -103,9 +103,31 @@ export const ProjectDataProvider = ({ children }: { children: ReactNode }) => {
     setActiveProject((prev) => {
       if (!prev) return prev;
       
-      const newScenes = prev.scenes.map((scene) =>
-        scene.id === sceneId ? { ...scene, ...fields } : scene
-      );
+      const newScenes = prev.scenes.map((scene) => {
+        if (scene.id !== sceneId) return scene;
+        
+        const updated = { ...scene, ...fields };
+
+        // Optimistically detect out-of-sync audio when text or character voice changes
+        const narrationChanged = fields.narration_khmer !== undefined && 
+          (fields.narration_khmer || "").trim() !== (scene.audio_text || scene.narration_khmer || "").trim();
+        const charChanged = fields.character_id !== undefined && 
+          fields.character_id !== scene.character_id;
+          
+        if ((narrationChanged || charChanged) && (scene.audio_status === "completed" || scene.audio_path)) {
+          updated.audio_status = "outdated";
+        } else if (
+          fields.narration_khmer !== undefined &&
+          scene.audio_text &&
+          (fields.narration_khmer || "").trim() === scene.audio_text.trim() &&
+          (!charChanged || fields.character_id === scene.character_id) &&
+          scene.audio_path
+        ) {
+          updated.audio_status = "completed";
+        }
+
+        return updated;
+      });
       
       const cleanJsonArray = newScenes.map((scene) => ({
         scene_number: scene.scene_number,
@@ -131,7 +153,16 @@ export const ProjectDataProvider = ({ children }: { children: ReactNode }) => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(fields),
       });
-      if (!response.ok) {
+      if (response.ok) {
+        const savedScene = await response.json();
+        setActiveProject((prev) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            scenes: prev.scenes.map((s) => (s.id === sceneId ? { ...s, ...savedScene } : s)),
+          };
+        });
+      } else {
         console.error("Failed to sync scene update to backend");
       }
     } catch (err) {

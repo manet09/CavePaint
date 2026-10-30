@@ -21,6 +21,7 @@ import {
   Layers, 
   ChevronLeft, 
   ChevronRight, 
+  ChevronDown,
   Volume2,
   Clock,
   GripVertical,
@@ -1178,7 +1179,7 @@ export default function ImagesTab(props: ImagesTabProps) {
                       </button>
 
                       {isAddRefMenuOpen && (
-                        <div className="absolute right-0 top-full mt-1 w-48 bg-card border border-border/80 rounded-xl shadow-lg p-1 z-30 animate-in fade-in duration-100 flex flex-col gap-0.5">
+                        <div className="absolute right-0 bottom-full mb-1 w-48 bg-card border border-border/80 rounded-xl shadow-xl p-1 z-30 animate-in fade-in zoom-in-95 duration-100 flex flex-col gap-0.5">
                           <button
                             type="button"
                             onClick={() => {
@@ -1331,11 +1332,11 @@ export default function ImagesTab(props: ImagesTabProps) {
                         <button
                           type="button"
                           onClick={() => setIsTargetMenuOpen(!isTargetMenuOpen)}
-                          className="px-2 py-0.5 rounded-lg text-[9.5px] font-semibold text-primary hover:bg-primary/10 transition-colors cursor-pointer border border-primary/25 flex items-center gap-0.5"
+                          className="px-2 py-0.5 rounded-lg text-[9.5px] font-semibold text-primary hover:bg-primary/10 transition-colors cursor-pointer border border-primary/25 flex items-center gap-1"
                           title="Change target image"
                         >
                           <span>Change</span>
-                          <span className="text-[8px]">▾</span>
+                          <ChevronDown size={11} className={`transition-transform duration-150 ${isTargetMenuOpen ? "rotate-180" : ""}`} />
                         </button>
                         <button
                           type="button"
@@ -1373,14 +1374,14 @@ export default function ImagesTab(props: ImagesTabProps) {
                       >
                         <Target size={11} className="text-primary" />
                         <span>Set Target</span>
-                        <span className="text-[8px]">▾</span>
+                        <ChevronDown size={11} className={`text-panel-text transition-transform duration-150 ${isTargetMenuOpen ? "rotate-180 text-primary" : ""}`} />
                       </button>
                     </div>
                   )}
 
-                  {/* Target Selection Dropdown Menu */}
+                  {/* Target Selection Dropdown Menu - Opens UPWARDS into spacious viewport to avoid bottom clipping */}
                   {isTargetMenuOpen && (
-                    <div className="absolute right-0 top-full mt-1.5 w-64 bg-card border border-border/80 rounded-xl shadow-xl p-1.5 z-40 animate-in fade-in duration-100 flex flex-col gap-1">
+                    <div className="absolute right-0 bottom-full mb-1.5 w-64 bg-card border border-border/80 rounded-xl shadow-2xl p-1.5 z-50 animate-in fade-in zoom-in-95 duration-100 flex flex-col gap-1 max-h-[300px] overflow-y-auto custom-scrollbar">
                       <div className="px-2 py-1 text-[9px] font-bold uppercase tracking-wider text-panel-text border-b border-border/40">
                         Select Target to Modify
                       </div>
@@ -1423,7 +1424,9 @@ export default function ImagesTab(props: ImagesTabProps) {
                         </button>
                       ))}
 
-                      <div className="border-t border-border/40 my-0.5" />
+                      {(activeScene?.image_path || imagesList.length > 0) && (
+                        <div className="border-t border-border/40 my-0.5" />
+                      )}
 
                       <button
                         type="button"

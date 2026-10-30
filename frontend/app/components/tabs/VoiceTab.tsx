@@ -378,6 +378,13 @@ export default function VoiceTab({ activeProject, refreshProjectData }: VoiceTab
   // Full Script tab state
   const [scriptNarrativeText, setScriptNarrativeText] = useState("");
   const [isSyncingScript, setIsSyncingScript] = useState(false);
+  const [splitMode, setSplitMode] = useState<"enter" | "sentence">(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("script_split_mode");
+      if (saved === "enter" || saved === "sentence") return saved;
+    }
+    return "enter";
+  });
 
   // Fetch Characters
   const fetchCharacters = async () => {
@@ -470,8 +477,21 @@ export default function VoiceTab({ activeProject, refreshProjectData }: VoiceTab
     };
   }, [isAnySceneProcessing, refreshProjectData]);
 
+  // Check if a scene's audio is out of sync with its text or marked outdated
+  const isSceneOutdated = (s: any) => {
+    if (s.audio_status === "outdated") return true;
+    if (s.audio_path && s.audio_text && (s.narration_khmer || "").trim() !== (s.audio_text || "").trim()) {
+      return true;
+    }
+    return false;
+  };
+
+  const isSceneReady = (s: any) => {
+    return s.audio_status === "completed" && !isSceneOutdated(s);
+  };
+
   // Automatically refresh audio cache buster whenever any scene completes
-  const completedCount = useMemo(() => scenes.filter((s: any) => s.audio_status === "completed").length, [scenes]);
+  const completedCount = useMemo(() => scenes.filter(isSceneReady).length, [scenes]);
   const prevCompletedCountRef = useRef(completedCount);
   useEffect(() => {
     if (completedCount !== prevCompletedCountRef.current) {
@@ -758,14 +778,14 @@ export default function VoiceTab({ activeProject, refreshProjectData }: VoiceTab
 
   // Filter scenes for timeline
   const filteredScenes = useMemo(() => {
-    if (timelineFilter === "ready") return scenes.filter((s: any) => s.audio_status === "completed");
-    if (timelineFilter === "pending") return scenes.filter((s: any) => s.audio_status !== "completed");
-    if (timelineFilter === "outdated") return scenes.filter((s: any) => s.audio_status === "outdated");
+    if (timelineFilter === "ready") return scenes.filter(isSceneReady);
+    if (timelineFilter === "pending") return scenes.filter((s: any) => !isSceneReady(s));
+    if (timelineFilter === "outdated") return scenes.filter(isSceneOutdated);
     return scenes;
   }, [scenes, timelineFilter]);
 
   // Statistics
-  const outdatedCount = scenes.filter((s: any) => s.audio_status === "outdated").length;
+  const outdatedCount = useMemo(() => scenes.filter(isSceneOutdated).length, [scenes]);
   const pendingCount = scenes.length - completedCount;
 
   // Full Script Segmentation / Sync handler
@@ -773,11 +793,23 @@ export default function VoiceTab({ activeProject, refreshProjectData }: VoiceTab
     if (!activeProject?.id || !scriptNarrativeText.trim()) return;
     setIsSyncingScript(true);
     try {
-      await updateActiveProject({ script_narrative: scriptNarrativeText });
+      let textToSync = scriptNarrativeText;
+      if (splitMode === "enter") {
+        const lines = scriptNarrativeText.split("\n").map((l) => {
+          const trimmed = l.replace(/[\s\u200B\uFEFF]+$/g, "");
+          if (!trimmed.trim()) return l;
+          return trimmed.endsWith("។") || trimmed.endsWith("៕") ? trimmed : `${trimmed}។`;
+        });
+        textToSync = lines.join("\n");
+        if (textToSync !== scriptNarrativeText) {
+          setScriptNarrativeText(textToSync);
+        }
+      }
+      await updateActiveProject({ script_narrative: textToSync });
       const res = await fetch(`http://localhost:8000/api/projects/${activeProject.id}/segment-script`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ long_script: scriptNarrativeText }),
+        body: JSON.stringify({ long_script: textToSync, split_mode: splitMode }),
       });
       if (res.ok && refreshProjectData) {
         await refreshProjectData();
@@ -1334,28 +1366,77 @@ export default function VoiceTab({ activeProject, refreshProjectData }: VoiceTab
                   <span className="text-[10px] font-bold uppercase tracking-wider text-foreground">
                     Narrative Script (Khmer)
                   </span>
-                  <button
-                    type="button"
-                    disabled={isSyncingScript || !scriptNarrativeText.trim()}
-                    onClick={handleSyncScriptNarrative}
-                    className="px-2 py-0.5 rounded text-[9.5px] font-bold uppercase tracking-wider bg-primary hover:bg-primary-hover text-white transition-all cursor-pointer flex items-center gap-1 disabled:opacity-40 shadow-2xs"
-                    title="Segment script narrative into scenes"
-                  >
-                    {isSyncingScript ? <Loader2 size={10} className="animate-spin" /> : <RefreshCw size={10} />}
-                    <span>Sync Scenes</span>
-                  </button>
+                  <div className="flex items-center gap-1.5">
+                    {/* Segmented Split Option */}
+                    <div className="flex items-center bg-zinc-100 dark:bg-zinc-800/90 p-0.5 rounded-lg border border-border/60 text-[9.5px]">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSplitMode("enter");
+                          try { localStorage.setItem("script_split_mode", "enter"); } catch {}
+                        }}
+                        className={`px-1.5 py-0.5 rounded font-medium transition-all cursor-pointer ${
+                          splitMode === "enter"
+                            ? "bg-card text-foreground shadow-2xs font-semibold"
+                            : "text-panel-text hover:text-foreground"
+                        }`}
+                        title="Break scenes by line (Enter). Adds '។' if missing."
+                      >
+                        Enter ↵
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSplitMode("sentence");
+                          try { localStorage.setItem("script_split_mode", "sentence"); } catch {}
+                        }}
+                        className={`px-1.5 py-0.5 rounded font-medium transition-all cursor-pointer ${
+                          splitMode === "sentence"
+                            ? "bg-card text-foreground shadow-2xs font-semibold"
+                            : "text-panel-text hover:text-foreground"
+                        }`}
+                        title="Break scenes by Khmer full stop (។)"
+                      >
+                        By ។
+                      </button>
+                    </div>
+
+                    <button
+                      type="button"
+                      disabled={isSyncingScript || !scriptNarrativeText.trim()}
+                      onClick={handleSyncScriptNarrative}
+                      className="px-2 py-0.5 rounded text-[9.5px] font-bold uppercase tracking-wider bg-primary hover:bg-primary-hover text-white transition-all cursor-pointer flex items-center gap-1 disabled:opacity-40 shadow-2xs"
+                      title="Segment script narrative into timeline scenes"
+                    >
+                      {isSyncingScript ? <Loader2 size={10} className="animate-spin" /> : <RefreshCw size={10} />}
+                      <span>Sync Scenes</span>
+                    </button>
+                  </div>
                 </div>
 
                 <div className="flex-1 overflow-hidden flex flex-col">
                   <AutoResizeTextarea
                     defaultValue={scriptNarrativeText}
                     onBlur={async (val) => {
-                      setScriptNarrativeText(val);
+                      let textToSave = val;
+                      if (splitMode === "enter" && val.trim()) {
+                        const lines = val.split("\n").map((l) => {
+                          const trimmed = l.replace(/[\s\u200B\uFEFF]+$/g, "");
+                          if (!trimmed.trim()) return l;
+                          return (trimmed.endsWith("។") || trimmed.endsWith("៕")) ? trimmed : `${trimmed}។`;
+                        });
+                        textToSave = lines.join("\n");
+                      }
+                      setScriptNarrativeText(textToSave);
                       if (activeProject?.id) {
-                        await updateActiveProject({ script_narrative: val });
+                        await updateActiveProject({ script_narrative: textToSave });
                       }
                     }}
-                    placeholder="Enter full narrative script in Khmer..."
+                    placeholder={
+                      splitMode === "enter"
+                        ? "Enter narrative script (Each Enter ↵ line becomes a scene; '។' is added automatically)..."
+                        : "Enter full narrative script in Khmer (Sentences split by '។')..."
+                    }
                     className="w-full flex-1 bg-zinc-50/50 dark:bg-zinc-900/40 p-2.5 rounded-lg text-xs leading-relaxed text-foreground border border-border/60 outline-none focus:border-primary transition-colors overflow-y-auto custom-scrollbar"
                   />
                 </div>
@@ -1388,7 +1469,7 @@ export default function VoiceTab({ activeProject, refreshProjectData }: VoiceTab
                     mode === "all" ? `All (${scenes.length})` :
                     mode === "ready" ? `Ready (${completedCount})` :
                     mode === "pending" ? `Pending (${pendingCount})` :
-                    `Outdated (${outdatedCount})`;
+                    `Out of Sync (${outdatedCount})`;
 
                   return (
                     <button
@@ -1517,11 +1598,11 @@ export default function VoiceTab({ activeProject, refreshProjectData }: VoiceTab
               </div>
             ) : (
               filteredScenes.map((scene: any, idx: number) => {
-                const isCompleted = scene.audio_status === "completed";
+                const isOutdated = isSceneOutdated(scene);
+                const isCompleted = isSceneReady(scene);
                 const isProcessing = scene.audio_status === "processing";
-                const isOutdated = scene.audio_status === "outdated";
                 const isFailed = scene.audio_status === "failed";
-                const hasAudio = isCompleted || (isOutdated && scene.audio_path);
+                const hasAudio = Boolean(scene.audio_path);
                 const isSceneActiveRendering = activeProcessingScene?.id === scene.id;
                 const queueIndex = processingScenes.findIndex((s: any) => s.id === scene.id);
 
@@ -1552,7 +1633,7 @@ export default function VoiceTab({ activeProject, refreshProjectData }: VoiceTab
                         : isFailed
                         ? "bg-red-500/5 border-red-500/30"
                         : isOutdated
-                        ? "bg-amber-500/5 dark:bg-amber-500/3 border-amber-500/25 dark:border-amber-500/20"
+                        ? "bg-amber-500/5 dark:bg-amber-500/3 border-amber-500/35 dark:border-amber-500/30 ring-1 ring-amber-500/20"
                         : isCompleted
                         ? "bg-card border-border/70 dark:border-border/60 shadow-2xs"
                         : "bg-card/40 border-border/40"
@@ -1661,9 +1742,9 @@ export default function VoiceTab({ activeProject, refreshProjectData }: VoiceTab
                             <span>Failed</span>
                           </span>
                         ) : isOutdated ? (
-                          <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[9px] font-medium bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30">
+                          <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[9px] font-semibold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30 shadow-2xs">
                             <AlertTriangle size={8} />
-                            <span>Outdated</span>
+                            <span>Out of Sync</span>
                           </span>
                         ) : isCompleted ? (
                           <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[9px] font-medium bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
@@ -1680,8 +1761,12 @@ export default function VoiceTab({ activeProject, refreshProjectData }: VoiceTab
                           type="button"
                           disabled={isProcessing}
                           onClick={() => handleGenerateSingleLine(scene)}
-                          className="w-6 h-6 rounded border border-border/60 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-panel-text hover:text-foreground flex items-center justify-center transition-colors disabled:opacity-40 cursor-pointer"
-                          title="Synthesize audio for this scene"
+                          className={`w-6 h-6 rounded border transition-colors flex items-center justify-center cursor-pointer ${
+                            isOutdated
+                              ? "border-amber-500/50 text-amber-600 dark:text-amber-400 bg-amber-500/10 hover:bg-amber-500/20"
+                              : "border-border/60 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-panel-text hover:text-foreground"
+                          } disabled:opacity-40`}
+                          title={isOutdated ? "Audio out of sync with edited text. Click to re-synthesize." : "Synthesize audio for this scene"}
                         >
                           <RefreshCw size={10} className={isProcessing ? "animate-spin" : ""} />
                         </button>
@@ -1710,6 +1795,34 @@ export default function VoiceTab({ activeProject, refreshProjectData }: VoiceTab
                         className="w-full bg-transparent text-[12.5px] text-foreground leading-relaxed outline-none border-b border-transparent focus:border-primary/50 transition-colors py-0.5 select-text cursor-text"
                       />
                     </div>
+
+                    {/* Out of Sync Notice Banner with direct Re-sync button */}
+                    {isOutdated && (
+                      <div className="my-0.5 px-2.5 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/25 flex items-start justify-between gap-2 text-[10.5px] select-none animate-in fade-in duration-150">
+                        <div className="flex items-start gap-1.5 min-w-0">
+                          <AlertTriangle size={12} className="text-amber-500 shrink-0 mt-0.5" />
+                          <div className="min-w-0 flex-1">
+                            <span className="font-semibold text-amber-600 dark:text-amber-400">Audio out of sync:</span>{" "}
+                            <span className="text-foreground">Text was edited after audio was generated.</span>
+                            {scene.audio_text && scene.audio_text.trim() !== (scene.narration_khmer || "").trim() && (
+                              <div className="mt-0.5 text-[9.5px] text-panel-text leading-tight truncate">
+                                Audio recorded from: <span className="italic line-through opacity-80">"{scene.audio_text}"</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          disabled={isProcessing}
+                          onClick={() => handleGenerateSingleLine(scene)}
+                          className="px-2 py-0.5 rounded text-[9.5px] font-bold bg-amber-500 hover:bg-amber-600 text-white transition-colors cursor-pointer flex items-center gap-1 shrink-0 shadow-2xs"
+                          title="Re-synthesize audio for this edited scene"
+                        >
+                          <RefreshCw size={9} className={isProcessing ? "animate-spin" : ""} />
+                          <span>Re-sync</span>
+                        </button>
+                      </div>
+                    )}
 
                     {/* Inline Audio Player if rendered */}
                     {hasAudio && (

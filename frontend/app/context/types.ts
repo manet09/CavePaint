@@ -13,6 +13,7 @@ export interface SceneData {
   image_status: string;
   audio_path: string | null;
   audio_status: string;
+  audio_text?: string | null;
   character_id?: number;
   character_name?: string;
 }
