@@ -32,8 +32,10 @@ import {
   Columns2,
   Maximize2,
   Minimize2,
-  GripVertical
+  GripVertical,
+  Clock
 } from "lucide-react";
+import { estimateTextStats } from "../../utils/textStats";
 
 interface BrainstormingTabProps {
   activeProject?: any;
@@ -737,6 +739,9 @@ export default function BrainstormingTab({ activeProject, refreshProjectData }: 
     }
   }, [scriptText, splitMode]);
 
+  // Estimated stats for Khmer & mixed script (words, characters, glyphs, voice duration)
+  const scriptStats = useMemo(() => estimateTextStats(scriptText), [scriptText]);
+
   // Auto-break or format Khmer sentences into lines
   const handleAutoBreakToLines = async () => {
     if (!scriptText.trim()) return;
@@ -1252,6 +1257,16 @@ Do not wrap in extra conversational markdown text. RETURN ONLY VALID JSON:
               <span className="text-[10px] font-semibold text-panel-text bg-zinc-100 dark:bg-zinc-800 px-2 py-0.5 rounded-md shrink-0">
                 {sentences.length} {splitMode === "enter" ? (sentences.length === 1 ? "Line" : "Lines") : (sentences.length === 1 ? "Sentence" : "Sentences")}
               </span>
+              {scriptStats.characters > 0 && (
+                <span
+                  className="hidden sm:inline-flex text-[10px] font-medium text-panel-text bg-zinc-100 dark:bg-zinc-800/80 px-2 py-0.5 rounded-md shrink-0 items-center gap-1.5"
+                  title={`Estimated words: ~${scriptStats.words.toLocaleString()}\nTotal characters: ${scriptStats.characters.toLocaleString()}\nCharacters (no spaces): ${scriptStats.charactersNoSpaces.toLocaleString()}\nVisual glyphs: ${scriptStats.graphemes.toLocaleString()}`}
+                >
+                  <span>~{scriptStats.words.toLocaleString()} words</span>
+                  <span className="opacity-40">·</span>
+                  <span>{scriptStats.characters.toLocaleString()} chars</span>
+                </span>
+              )}
             </div>
 
             {/* Split Mode Options & Auto-Break */}
@@ -1311,8 +1326,43 @@ Do not wrap in extra conversational markdown text. RETURN ONLY VALID JSON:
                   ? "Type or paste your narrative script here. Each line (Enter ↵) becomes an individual sentence/scene (missing '។' is appended automatically)..."
                   : "Paste your research script here... Each Khmer full stop (។) breaks into a separate sentence/scene."
               }
-              className="w-full h-full bg-transparent text-[15px] text-foreground leading-relaxed placeholder:text-zinc-400/40 focus:outline-none resize-none custom-scrollbar"
+              className="w-full flex-1 min-h-[160px] bg-transparent text-[15px] text-foreground leading-relaxed placeholder:text-zinc-400/40 focus:outline-none resize-none custom-scrollbar"
             />
+
+            {/* Real-time Khmer & Multilingual Word/Char Status Bar */}
+            <div className="pt-2.5 mt-2 border-t border-border/40 flex items-center justify-between text-[11px] text-panel-text shrink-0 select-none">
+              <div className="flex items-center gap-2.5 flex-wrap">
+                <span className="flex items-center gap-1" title="Estimated word count (using native unspaced Khmer dictionary & multilingual segmentation)">
+                  <span className="font-semibold text-foreground">~{scriptStats.words.toLocaleString()}</span>
+                  <span>words</span>
+                </span>
+                <span className="text-border/80">•</span>
+                <span className="flex items-center gap-1" title={`${scriptStats.charactersNoSpaces.toLocaleString()} characters excluding spaces`}>
+                  <span className="font-semibold text-foreground">{scriptStats.characters.toLocaleString()}</span>
+                  <span>chars</span>
+                  <span className="text-[9.5px] opacity-70">({scriptStats.charactersNoSpaces.toLocaleString()} no spaces)</span>
+                </span>
+                {scriptStats.graphemes > 0 && scriptStats.graphemes !== scriptStats.characters && (
+                  <>
+                    <span className="text-border/80">•</span>
+                    <span className="flex items-center gap-1" title="Visual glyphs / graphemes (combining Khmer consonants, sub-consonants, and vowels into single visual units)">
+                      <span className="font-semibold text-foreground">{scriptStats.graphemes.toLocaleString()}</span>
+                      <span>glyphs</span>
+                    </span>
+                  </>
+                )}
+              </div>
+
+              {scriptStats.words > 0 && (
+                <div 
+                  className="flex items-center gap-1.5 font-medium text-primary bg-primary/10 px-2 py-0.5 rounded-md"
+                  title="Estimated voiceover reading duration at normal narration pace (~135 wpm)"
+                >
+                  <Clock size={11} />
+                  <span>~{scriptStats.formattedDuration} est. voice</span>
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Clean Minimalist Style Bar with Custom Upward-Popping Dropdowns */}

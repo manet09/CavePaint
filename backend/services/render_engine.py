@@ -229,7 +229,8 @@ async def render_project_video(project_id: int, db) -> Dict[str, Any]:
         bgm_config = timeline_data.get("bgm", {})
         scene_volumes = timeline_data.get("scene_volumes", {})
         text_overlays = timeline_data.get("text_overlays", [])
-        master_bgm_vol = float(timeline_data.get("master_bgm_volume", 0.3))
+        master_voice_vol = float(timeline_data.get("master_voice_volume", 1.0))
+        master_bgm_vol = float(timeline_data.get("master_bgm_volume", 0.35))
         ducking_enabled = bool(timeline_data.get("ducking", True))
 
         # Gather coupled scenes
@@ -248,7 +249,8 @@ async def render_project_video(project_id: int, db) -> Dict[str, Any]:
             if os.path.exists(img) and os.path.exists(aud):
                 dur = get_audio_duration(aud)
                 if dur > 0:
-                    vol = float(scene_volumes.get(str(num), 1.0))
+                    scene_vol = float(scene_volumes.get(str(num), 1.0))
+                    vol = max(0.0, scene_vol * master_voice_vol)
                     coupled_items.append({
                         "scene_number": num,
                         "image_path": img,
@@ -341,9 +343,8 @@ async def render_project_video(project_id: int, db) -> Dict[str, Any]:
 
             for idx, clip in enumerate(valid_bgm_clips):
                 input_idx = idx + 1
-                clip_vol = master_bgm_vol * clip["volume"]
-                if ducking_enabled:
-                    clip_vol *= 0.4
+                duck_factor = 0.35 if ducking_enabled else 1.0
+                clip_vol = master_bgm_vol * clip["volume"] * duck_factor
 
                 delay_ms = int(clip["start_time"] * 1000)
                 dur = clip["duration"]
@@ -361,10 +362,10 @@ async def render_project_video(project_id: int, db) -> Dict[str, Any]:
                 bgm_out_labels.append(f"[bgm{idx}]")
 
             if len(bgm_out_labels) == 1:
-                filter_parts.append(f"[voice]{bgm_out_labels[0]}amix=inputs=2:duration=first:dropout_transition=2[aout]")
+                filter_parts.append(f"[voice]{bgm_out_labels[0]}amix=inputs=2:duration=first:normalize=0:dropout_transition=0,alimiter=limit=0.98:attack=5:release=50[aout]")
             else:
-                filter_parts.append(f"{''.join(bgm_out_labels)}amix=inputs={len(bgm_out_labels)}:dropout_transition=2[bgm_mix];")
-                filter_parts.append(f"[voice][bgm_mix]amix=inputs=2:duration=first:dropout_transition=2[aout]")
+                filter_parts.append(f"{''.join(bgm_out_labels)}amix=inputs={len(bgm_out_labels)}:normalize=0:dropout_transition=0[bgm_mix];")
+                filter_parts.append(f"[voice][bgm_mix]amix=inputs=2:duration=first:normalize=0:dropout_transition=0,alimiter=limit=0.98:attack=5:release=50[aout]")
 
             filter_complex = "".join(filter_parts)
             cmd_mix.extend([

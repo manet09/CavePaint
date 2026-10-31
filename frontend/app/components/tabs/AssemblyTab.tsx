@@ -94,6 +94,7 @@ interface TimelineState {
   bgm_clips: BgmClip[];
   text_overlays: TextOverlayItem[];
   scene_volumes: Record<string, number>;
+  master_voice_volume?: number;
   master_bgm_volume: number;
   ducking: boolean;
 }
@@ -229,9 +230,15 @@ export default function AssemblyTab({ activeProject, refreshProjectData }: Assem
     bgm_clips: [],
     text_overlays: [],
     scene_volumes: {},
+    master_voice_volume: 1.0,
     master_bgm_volume: 0.35,
     ducking: true,
   });
+
+  const [isVoiceVolOpen, setIsVoiceVolOpen] = useState<boolean>(false);
+  const [isBgmVolOpen, setIsBgmVolOpen] = useState<boolean>(false);
+  const voiceVolPopoverRef = useRef<HTMLDivElement>(null);
+  const bgmVolPopoverRef = useRef<HTMLDivElement>(null);
 
   // Selected elements for timeline editing
   const [selectedTextId, setSelectedTextId] = useState<string | null>(null);
@@ -359,6 +366,7 @@ export default function AssemblyTab({ activeProject, refreshProjectData }: Assem
             bgm_clips: rawClips,
             text_overlays: normalizedOverlays,
             scene_volumes: data.timeline_data.scene_volumes || {},
+            master_voice_volume: data.timeline_data.master_voice_volume ?? 1.0,
             master_bgm_volume: data.timeline_data.master_bgm_volume ?? 0.35,
             ducking: data.timeline_data.ducking ?? true,
           });
@@ -436,6 +444,7 @@ export default function AssemblyTab({ activeProject, refreshProjectData }: Assem
   // Always keep a ref to the latest timeline state to eliminate stale closures
   const timelineRef = useRef<TimelineState>(timeline);
   timelineRef.current = timeline;
+  const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Persist timeline configuration to backend
   const persistTimelineState = async (stateToSave: TimelineState) => {
@@ -450,16 +459,36 @@ export default function AssemblyTab({ activeProject, refreshProjectData }: Assem
     }
   };
 
-  // Immediate state update and persistence for non-drag actions
-  const saveTimelineState = (newTimeline: TimelineState) => {
+  // State update with debounced persistence to avoid slider network floods
+  const saveTimelineState = (newTimeline: TimelineState, immediate = false) => {
     timelineRef.current = newTimeline;
     setTimeline(newTimeline);
-    persistTimelineState(newTimeline);
+
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+      saveTimeoutRef.current = null;
+    }
+
+    if (immediate) {
+      persistTimelineState(newTimeline);
+    } else {
+      saveTimeoutRef.current = setTimeout(() => {
+        persistTimelineState(newTimeline);
+      }, 250);
+    }
   };
 
-  // Close context menu on any global click
+  // Close context menu and volume popovers on any outside click
   useEffect(() => {
-    const handleGlobalClick = () => setBgmContextMenu(null);
+    const handleGlobalClick = (e: MouseEvent) => {
+      setBgmContextMenu(null);
+      if (voiceVolPopoverRef.current && !voiceVolPopoverRef.current.contains(e.target as Node)) {
+        setIsVoiceVolOpen(false);
+      }
+      if (bgmVolPopoverRef.current && !bgmVolPopoverRef.current.contains(e.target as Node)) {
+        setIsBgmVolOpen(false);
+      }
+    };
     window.addEventListener("click", handleGlobalClick);
     return () => window.removeEventListener("click", handleGlobalClick);
   }, []);
@@ -550,19 +579,20 @@ export default function AssemblyTab({ activeProject, refreshProjectData }: Assem
 
     // 1. VOICEOVER SYNCHRONIZATION
     if (voiceAudio) {
+      const masterVoice = timeline.master_voice_volume ?? 1.0;
       if (masterAudioUrl) {
         // Continuous master voiceover: dynamically adjust volume per scene without touching src
         const sceneVolume = currentScene 
           ? (timeline.scene_volumes[String(currentScene.scene_number)] ?? 1.0) 
           : 1.0;
-        voiceAudio.volume = Math.min(1.0, Math.max(0.0, sceneVolume));
+        voiceAudio.volume = Math.min(1.0, Math.max(0.0, sceneVolume * masterVoice));
       } else {
         // Fallback for individual scene tracks if master audio is not compiled
         if (currentScene && currentScene.audio_exists && currentScene.audio_path) {
           const sceneAudioUrl = getAssetUrl(currentScene.audio_path, currentScene.audio_mtime);
           const expectedSceneTime = Math.max(0, currentTime - currentScene.timeline_start);
           const sceneVolume = timeline.scene_volumes[String(currentScene.scene_number)] ?? 1.0;
-          voiceAudio.volume = Math.min(1.0, Math.max(0.0, sceneVolume));
+          voiceAudio.volume = Math.min(1.0, Math.max(0.0, sceneVolume * masterVoice));
 
           if (voiceAudio.src !== sceneAudioUrl) {
             voiceAudio.src = sceneAudioUrl;
@@ -620,7 +650,7 @@ export default function AssemblyTab({ activeProject, refreshProjectData }: Assem
         if (!bgmAudio.paused) bgmAudio.pause();
       }
     }
-  }, [currentTime, isPlaying, currentSceneAtPlayhead, timeline.bgm_clips, timeline.master_bgm_volume, timeline.ducking, timeline.scene_volumes, masterAudioUrl]);
+  }, [currentTime, isPlaying, currentSceneAtPlayhead, timeline.bgm_clips, timeline.master_voice_volume, timeline.master_bgm_volume, timeline.ducking, timeline.scene_volumes, masterAudioUrl]);
 
   // Master Play / Pause toggler
   const togglePlay = () => {
@@ -757,7 +787,7 @@ export default function AssemblyTab({ activeProject, refreshProjectData }: Assem
     if (singleAuditionAudioRef.current) {
       const freshUrl = getAssetUrl(scene.audio_path, scene.audio_mtime || audioCacheBuster);
       singleAuditionAudioRef.current.src = freshUrl;
-      const vol = timeline.scene_volumes[String(scene.scene_number)] ?? 1.0;
+      const vol = (timeline.scene_volumes[String(scene.scene_number)] ?? 1.0) * (timeline.master_voice_volume ?? 1.0);
       singleAuditionAudioRef.current.volume = Math.min(1.0, Math.max(0.0, vol));
       singleAuditionAudioRef.current.currentTime = 0;
       singleAuditionAudioRef.current.play().catch(() => {});
@@ -1190,9 +1220,18 @@ export default function AssemblyTab({ activeProject, refreshProjectData }: Assem
   const handleTriggerRender = async () => {
     if (coupledCount === 0) return;
     try {
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+        saveTimeoutRef.current = null;
+      }
+      // Ensure latest timeline state is saved before triggering render
+      await persistTimelineState(timelineRef.current);
+
       setRenderJob({ status: "rendering", progress: 5, output_path: null, error: null });
       const res = await fetch(`http://localhost:8000/api/projects/${activeProject.id}/render-video`, {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ timeline_data: timelineRef.current }),
       });
       if (!res.ok) {
         const data = await res.json();
@@ -1827,9 +1866,60 @@ export default function AssemblyTab({ activeProject, refreshProjectData }: Assem
             </div>
 
             {/* Voice Track Header */}
-            <div className="h-12 border-b border-border flex items-center px-3 gap-1.5">
-              <FileAudio size={13} className="text-amber-400" />
-              <span className="text-[11px]">Voice</span>
+            <div className="h-12 border-b border-border flex items-center justify-between px-3 relative">
+              <div className="flex items-center gap-1.5">
+                <FileAudio size={13} className="text-amber-400" />
+                <span className="text-[11px]">Voice</span>
+              </div>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setIsVoiceVolOpen(!isVoiceVolOpen);
+                  setIsBgmVolOpen(false);
+                }}
+                className="text-[9px] font-mono text-amber-300 hover:text-amber-200 bg-amber-400/10 hover:bg-amber-400/20 px-1 py-0.5 rounded cursor-pointer transition-colors"
+                title="Click to adjust Voice Track Volume"
+              >
+                {Math.round((timeline.master_voice_volume ?? 1.0) * 100)}%
+              </button>
+
+              {isVoiceVolOpen && (
+                <div
+                  ref={voiceVolPopoverRef}
+                  className="absolute left-full top-0 ml-1 z-50 bg-card border border-border rounded-xl shadow-2xl p-3 w-56 flex flex-col gap-2 animate-in fade-in zoom-in-95 backdrop-blur-md"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div className="flex justify-between items-center text-xs">
+                    <span className="font-semibold text-foreground flex items-center gap-1">
+                      <Volume2 size={13} className="text-amber-400" /> Voice Volume
+                    </span>
+                    <span className="font-mono font-bold text-amber-400">
+                      {Math.round((timeline.master_voice_volume ?? 1.0) * 100)}%
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0"
+                    max="2"
+                    step="0.05"
+                    value={timeline.master_voice_volume ?? 1.0}
+                    onChange={(e) => {
+                      const val = parseFloat(e.target.value);
+                      saveTimelineState({
+                        ...timeline,
+                        master_voice_volume: val,
+                      });
+                    }}
+                    className="w-full h-1.5 bg-border rounded appearance-none cursor-pointer accent-amber-500"
+                  />
+                  <div className="flex justify-between text-[10px] text-foreground/50 pt-1">
+                    <button type="button" onClick={() => saveTimelineState({ ...timeline, master_voice_volume: 0.5 }, true)} className="hover:text-foreground cursor-pointer">50%</button>
+                    <button type="button" onClick={() => saveTimelineState({ ...timeline, master_voice_volume: 1.0 }, true)} className="hover:text-foreground font-semibold cursor-pointer">100%</button>
+                    <button type="button" onClick={() => saveTimelineState({ ...timeline, master_voice_volume: 1.5 }, true)} className="hover:text-foreground cursor-pointer">150%</button>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Text Track Header */}
@@ -1839,16 +1929,63 @@ export default function AssemblyTab({ activeProject, refreshProjectData }: Assem
             </div>
 
             {/* Music Track Header with Inline Volume & Ducking */}
-            <div className="h-14 flex items-center justify-between px-3">
+            <div className="h-14 flex items-center justify-between px-3 relative">
               <div className="flex items-center gap-1.5">
                 <Music size={13} className="text-cyan-400" />
                 <span className="text-[11px]">Music</span>
               </div>
-              {timeline.bgm_clips.length > 0 && (
-                <div className="flex items-center gap-1">
-                  <span className="text-[9px] font-mono text-cyan-300">
-                    {Math.round(timeline.master_bgm_volume * 100)}%
-                  </span>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setIsBgmVolOpen(!isBgmVolOpen);
+                  setIsVoiceVolOpen(false);
+                }}
+                className="text-[9px] font-mono text-cyan-300 hover:text-cyan-200 bg-cyan-400/10 hover:bg-cyan-400/20 px-1 py-0.5 rounded cursor-pointer transition-colors"
+                title="Click to adjust Music Volume & Ducking"
+              >
+                {Math.round(timeline.master_bgm_volume * 100)}%
+              </button>
+
+              {isBgmVolOpen && (
+                <div
+                  ref={bgmVolPopoverRef}
+                  className="absolute left-full top-0 ml-1 z-50 bg-card border border-border rounded-xl shadow-2xl p-3 w-56 flex flex-col gap-2.5 animate-in fade-in zoom-in-95 backdrop-blur-md"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div className="flex justify-between items-center text-xs">
+                    <span className="font-semibold text-foreground flex items-center gap-1">
+                      <Volume2 size={13} className="text-cyan-400" /> Music Volume
+                    </span>
+                    <span className="font-mono font-bold text-cyan-400">
+                      {Math.round(timeline.master_bgm_volume * 100)}%
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0"
+                    max="1"
+                    step="0.05"
+                    value={timeline.master_bgm_volume}
+                    onChange={(e) => {
+                      const val = parseFloat(e.target.value);
+                      saveTimelineState({
+                        ...timeline,
+                        master_bgm_volume: val,
+                      });
+                    }}
+                    className="w-full h-1.5 bg-border rounded appearance-none cursor-pointer accent-cyan-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => saveTimelineState({ ...timeline, ducking: !timeline.ducking }, true)}
+                    className="flex items-center justify-between px-2 py-1.5 rounded-lg bg-foreground/5 hover:bg-foreground/10 text-xs text-foreground transition-colors cursor-pointer"
+                  >
+                    <span>Auto-Ducking</span>
+                    <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded ${timeline.ducking ? "bg-emerald-500/20 text-emerald-400" : "bg-foreground/10 text-foreground/50"}`}>
+                      {timeline.ducking ? "On (-9dB)" : "Off"}
+                    </span>
+                  </button>
                 </div>
               )}
             </div>

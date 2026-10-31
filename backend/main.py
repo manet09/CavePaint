@@ -6,6 +6,7 @@ import requests
 import dotenv
 import time
 import uuid
+import unicodedata
 from contextlib import asynccontextmanager
 from typing import List, Optional
 
@@ -13,6 +14,9 @@ BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 ROOT_DIR = os.path.abspath(os.path.join(BASE_DIR, ".."))
 dotenv.load_dotenv(dotenv_path=os.path.join(ROOT_DIR, ".env"))
 dotenv.load_dotenv(dotenv_path=os.path.join(ROOT_DIR, ".env.local"), override=True)
+
+workspace_dir = os.path.abspath(os.path.join(ROOT_DIR, "workspace"))
+os.makedirs(workspace_dir, exist_ok=True)
 
 from pydantic import BaseModel, ConfigDict
 from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Form
@@ -102,6 +106,7 @@ class ProjectCreate(BaseModel):
 
 class ProjectUpdate(BaseModel):
     title: Optional[str] = None
+    slug: Optional[str] = None
     is_pinned: Optional[bool] = None
     raw_research: Optional[str] = None
     script_narrative: Optional[str] = None
@@ -185,6 +190,125 @@ class SetActiveImagePayload(BaseModel):
     image_path: str
 
 
+def generate_project_slug(title: str, db: Session, current_project_id: Optional[int] = None, current_slug: Optional[str] = None) -> str:
+    normalized = unicodedata.normalize('NFKD', title or '').encode('ascii', 'ignore').decode('ascii')
+    base_slug = re.sub(r'[^a-z0-9]+', '-', normalized.lower()).strip('-')
+    if not base_slug:
+        base_slug = f"project-{current_project_id}" if current_project_id else "project"
+
+    slug = base_slug
+    counter = 2
+    while True:
+        db_collision = db.query(Project).filter(Project.slug == slug, Project.id != current_project_id).first() is not None
+        fs_collision = (slug != current_slug) and os.path.exists(os.path.join(workspace_dir, slug))
+        if not db_collision and not fs_collision:
+            return slug
+        slug = f"{base_slug}-{counter}"
+        counter += 1
+
+
+def rename_project_workspace_and_paths(project: Project, new_slug: str, db: Session):
+    old_slug = project.slug
+    if not old_slug or old_slug == new_slug:
+        project.slug = new_slug
+        return
+
+    old_dir = os.path.join(workspace_dir, old_slug)
+    new_dir = os.path.join(workspace_dir, new_slug)
+
+    # 1. Rename workspace folder on disk
+    if os.path.exists(old_dir):
+        if os.path.exists(new_dir) and old_dir != new_dir:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Target workspace folder '{new_slug}' already exists."
+            )
+        try:
+            shutil.move(old_dir, new_dir)
+        except Exception as e:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to rename workspace folder from '{old_slug}' to '{new_slug}': {str(e)}"
+            )
+    else:
+        os.makedirs(new_dir, exist_ok=True)
+
+    # 2. Update Project fields
+    project.slug = new_slug
+
+    if project.master_audio_path and project.master_audio_path.startswith(f"{old_slug}/"):
+        project.master_audio_path = f"{new_slug}/" + project.master_audio_path[len(f"{old_slug}/"):]
+
+    if project.timeline_data:
+        try:
+            project.timeline_data = project.timeline_data.replace(f'"{old_slug}/', f'"{new_slug}/')
+        except Exception as e:
+            print(f"Warning: Failed to update timeline_data paths: {e}")
+
+    # 3. Update Scenes and Generations
+    scenes = db.query(Scene).filter(Scene.project_id == project.id).all()
+    scene_ids = [s.id for s in scenes]
+
+    for scene in scenes:
+        if scene.image_path and scene.image_path.startswith(f"{old_slug}/"):
+            scene.image_path = f"{new_slug}/" + scene.image_path[len(f"{old_slug}/"):]
+
+        if scene.audio_path and scene.audio_path.startswith(f"{old_slug}/"):
+            scene.audio_path = f"{new_slug}/" + scene.audio_path[len(f"{old_slug}/"):]
+
+        if scene.images_list:
+            try:
+                imgs = json.loads(scene.images_list)
+                if isinstance(imgs, list):
+                    updated_imgs = [
+                        (f"{new_slug}/" + p[len(f"{old_slug}/"):]) if isinstance(p, str) and p.startswith(f"{old_slug}/") else p
+                        for p in imgs
+                    ]
+                    scene.images_list = json.dumps(updated_imgs)
+            except Exception:
+                pass
+
+        if scene.reference_images:
+            try:
+                refs = json.loads(scene.reference_images)
+                if isinstance(refs, list):
+                    updated_refs = [
+                        (f"{new_slug}/" + p[len(f"{old_slug}/"):]) if isinstance(p, str) and p.startswith(f"{old_slug}/") else p
+                        for p in refs
+                    ]
+                    scene.reference_images = json.dumps(updated_refs)
+            except Exception:
+                pass
+
+    if scene_ids:
+        generations = db.query(Generation).filter(Generation.scene_id.in_(scene_ids)).all()
+        for gen in generations:
+            if gen.output_paths:
+                try:
+                    out_paths = json.loads(gen.output_paths)
+                    if isinstance(out_paths, list):
+                        updated_paths = [
+                            (f"{new_slug}/" + p[len(f"{old_slug}/"):]) if isinstance(p, str) and p.startswith(f"{old_slug}/") else p
+                            for p in out_paths
+                        ]
+                        gen.output_paths = json.dumps(updated_paths)
+                except Exception:
+                    pass
+            if gen.reference_media_ids:
+                try:
+                    ref_ids = json.loads(gen.reference_media_ids)
+                    if isinstance(ref_ids, list):
+                        updated_ref_ids = [
+                            (f"{new_slug}/" + p[len(f"{old_slug}/"):]) if isinstance(p, str) and p.startswith(f"{old_slug}/") else p
+                            for p in ref_ids
+                        ]
+                        gen.reference_media_ids = json.dumps(updated_ref_ids)
+                except Exception:
+                    pass
+
+    sync_project_json(project.id, db)
+
+
 # Background worker task reference
 worker_task = None
 
@@ -192,7 +316,7 @@ worker_task = None
 async def lifespan(app: FastAPI):
     global worker_task
     from .services import voice_engine
-    from .database import SessionLocal, Scene
+    from .database import SessionLocal, Scene, Project
     
     # Auto-heal orphaned processing states from previous server crashes/restarts
     try:
@@ -209,6 +333,21 @@ async def lifespan(app: FastAPI):
         cleanup_db.close()
     except Exception as cleanup_err:
         print(f"[STARTUP] Failed to cleanup orphaned scene statuses: {cleanup_err}")
+
+    # Auto-heal desynchronized project folder names and slugs
+    try:
+        heal_db = SessionLocal()
+        projects_to_heal = heal_db.query(Project).all()
+        for p in projects_to_heal:
+            if p.title and p.title.strip().lower() != "untitled" and p.slug and p.slug.startswith("untitled"):
+                target_slug = generate_project_slug(p.title, heal_db, current_project_id=p.id, current_slug=p.slug)
+                if target_slug != p.slug:
+                    print(f"[STARTUP] Healing project folder '{p.slug}' -> '{target_slug}' for project '{p.title}'...")
+                    rename_project_workspace_and_paths(p, target_slug, heal_db)
+                    heal_db.commit()
+        heal_db.close()
+    except Exception as heal_err:
+        print(f"[STARTUP] Failed to heal project folders: {heal_err}")
 
     voice_engine.set_event_loop(asyncio.get_running_loop())
     worker_task = asyncio.create_task(start_queue_worker())
@@ -313,12 +452,7 @@ async def update_settings(payload: SettingUpdate, db: Session = Depends(get_db))
 @app.post("/api/projects", response_model=ProjectOut)
 async def create_project(payload: ProjectCreate, db: Session = Depends(get_db)):
     title = payload.title.strip() if payload.title and payload.title.strip() else "Untitled"
-    base_slug = re.sub(r'[^a-z0-9]+', '-', title.lower()).strip('-') or "untitled"
-    slug = base_slug
-    counter = 2
-    while db.query(Project).filter(Project.slug == slug).first():
-        slug = f"{base_slug}-{counter}"
-        counter += 1
+    slug = generate_project_slug(title, db)
         
     project = Project(
         title=title,
@@ -342,12 +476,7 @@ async def duplicate_project(project_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Project not found")
 
     new_title = f"{project.title} (Copy)"
-    base_slug = re.sub(r'[^a-z0-9]+', '-', new_title.lower()).strip('-')
-    slug = base_slug
-    counter = 1
-    while db.query(Project).filter(Project.slug == slug).first():
-        slug = f"{base_slug}-{counter}"
-        counter += 1
+    slug = generate_project_slug(new_title, db)
 
     new_project = Project(
         title=new_title,
@@ -528,6 +657,22 @@ async def update_project(project_id: int, payload: ProjectUpdate, db: Session = 
         raise HTTPException(status_code=404, detail="Project not found")
         
     update_data = payload.model_dump(exclude_unset=True)
+
+    if "title" in update_data and update_data["title"] is not None:
+        new_title = update_data["title"].strip()
+        if new_title:
+            new_slug = generate_project_slug(new_title, db, current_project_id=project.id, current_slug=project.slug)
+            if new_slug != project.slug:
+                rename_project_workspace_and_paths(project, new_slug, db)
+            project.title = new_title
+        del update_data["title"]
+
+    if "slug" in update_data and update_data["slug"] is not None:
+        custom_slug = update_data["slug"].strip()
+        if custom_slug and custom_slug != project.slug:
+            validated_slug = generate_project_slug(custom_slug, db, current_project_id=project.id, current_slug=project.slug)
+            rename_project_workspace_and_paths(project, validated_slug, db)
+        del update_data["slug"]
     
     if "structured_json_data" in update_data and update_data["structured_json_data"]:
         try:
@@ -1968,10 +2113,17 @@ async def delete_project_bgm(project_id: int, filename: str, db: Session = Depen
     return {"status": "deleted", "filename": filename}
 
 @app.post("/api/projects/{project_id}/render-video")
-async def trigger_video_render(project_id: int, db: Session = Depends(get_db)):
+async def trigger_video_render(project_id: int, payload: Optional[dict] = None, db: Session = Depends(get_db)):
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
+
+    if payload:
+        data_to_save = payload.get("timeline_data") if (isinstance(payload, dict) and "timeline_data" in payload) else payload
+        if isinstance(data_to_save, dict):
+            project.timeline_data = json.dumps(data_to_save)
+            db.commit()
+            db.refresh(project)
     
     # Check if already rendering
     job = render_engine.RENDER_JOBS.get(project_id)

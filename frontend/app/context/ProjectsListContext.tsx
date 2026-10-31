@@ -114,6 +114,25 @@ export const ProjectsListProvider = ({ children }: { children: ReactNode }) => {
       if (!response.ok) {
         setError("Failed to update project");
         await refreshList();
+      } else {
+        const updated = await response.json();
+        setProjects((prev) =>
+          sortProjects(
+            prev.map((p) =>
+              p.id === id
+                ? {
+                    ...p,
+                    ...fields,
+                    slug: updated.slug ?? p.slug,
+                    title: updated.title ?? p.title,
+                  }
+                : p
+            )
+          )
+        );
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(new CustomEvent("project-updated", { detail: updated }));
+        }
       }
     } catch (err) {
       console.error(err);

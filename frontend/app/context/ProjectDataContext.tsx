@@ -78,6 +78,20 @@ export const ProjectDataProvider = ({ children }: { children: ReactNode }) => {
     }
   }, [activeProject]);
 
+  useEffect(() => {
+    const handleProjectUpdated = (e: Event) => {
+      const customEvent = e as CustomEvent;
+      const updated = customEvent.detail;
+      if (updated && activeProject && updated.id === activeProject.id) {
+        refreshActive();
+      }
+    };
+    if (typeof window !== "undefined") {
+      window.addEventListener("project-updated", handleProjectUpdated);
+      return () => window.removeEventListener("project-updated", handleProjectUpdated);
+    }
+  }, [activeProject, refreshActive]);
+
   const updateActiveProject = async (fields: Partial<Project>) => {
     if (!activeProject) return;
 
@@ -92,6 +106,12 @@ export const ProjectDataProvider = ({ children }: { children: ReactNode }) => {
       if (!response.ok) {
         console.error("Failed to sync project update to backend");
         await refreshActive();
+      } else {
+        const updated: Project = await response.json();
+        setActiveProject(updated);
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(new CustomEvent("project-updated", { detail: updated }));
+        }
       }
     } catch (err) {
       console.error("Error updating project:", err);
