@@ -1257,16 +1257,6 @@ Do not wrap in extra conversational markdown text. RETURN ONLY VALID JSON:
               <span className="text-[10px] font-semibold text-panel-text bg-zinc-100 dark:bg-zinc-800 px-2 py-0.5 rounded-md shrink-0">
                 {sentences.length} {splitMode === "enter" ? (sentences.length === 1 ? "Line" : "Lines") : (sentences.length === 1 ? "Sentence" : "Sentences")}
               </span>
-              {scriptStats.characters > 0 && (
-                <span
-                  className="hidden sm:inline-flex text-[10px] font-medium text-panel-text bg-zinc-100 dark:bg-zinc-800/80 px-2 py-0.5 rounded-md shrink-0 items-center gap-1.5"
-                  title={`Estimated words: ~${scriptStats.words.toLocaleString()}\nTotal characters: ${scriptStats.characters.toLocaleString()}\nCharacters (no spaces): ${scriptStats.charactersNoSpaces.toLocaleString()}\nVisual glyphs: ${scriptStats.graphemes.toLocaleString()}`}
-                >
-                  <span>~{scriptStats.words.toLocaleString()} words</span>
-                  <span className="opacity-40">·</span>
-                  <span>{scriptStats.characters.toLocaleString()} chars</span>
-                </span>
-              )}
             </div>
 
             {/* Split Mode Options & Auto-Break */}

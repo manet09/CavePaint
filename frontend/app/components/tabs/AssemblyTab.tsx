@@ -1717,6 +1717,8 @@ export default function AssemblyTab({ activeProject, refreshProjectData }: Assem
                 <div className="flex items-center gap-1.5">
                   <a
                     href={getAssetUrl(`${slug}/final_output.mp4`)}
+                    target="_blank"
+                    rel="noopener noreferrer"
                     download="final_output.mp4"
                     className="flex-1 flex items-center justify-center gap-1 py-1.5 rounded bg-emerald-500 hover:bg-emerald-600 text-white text-[11px] font-semibold transition-colors shadow-sm"
                   >

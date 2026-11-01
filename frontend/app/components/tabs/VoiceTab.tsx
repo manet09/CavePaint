@@ -1370,19 +1370,9 @@ export default function VoiceTab({ activeProject, refreshProjectData }: VoiceTab
             {activeSubTab === "script" && (
               <div className="flex flex-col h-full space-y-3">
                 <div className="flex items-center justify-between pb-1 border-b border-border/40 shrink-0">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-foreground">
-                      Narrative Script (Khmer)
-                    </span>
-                    {scriptStats.characters > 0 && (
-                      <span
-                        className="text-[9.5px] font-medium text-panel-text bg-zinc-100 dark:bg-zinc-800/80 px-1.5 py-0.5 rounded shrink-0 flex items-center gap-1"
-                        title={`Estimated words: ~${scriptStats.words.toLocaleString()}\nTotal characters: ${scriptStats.characters.toLocaleString()}\nWithout spaces: ${scriptStats.charactersNoSpaces.toLocaleString()}\nVisual glyphs: ${scriptStats.graphemes.toLocaleString()}`}
-                      >
-                        ~{scriptStats.words.toLocaleString()} words · {scriptStats.characters.toLocaleString()} chars
-                      </span>
-                    )}
-                  </div>
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-foreground">
+                    Narrative Script (Khmer)
+                  </span>
                   <div className="flex items-center gap-1.5">
                     {/* Segmented Split Option */}
                     <div className="flex items-center bg-zinc-100 dark:bg-zinc-800/90 p-0.5 rounded-lg border border-border/60 text-[9.5px]">

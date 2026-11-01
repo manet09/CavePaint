@@ -188,6 +188,7 @@ export default function ImagesTab(props: ImagesTabProps) {
   const [inferenceSteps, setInferenceSteps] = useState(10);
   const [submittingSceneIds, setSubmittingSceneIds] = useState<number[]>([]);
   const [isGeneratingAll, setIsGeneratingAll] = useState(false);
+  const [isBatchSubmitting, setIsBatchSubmitting] = useState(false);
   const [cacheBuster, setCacheBuster] = useState(Date.now());
   
   // Engine & Model controls
@@ -378,6 +379,9 @@ export default function ImagesTab(props: ImagesTabProps) {
   const activeSceneQueueIndex = processingScenes.findIndex((s: any) => s.id === activeScene?.id);
   const isActiveSceneQueued = isActiveSceneProcessing && !isActiveSceneRendering;
 
+  // Batch generation active status (true if batch was initiated or multiple scenes are processing)
+  const isBatchActive = isGeneratingAll || processingScenes.length > 1;
+
   // Automatically refresh cache buster whenever any scene completes or variants count changes
   const prevGeneratedCountRef = useRef(generatedScenesCount);
   useEffect(() => {
@@ -389,19 +393,24 @@ export default function ImagesTab(props: ImagesTabProps) {
 
   // Generation status polling (polls if any scene in project is processing, submitting, or batch generation initiated)
   useEffect(() => {
-    let interval: NodeJS.Timeout;
-    if (isAnySceneProcessing || isGeneratingAll || submittingSceneIds.length > 0) {
+    let interval: NodeJS.Timeout | null = null;
+    const isWorking = isAnySceneProcessing || submittingSceneIds.length > 0 || isBatchSubmitting;
+
+    if (isWorking) {
       interval = setInterval(() => {
         if (props.refreshProjectData) props.refreshProjectData();
       }, 1500);
-    } else {
-      if (isGeneratingAll) {
-        setCacheBuster(Date.now());
-      }
+    }
+
+    if (!isWorking && isGeneratingAll) {
+      setCacheBuster(Date.now());
       setIsGeneratingAll(false);
     }
-    return () => clearInterval(interval);
-  }, [isAnySceneProcessing, isGeneratingAll, submittingSceneIds.length, props.refreshProjectData]);
+
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [isAnySceneProcessing, submittingSceneIds.length, isBatchSubmitting, isGeneratingAll, props.refreshProjectData]);
 
   // Toggle engine (Flow MCP vs Draw Things)
   const toggleImageEngine = async () => {
@@ -530,8 +539,9 @@ export default function ImagesTab(props: ImagesTabProps) {
 
   // Generate All Scenes Images
   const handleGenerateAllScenes = async () => {
-    if (!activeProject?.id || scenes.length === 0) return;
+    if (!activeProject?.id || scenes.length === 0 || isBatchSubmitting) return;
     setIsGeneratingAll(true);
+    setIsBatchSubmitting(true);
 
     const payload = {
       aspect_ratio: aspectRatioValue,
@@ -549,13 +559,20 @@ export default function ImagesTab(props: ImagesTabProps) {
         body: JSON.stringify(payload),
       });
       if (response.ok) {
-        if (props.refreshProjectData) await props.refreshProjectData();
+        const data = await response.json();
+        if (data.count === 0) {
+          setIsGeneratingAll(false);
+        } else if (props.refreshProjectData) {
+          await props.refreshProjectData();
+        }
       } else {
         setIsGeneratingAll(false);
       }
     } catch (error) {
       console.error("Error triggering batch generation:", error);
       setIsGeneratingAll(false);
+    } finally {
+      setIsBatchSubmitting(false);
     }
   };
 
@@ -1000,11 +1017,11 @@ export default function ImagesTab(props: ImagesTabProps) {
 
           {/* Action Button Below Scenes Card */}
           <div className="shrink-0 h-9">
-            {!isAnySceneProcessing && !isGeneratingAll ? (
+            {!isBatchActive ? (
               <button
                 type="button"
                 onClick={handleGenerateAllScenes}
-                disabled={scenes.length === 0}
+                disabled={scenes.length === 0 || isBatchSubmitting}
                 className="w-full h-full rounded-xl bg-primary hover:bg-primary-hover text-white text-[12px] font-semibold flex items-center justify-center gap-2 shadow-2xs transition-all cursor-pointer disabled:opacity-40"
                 title="Queue all scenes and generate images one-by-one"
               >
@@ -1543,7 +1560,8 @@ export default function ImagesTab(props: ImagesTabProps) {
                     onKeyDown={(e) => {
                       if (e.key === "Enter" && !e.shiftKey) {
                         e.preventDefault();
-                        if (copilotInput.trim()) {
+                        e.stopPropagation();
+                        if (copilotInput.trim() && !isCopilotRunning && !isActiveSceneProcessing) {
                           handleCopilotSubmit(true);
                         }
                       }
