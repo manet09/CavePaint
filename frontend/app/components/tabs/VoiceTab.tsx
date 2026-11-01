@@ -1,7 +1,7 @@
 /* eslint-disable */
 "use client";
 
-import React, { useState, useEffect, useRef, forwardRef, useImperativeHandle, useMemo } from "react";
+import React, { useState, useEffect, useRef, forwardRef, useImperativeHandle, useMemo, useCallback } from "react";
 import { useProjectContext } from "../../context/ProjectContext";
 import { estimateTextStats } from "../../utils/textStats";
 import { 
@@ -44,7 +44,17 @@ export interface Character {
 export interface CustomAudioPlayerRef {
   stop: () => void;
   play: () => void;
+  pause: () => void;
+  seek: (time: number) => void;
+  getCurrentTime: () => number;
 }
+
+const formatTime = (time: number) => {
+  if (isNaN(time) || !isFinite(time)) return "0:00";
+  const mins = Math.floor(time / 60);
+  const secs = Math.floor(time % 60);
+  return `${mins}:${secs.toString().padStart(2, "0")}`;
+};
 
 const DEFAULT_KHMER_PHRASE = "កាលពី ១ម៉ឺនឆ្នាំមុន មនុស្សសម័យបុរេប្រវត្តិ បានរកឃើញអាថ៌កំបាំងមួយយ៉ាងអស្ចារ្យ។";
 
@@ -101,8 +111,17 @@ function AutoResizeTextarea({
 // Modern, sleek audio player with interactive scrubber and volume toggle
 const ModernAudioPlayer = forwardRef<
   CustomAudioPlayerRef,
-  { src: string; className?: string; compact?: boolean; autoPlay?: boolean; onEnded?: () => void }
->(({ src, className = "", compact = false, autoPlay = false, onEnded }, ref) => {
+  {
+    src: string;
+    className?: string;
+    compact?: boolean;
+    autoPlay?: boolean;
+    onEnded?: () => void;
+    onTimeUpdate?: (currentTime: number, duration: number) => void;
+    onPlayStateChange?: (isPlaying: boolean) => void;
+    onDurationChange?: (duration: number) => void;
+  }
+>(({ src, className = "", compact = false, autoPlay = false, onEnded, onTimeUpdate, onPlayStateChange, onDurationChange }, ref) => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
@@ -119,13 +138,37 @@ const ModernAudioPlayer = forwardRef<
         setIsPlaying(false);
         setProgress(0);
         setCurrentTime(0);
+        if (onPlayStateChange) onPlayStateChange(false);
+        if (onTimeUpdate) onTimeUpdate(0, duration);
       }
     },
     play: () => {
       if (audioRef.current) {
         audioRef.current.play().catch(() => {});
         setIsPlaying(true);
+        if (onPlayStateChange) onPlayStateChange(true);
       }
+    },
+    pause: () => {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        setIsPlaying(false);
+        if (onPlayStateChange) onPlayStateChange(false);
+      }
+    },
+    seek: (time: number) => {
+      if (audioRef.current) {
+        audioRef.current.currentTime = time;
+        setCurrentTime(time);
+        const dur = audioRef.current.duration || 0;
+        if (dur > 0) {
+          setProgress((time / dur) * 100);
+        }
+        if (onTimeUpdate) onTimeUpdate(time, dur);
+      }
+    },
+    getCurrentTime: () => {
+      return audioRef.current?.currentTime || 0;
     }
   }));
 
@@ -135,9 +178,11 @@ const ModernAudioPlayer = forwardRef<
     if (isPlaying) {
       audioRef.current.pause();
       setIsPlaying(false);
+      if (onPlayStateChange) onPlayStateChange(false);
     } else {
       audioRef.current.play().catch(() => {});
       setIsPlaying(true);
+      if (onPlayStateChange) onPlayStateChange(true);
     }
   };
 
@@ -149,6 +194,9 @@ const ModernAudioPlayer = forwardRef<
       if (dur > 0) {
         setProgress((cur / dur) * 100);
       }
+      if (onTimeUpdate) {
+        onTimeUpdate(cur, dur);
+      }
     }
   };
 
@@ -156,6 +204,9 @@ const ModernAudioPlayer = forwardRef<
     if (audioRef.current) {
       const dur = audioRef.current.duration || 0;
       setDuration(dur);
+      if (onDurationChange && dur > 0) {
+        onDurationChange(dur);
+      }
     }
   };
 
@@ -163,6 +214,8 @@ const ModernAudioPlayer = forwardRef<
     setIsPlaying(false);
     setProgress(0);
     setCurrentTime(0);
+    if (onPlayStateChange) onPlayStateChange(false);
+    if (onTimeUpdate) onTimeUpdate(0, duration);
     if (onEnded) onEnded();
   };
 
@@ -177,6 +230,7 @@ const ModernAudioPlayer = forwardRef<
     audioRef.current.currentTime = newTime;
     setCurrentTime(newTime);
     setProgress(ratio * 100);
+    if (onTimeUpdate) onTimeUpdate(newTime, audioRef.current.duration || 0);
   };
 
   const toggleMute = (e: React.MouseEvent) => {
@@ -184,13 +238,6 @@ const ModernAudioPlayer = forwardRef<
     if (!audioRef.current) return;
     audioRef.current.muted = !isMuted;
     setIsMuted(!isMuted);
-  };
-
-  const formatTime = (time: number) => {
-    if (isNaN(time) || !isFinite(time)) return "0:00";
-    const mins = Math.floor(time / 60);
-    const secs = Math.floor(time % 60);
-    return `${mins}:${secs.toString().padStart(2, "0")}`;
   };
 
   return (
@@ -371,6 +418,13 @@ export default function VoiceTab({ activeProject, refreshProjectData }: VoiceTab
   const [modelState, setModelState] = useState<string>("unloaded");
   const [timelineFilter, setTimelineFilter] = useState<"all" | "ready" | "pending" | "outdated">("all");
 
+  // Master Timeline playback tracking & segment highlight
+  const [masterCurrentTime, setMasterCurrentTime] = useState<number>(0);
+  const [isMasterPlaying, setIsMasterPlaying] = useState<boolean>(false);
+  const [sceneDurations, setSceneDurations] = useState<Record<number, number>>({});
+  const masterPlayerRef = useRef<CustomAudioPlayerRef>(null);
+  const sceneCardRefs = useRef<Record<number, HTMLDivElement | null>>({});
+
   // Dropdown states for per-scene character assignment popover
   const [openSceneSpeakerDropdown, setOpenSceneSpeakerDropdown] = useState<number | null>(null);
   const speakerDropdownRef = useRef<HTMLDivElement>(null);
@@ -447,6 +501,86 @@ export default function VoiceTab({ activeProject, refreshProjectData }: VoiceTab
 
   // Check if any scene is currently processing audio
   const scenes = activeProject?.scenes || [];
+
+  // Fetch scene audio durations from assembly coupling status
+  const fetchSceneDurations = useCallback(async () => {
+    if (!activeProject?.id) return;
+    try {
+      const res = await fetch(`http://localhost:8000/api/projects/${activeProject.id}/assembly-status`);
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data.scenes)) {
+          const map: Record<number, number> = {};
+          data.scenes.forEach((s: any) => {
+            if (s.duration > 0) {
+              map[s.id] = s.duration;
+            }
+          });
+          setSceneDurations((prev) => ({ ...map, ...prev }));
+        }
+      }
+    } catch (e) {
+      console.warn("Could not fetch assembly status for durations:", e);
+    }
+  }, [activeProject?.id]);
+
+  useEffect(() => {
+    fetchSceneDurations();
+  }, [fetchSceneDurations, cacheBuster]);
+
+  // Sorted scenes in sequence order
+  const sortedScenes = useMemo(() => {
+    return [...scenes].sort((a: any, b: any) => (a.scene_number || 0) - (b.scene_number || 0));
+  }, [scenes]);
+
+  // Compute start and end times for each scene in the concatenated master voiceover
+  const sceneTimelineSegments = useMemo(() => {
+    let currentStart = 0;
+    const segs: Record<number, { startTime: number; endTime: number; duration: number }> = {};
+
+    for (const s of sortedScenes) {
+      const dur = sceneDurations[s.id] ?? (s.audio_duration || (s.audio_path ? 3.0 : 3.0));
+      const startTime = currentStart;
+      const endTime = currentStart + dur;
+      segs[s.id] = {
+        startTime,
+        endTime,
+        duration: dur,
+      };
+      currentStart = endTime;
+    }
+
+    return segs;
+  }, [sortedScenes, sceneDurations]);
+
+  // Determine which scene is currently playing in the master track
+  const activeMasterSceneId = useMemo(() => {
+    if (!isMasterPlaying && masterCurrentTime === 0) return null;
+    for (const s of sortedScenes) {
+      const seg = sceneTimelineSegments[s.id];
+      if (seg && masterCurrentTime >= seg.startTime && masterCurrentTime < seg.endTime) {
+        return s.id;
+      }
+    }
+    if (sortedScenes.length > 0) {
+      const lastScene = sortedScenes[sortedScenes.length - 1];
+      const lastSeg = sceneTimelineSegments[lastScene.id];
+      if (lastSeg && masterCurrentTime >= lastSeg.startTime) {
+        return lastScene.id;
+      }
+    }
+    return null;
+  }, [sortedScenes, sceneTimelineSegments, masterCurrentTime, isMasterPlaying]);
+
+  // Smoothly scroll active scene into view when playing master track
+  useEffect(() => {
+    if (activeMasterSceneId && isMasterPlaying) {
+      const el = sceneCardRefs.current[activeMasterSceneId];
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      }
+    }
+  }, [activeMasterSceneId, isMasterPlaying]);
   const processingScenes = useMemo(() => {
     return scenes.filter((s: any) => s.audio_status === "processing");
   }, [scenes]);
@@ -1648,23 +1782,30 @@ export default function VoiceTab({ activeProject, refreshProjectData }: VoiceTab
 
                 const isBeingDragged = draggedSceneIdx === idx;
                 const isDropTarget = dragOverSceneIdx === idx;
+                const isMasterActive = activeMasterSceneId === scene.id;
+                const seg = sceneTimelineSegments[scene.id];
 
                 return (
                   <div
                     key={scene.id}
+                    ref={(el) => {
+                      sceneCardRefs.current[scene.id] = el;
+                    }}
                     draggable={dragHandleActiveIdx === idx}
                     onDragStart={(e) => handleSceneDragStart(e, idx)}
                     onDragOver={(e) => handleSceneDragOver(e, idx)}
                     onDrop={(e) => handleSceneDrop(e, idx)}
                     onDragEnd={handleSceneDragEnd}
-                    className={`p-3 rounded-lg border transition-all flex flex-col gap-2 relative ${
+                    className={`p-3 rounded-lg border transition-all duration-200 flex flex-col gap-2 relative ${
                       isBeingDragged ? "opacity-30 scale-[0.98] border-dashed border-primary" : ""
                     } ${
                       isDropTarget && dropPosition === "before" ? "border-t-2 border-t-primary" : ""
                     } ${
                       isDropTarget && dropPosition === "after" ? "border-b-2 border-b-primary" : ""
                     } ${
-                      isProcessing
+                      isMasterActive
+                        ? "border-primary bg-primary/[0.08] dark:bg-primary/[0.12] ring-2 ring-primary/60 shadow-lg shadow-primary/15"
+                        : isProcessing
                         ? "bg-amber-500/5 border-amber-500/30"
                         : isFailed
                         ? "bg-red-500/5 border-red-500/30"
@@ -1678,7 +1819,7 @@ export default function VoiceTab({ activeProject, refreshProjectData }: VoiceTab
                     {/* Scene Card Header */}
                     <div className="flex items-center justify-between gap-2">
                       
-                      <div className="flex items-center gap-1.5">
+                      <div className="flex items-center gap-1.5 flex-wrap">
                         <span 
                           className="cursor-grab active:cursor-grabbing text-panel-text/40 hover:text-foreground transition-colors p-0.5 select-none" 
                           title="Drag to reorder sequence"
@@ -1692,8 +1833,14 @@ export default function VoiceTab({ activeProject, refreshProjectData }: VoiceTab
                         >
                           <GripVertical size={12} />
                         </span>
-                        <span className="text-[11px] font-bold font-mono text-foreground">
-                          Scene #{String(scene.scene_number).padStart(2, "0")}
+                        <span className="text-[11px] font-bold font-mono text-foreground flex items-center gap-1.5">
+                          <span>Scene #{String(scene.scene_number).padStart(2, "0")}</span>
+                          {isMasterActive && (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded-full text-[8.5px] font-bold bg-primary text-white shadow-xs animate-pulse">
+                              <Volume2 size={9} />
+                              <span>Playing</span>
+                            </span>
+                          )}
                         </span>
 
                         {/* Speaker Assignment Badge with Popover */}
@@ -1752,6 +1899,27 @@ export default function VoiceTab({ activeProject, refreshProjectData }: VoiceTab
                             </div>
                           )}
                         </div>
+
+                        {/* Segment Time Badge in Master Voiceover */}
+                        {seg && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              masterPlayerRef.current?.seek(seg.startTime);
+                              masterPlayerRef.current?.play();
+                              setIsMasterPlaying(true);
+                            }}
+                            className={`px-1.5 py-0.5 rounded text-[8.5px] font-mono transition-colors flex items-center gap-1 cursor-pointer ${
+                              isMasterActive
+                                ? "bg-primary text-white font-bold shadow-2xs"
+                                : "text-panel-text hover:text-foreground bg-zinc-100 dark:bg-zinc-800/80 hover:bg-zinc-200 dark:hover:bg-zinc-700"
+                            }`}
+                            title={`Jump to Scene #${scene.scene_number} in Master Timeline (${formatTime(seg.startTime)})`}
+                          >
+                            <Clock size={8} />
+                            <span>{formatTime(seg.startTime)} - {formatTime(seg.endTime)}</span>
+                          </button>
+                        )}
                       </div>
 
                       {/* Status Badges & Action Buttons */}
@@ -1866,6 +2034,18 @@ export default function VoiceTab({ activeProject, refreshProjectData }: VoiceTab
                         <ModernAudioPlayer
                           src={audioUrl}
                           compact={true}
+                          onDurationChange={(dur) => {
+                            setSceneDurations((prev) => {
+                              if (prev[scene.id] === dur) return prev;
+                              return { ...prev, [scene.id]: dur };
+                            });
+                          }}
+                          onPlayStateChange={(playing) => {
+                            if (playing) {
+                              masterPlayerRef.current?.stop();
+                              setIsMasterPlaying(false);
+                            }
+                          }}
                         />
                       </div>
                     )}
@@ -1896,8 +2076,15 @@ export default function VoiceTab({ activeProject, refreshProjectData }: VoiceTab
             <div className="flex-1 max-w-xl">
               {activeProject?.master_audio_path ? (
                 <ModernAudioPlayer
+                  ref={masterPlayerRef}
                   src={`http://localhost:8000/static/${activeProject.slug}/master_voiceover.${currentFormat}?t=${cacheBuster}`}
                   compact={false}
+                  onTimeUpdate={(cur) => setMasterCurrentTime(cur)}
+                  onPlayStateChange={(playing) => setIsMasterPlaying(playing)}
+                  onEnded={() => {
+                    setIsMasterPlaying(false);
+                    setMasterCurrentTime(0);
+                  }}
                 />
               ) : (
                 <div className="w-full h-8 flex items-center justify-center bg-zinc-50/50 dark:bg-zinc-900/30 border border-dashed border-border/60 rounded-lg text-[10px] text-panel-text font-medium">

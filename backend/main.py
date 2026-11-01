@@ -185,6 +185,8 @@ class ImageGeneratePayload(BaseModel):
     image_provider: Optional[str] = None
     target_image: Optional[str] = None
     reference_images: Optional[List[str]] = None
+    scene_ids: Optional[List[int]] = None
+    skip_existing: Optional[bool] = False
 
 class SetActiveImagePayload(BaseModel):
     image_path: str
@@ -1484,6 +1486,12 @@ async def generate_project_images(project_id: int, payload: ImageGeneratePayload
 
     queued_count = 0
     for scene in scenes:
+        if payload.scene_ids is not None and scene.id not in payload.scene_ids:
+            continue
+
+        if payload.skip_existing and scene.image_path:
+            continue
+
         prompt = scene.image_prompt_english or scene.narration_khmer or ""
         if not prompt.strip():
             continue

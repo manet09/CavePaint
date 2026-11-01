@@ -26,7 +26,8 @@ import {
   Clock,
   GripVertical,
   Target,
-  Crosshair
+  Crosshair,
+  CheckSquare
 } from "lucide-react";
 
 interface ImagesTabProps {
@@ -189,6 +190,8 @@ export default function ImagesTab(props: ImagesTabProps) {
   const [submittingSceneIds, setSubmittingSceneIds] = useState<number[]>([]);
   const [isGeneratingAll, setIsGeneratingAll] = useState(false);
   const [isBatchSubmitting, setIsBatchSubmitting] = useState(false);
+  const [isBatchSelectModalOpen, setIsBatchSelectModalOpen] = useState(false);
+  const [selectedSceneIds, setSelectedSceneIds] = useState<number[]>([]);
   const [cacheBuster, setCacheBuster] = useState(Date.now());
   
   // Engine & Model controls
@@ -359,10 +362,57 @@ export default function ImagesTab(props: ImagesTabProps) {
     return list;
   }, [scenes]);
 
-  // Generated scene count calculation
+  // Scene status counts
   const generatedScenesCount = useMemo(() => {
     return scenes.filter((s: any) => !!s.image_path).length;
   }, [scenes]);
+
+  const emptyScenesCount = useMemo(() => {
+    return scenes.filter((s: any) => !s.image_path).length;
+  }, [scenes]);
+
+  const failedScenesCount = useMemo(() => {
+    return scenes.filter((s: any) => s.image_status === "failed").length;
+  }, [scenes]);
+
+  // Selection handlers for batch generate modal
+  const openBatchSelectModal = () => {
+    const emptyOrFailed = scenes
+      .filter((s: any) => !s.image_path || s.image_status === "failed")
+      .map((s: any) => s.id);
+    if (emptyOrFailed.length > 0) {
+      setSelectedSceneIds(emptyOrFailed);
+    } else {
+      setSelectedSceneIds(scenes.map((s: any) => s.id));
+    }
+    setIsBatchSelectModalOpen(true);
+  };
+
+  const handleSelectEmptyOnly = () => {
+    setSelectedSceneIds(scenes.filter((s: any) => !s.image_path).map((s: any) => s.id));
+  };
+
+  const handleSelectFailedOnly = () => {
+    setSelectedSceneIds(scenes.filter((s: any) => s.image_status === "failed").map((s: any) => s.id));
+  };
+
+  const handleSelectReadyOnly = () => {
+    setSelectedSceneIds(scenes.filter((s: any) => !!s.image_path).map((s: any) => s.id));
+  };
+
+  const handleSelectAll = () => {
+    setSelectedSceneIds(scenes.map((s: any) => s.id));
+  };
+
+  const handleDeselectAll = () => {
+    setSelectedSceneIds([]);
+  };
+
+  const toggleSceneSelection = (sceneId: number) => {
+    setSelectedSceneIds((prev) =>
+      prev.includes(sceneId) ? prev.filter((id) => id !== sceneId) : [...prev, sceneId]
+    );
+  };
 
   // Check if any scene is currently processing or queued
   const processingScenes = useMemo(() => {
@@ -537,13 +587,13 @@ export default function ImagesTab(props: ImagesTabProps) {
     }
   };
 
-  // Generate All Scenes Images
-  const handleGenerateAllScenes = async () => {
+  // Generate Batch Scenes Images (all or specific selected scene IDs)
+  const handleGenerateBatchScenes = async (sceneIds?: number[]) => {
     if (!activeProject?.id || scenes.length === 0 || isBatchSubmitting) return;
     setIsGeneratingAll(true);
     setIsBatchSubmitting(true);
 
-    const payload = {
+    const payload: any = {
       aspect_ratio: aspectRatioValue,
       guidance_scale: 7.5,
       inference_steps: inferenceSteps,
@@ -551,6 +601,10 @@ export default function ImagesTab(props: ImagesTabProps) {
       count: imageCount,
       image_provider: imageProvider,
     };
+
+    if (sceneIds && sceneIds.length > 0) {
+      payload.scene_ids = sceneIds;
+    }
 
     try {
       const response = await fetch(`http://localhost:8000/api/projects/${activeProject.id}/generate-images`, {
@@ -575,6 +629,9 @@ export default function ImagesTab(props: ImagesTabProps) {
       setIsBatchSubmitting(false);
     }
   };
+
+  const handleGenerateAllScenes = () => handleGenerateBatchScenes();
+  const handleGenerateSelectedScenes = (selectedIds: number[]) => handleGenerateBatchScenes(selectedIds);
 
   // Stop All Scenes Generation
   const handleStopAllScenes = async () => {
@@ -1018,16 +1075,29 @@ export default function ImagesTab(props: ImagesTabProps) {
           {/* Action Button Below Scenes Card */}
           <div className="shrink-0 h-9">
             {!isBatchActive ? (
-              <button
-                type="button"
-                onClick={handleGenerateAllScenes}
-                disabled={scenes.length === 0 || isBatchSubmitting}
-                className="w-full h-full rounded-xl bg-primary hover:bg-primary-hover text-white text-[12px] font-semibold flex items-center justify-center gap-2 shadow-2xs transition-all cursor-pointer disabled:opacity-40"
-                title="Queue all scenes and generate images one-by-one"
-              >
-                <Sparkles size={13} />
-                <span>Generate All Scenes</span>
-              </button>
+              <div className="flex items-center gap-2 h-full">
+                <button
+                  type="button"
+                  onClick={handleGenerateAllScenes}
+                  disabled={scenes.length === 0 || isBatchSubmitting}
+                  className="flex-1 h-full rounded-xl bg-primary hover:bg-primary-hover text-white text-[11px] font-semibold flex items-center justify-center gap-1.5 shadow-2xs transition-all cursor-pointer disabled:opacity-40"
+                  title="Queue all scenes in project"
+                >
+                  <Sparkles size={12} />
+                  <span>Generate All</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={openBatchSelectModal}
+                  disabled={scenes.length === 0 || isBatchSubmitting}
+                  className="flex-1 h-full rounded-xl bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-750 text-foreground border border-border/70 text-[11px] font-semibold flex items-center justify-center gap-1.5 shadow-2xs transition-all cursor-pointer disabled:opacity-40"
+                  title="Select specific scenes or empty scenes to generate"
+                >
+                  <CheckSquare size={12} className="text-primary" />
+                  <span>Generate Some</span>
+                </button>
+              </div>
             ) : (
               <button
                 type="button"
@@ -2291,6 +2361,224 @@ export default function ImagesTab(props: ImagesTabProps) {
                 <span>Upload {scenePickerMode === "target" ? "target" : "reference"} from computer instead</span>
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================= */}
+      {/* BATCH GENERATE / SCENE SELECTION MODAL                    */}
+      {/* ========================================================= */}
+      {isBatchSelectModalOpen && (
+        <div 
+          className="fixed inset-0 z-[130] flex items-center justify-center bg-black/70 backdrop-blur-xs p-4 animate-in fade-in duration-150 select-none"
+          onClick={() => setIsBatchSelectModalOpen(false)}
+        >
+          <div 
+            className="w-full max-w-2xl bg-card border border-border/80 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh] animate-in zoom-in-95 duration-150"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="px-5 py-3.5 border-b border-border/70 flex items-center justify-between bg-panel-header/80 shrink-0">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary shrink-0">
+                  <CheckSquare size={16} />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-foreground">Select Scenes to Generate</h3>
+                  <p className="text-[11px] text-panel-text">Choose specific scenes or filter by Empty/Failed for targeted batch generation.</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsBatchSelectModalOpen(false)}
+                className="p-1 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 text-panel-text hover:text-foreground transition-colors cursor-pointer"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* Quick Filter & Selection Toolbar */}
+            <div className="px-5 py-2.5 bg-zinc-50/70 dark:bg-zinc-900/40 border-b border-border/60 shrink-0 flex items-center justify-between gap-3 flex-wrap">
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="text-[10px] font-semibold text-panel-text uppercase tracking-wider mr-1">Select:</span>
+                <button
+                  type="button"
+                  onClick={handleSelectEmptyOnly}
+                  disabled={emptyScenesCount === 0}
+                  className={`px-2.5 py-1 rounded-lg text-[10px] font-semibold border transition-all cursor-pointer ${
+                    emptyScenesCount > 0
+                      ? "bg-amber-500/10 hover:bg-amber-500/20 text-amber-600 dark:text-amber-400 border-amber-500/30"
+                      : "opacity-40 cursor-not-allowed border-border/60 text-panel-text"
+                  }`}
+                  title="Select all scenes without images"
+                >
+                  Empty Only ({emptyScenesCount})
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSelectFailedOnly}
+                  disabled={failedScenesCount === 0}
+                  className={`px-2.5 py-1 rounded-lg text-[10px] font-semibold border transition-all cursor-pointer ${
+                    failedScenesCount > 0
+                      ? "bg-red-500/10 hover:bg-red-500/20 text-red-600 dark:text-red-400 border-red-500/30"
+                      : "opacity-40 cursor-not-allowed border-border/60 text-panel-text"
+                  }`}
+                  title="Select all failed scenes"
+                >
+                  Failed Only ({failedScenesCount})
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSelectReadyOnly}
+                  disabled={generatedScenesCount === 0}
+                  className="px-2.5 py-1 rounded-lg text-[10px] font-medium bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-750 text-foreground border border-border/60 transition-colors cursor-pointer disabled:opacity-40"
+                  title="Select ready scenes to regenerate"
+                >
+                  Ready ({generatedScenesCount})
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSelectAll}
+                  className="px-2.5 py-1 rounded-lg text-[10px] font-medium bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-750 text-foreground border border-border/60 transition-colors cursor-pointer"
+                  title="Select all scenes"
+                >
+                  All ({scenes.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDeselectAll}
+                  className="px-2 py-1 rounded-lg text-[10px] font-medium text-panel-text hover:text-foreground hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer"
+                  title="Clear all selections"
+                >
+                  Clear
+                </button>
+              </div>
+
+              {/* Status Summary */}
+              <div className="flex items-center gap-1.5 text-[10px] font-mono">
+                <span className="text-emerald-600 dark:text-emerald-400 font-semibold">{generatedScenesCount} Ready</span>
+                <span className="text-panel-text/40">·</span>
+                <span className="text-amber-600 dark:text-amber-400 font-semibold">{emptyScenesCount} Empty</span>
+                {failedScenesCount > 0 && (
+                  <>
+                    <span className="text-panel-text/40">·</span>
+                    <span className="text-red-500 font-semibold">{failedScenesCount} Failed</span>
+                  </>
+                )}
+              </div>
+            </div>
+
+            {/* Scrollable Scene List */}
+            <div className="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-1.5 min-h-0">
+              {scenes.map((scene: any) => {
+                const isSelected = selectedSceneIds.includes(scene.id);
+                const hasImage = !!scene.image_path;
+                const isFailed = scene.image_status === "failed";
+                const isProcessing = scene.image_status === "processing";
+
+                return (
+                  <div
+                    key={scene.id}
+                    onClick={() => toggleSceneSelection(scene.id)}
+                    className={`px-3 py-2 rounded-xl border transition-all cursor-pointer flex items-center justify-between gap-3 ${
+                      isSelected
+                        ? "border-primary bg-primary/5 dark:bg-primary/10 shadow-2xs"
+                        : "border-border/50 hover:border-border hover:bg-zinc-50/50 dark:hover:bg-zinc-900/30"
+                    }`}
+                  >
+                    {/* Left: Checkbox & Scene Info */}
+                    <div className="flex items-center gap-3 min-w-0 flex-1">
+                      <div
+                        className={`w-4 h-4 rounded border flex items-center justify-center transition-colors shrink-0 ${
+                          isSelected
+                            ? "bg-primary border-primary text-white"
+                            : "border-border/80 bg-zinc-100 dark:bg-zinc-800"
+                        }`}
+                      >
+                        {isSelected && <Check size={11} strokeWidth={3} />}
+                      </div>
+
+                      {/* Thumbnail or placeholder */}
+                      {hasImage ? (
+                        <img
+                          src={`http://localhost:8000/static/${scene.image_path}?t=${cacheBuster}`}
+                          alt={`Scene ${scene.scene_number}`}
+                          className="w-11 h-7 rounded object-cover border border-border/60 shrink-0 bg-zinc-100 dark:bg-zinc-900"
+                        />
+                      ) : (
+                        <div className="w-11 h-7 rounded bg-zinc-100 dark:bg-zinc-900 border border-border/50 flex items-center justify-center text-panel-text/40 shrink-0">
+                          <ImageIcon size={12} />
+                        </div>
+                      )}
+
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className="text-[11px] font-bold font-mono text-foreground">
+                            Scene #{String(scene.scene_number).padStart(2, "0")}
+                          </span>
+                        </div>
+                        <p className="text-[10px] text-panel-text truncate leading-tight mt-0.5">
+                          {scene.narration_khmer || scene.image_prompt_english || "No script yet..."}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Right: Status Badge */}
+                    <div className="shrink-0 flex items-center gap-1.5">
+                      {isProcessing ? (
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-medium bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30 animate-pulse">
+                          <Loader2 size={9} className="animate-spin" />
+                          <span>Rendering</span>
+                        </span>
+                      ) : isFailed ? (
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-semibold bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/30">
+                          <span>Failed</span>
+                        </span>
+                      ) : hasImage ? (
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                          <Check size={9} strokeWidth={2.5} />
+                          <span>Ready</span>
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-medium text-panel-text/70 bg-zinc-100 dark:bg-zinc-800 border border-border/40">
+                          Empty
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="px-5 py-3 border-t border-border/70 bg-zinc-50/50 dark:bg-zinc-900/30 shrink-0 flex items-center justify-between gap-3">
+              <div className="text-[11px] text-panel-text font-medium">
+                <span className="font-bold text-foreground">{selectedSceneIds.length}</span> of {scenes.length} selected
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsBatchSelectModalOpen(false)}
+                  className="px-3 py-1.5 rounded-xl border border-border/70 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-[11px] font-medium text-panel-text hover:text-foreground transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsBatchSelectModalOpen(false);
+                    handleGenerateSelectedScenes(selectedSceneIds);
+                  }}
+                  disabled={selectedSceneIds.length === 0 || isBatchSubmitting}
+                  className="px-4 py-1.5 rounded-xl bg-primary hover:bg-primary-hover text-white text-[11px] font-semibold flex items-center gap-1.5 shadow-2xs transition-all cursor-pointer disabled:opacity-40"
+                >
+                  <Sparkles size={12} />
+                  <span>Generate Selected ({selectedSceneIds.length})</span>
+                </button>
+              </div>
+            </div>
+
           </div>
         </div>
       )}
