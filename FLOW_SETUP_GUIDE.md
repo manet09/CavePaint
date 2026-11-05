@@ -29,7 +29,7 @@ When setting up Google Flow with CavePaint, five distinct issues were identified
 
 ### 5. Flow Project ID Association
 * **Problem**: On `flow.google.com`, the legacy tRPC `project.createProject` endpoint returns `401 Unauthorized` because project creation must occur on `flow.google.com`. Generation requires an existing project ID.
-* **Fix**: Linked your Flow project (`your-flow-project-id`) in `workspace/studio.db` and added a fallback in `backend/services/flow_engine.py`.
+* **Fix**: Linked your Flow project in `workspace/studio.db` and added `FLOW_PROJECT_ID` configuration fallback in `backend/services/flow_engine.py`.
 
 ---
 
@@ -37,23 +37,7 @@ When setting up Google Flow with CavePaint, five distinct issues were identified
 
 Your Google login is saved on disk under your profile (`profile_cavepaint`). **You do not need to sign in every time.**
 
-### Quick Start (All-in-One Script)
-Run the unified startup script in the `video_studio` root directory:
-```bash
-./start.sh
-```
-*Automatically activates Conda env `voice`, verifies dependencies, and launches GFlow (port 8765), Backend (port 8000), and Frontend (port 3000) concurrently with colored log prefixes. Press `Ctrl+C` at any time to gracefully stop all three.*
-
-To launch each service in its own macOS Terminal tab/window instead:
-```bash
-./start.sh --tabs
-```
-
----
-
-### Alternative: Manual Startup (3 Separate Terminals)
-
-If you prefer manually running each service:
+### Starting Services
 
 #### Terminal 1: Flow Daemon (MCP Server)
 ```bash
@@ -63,7 +47,7 @@ If you prefer manually running each service:
 
 #### Terminal 2: Backend API
 ```bash
-conda activate voice
+# In your Python virtual environment (e.g. source .venv/bin/activate or conda activate voice):
 uvicorn backend.main:app --reload --port 8000
 ```
 *Starts the FastAPI backend at `http://localhost:8000`.*
@@ -104,7 +88,7 @@ To refresh your session:
 3. A Google Chrome window will open. If prompted, complete your Google sign-in.
 4. Once you land on `flow.google.com`, `gflow` will automatically detect your session, display:
    ```text
-   Flow session verified as user@gmail.com.
+   Flow session verified as your-account@gmail.com.
    ```
    and close Chrome automatically.
 5. Re-run `./scripts/start_flow_daemon.sh` and resume generating.
@@ -117,7 +101,7 @@ To refresh your session:
 ```bash
 gflow auth status --profile cavepaint
 ```
-*Expected Output: `Flow session verified as user@gmail.com.`*
+*Expected Output: `Flow session verified as your-account@gmail.com.`*
 
 ### Check Backend Flow API Status
 ```bash

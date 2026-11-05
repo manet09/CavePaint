@@ -2,10 +2,10 @@
 set -e
 
 # Resolve gflow binary
-GFLOW_BIN="${GFLOW_BIN:-$(which gflow 2>/dev/null || echo "gflow")}"
+GFLOW_BIN="${GFLOW_BIN:-$(command -v gflow 2>/dev/null || echo "gflow")}"
 
-if [ ! -f "$GFLOW_BIN" ]; then
-  echo "Error: gflow binary not found. Please ensure gflow-cli is installed."
+if ! command -v "$GFLOW_BIN" &>/dev/null && [ ! -f "$GFLOW_BIN" ]; then
+  echo "Error: gflow binary not found. Please ensure gflow-cli is installed (pip install gflow-cli)."
   exit 1
 fi
 

@@ -4,13 +4,13 @@
 **/node_modules/
 **/.next/
 frontend/out/
-**/.env*.local
 **/.pnpm-debug.log
+*.tsbuildinfo
 
 # ==========================================
 # Backend (Python / FastAPI)
 # ==========================================
-# This catches __pycache__ and compiled files at ANY folder depth
+# Bytecode and compiled files
 __pycache__/
 *.pyc
 *.pyo
@@ -27,12 +27,29 @@ backend/downloads/
 backend/eggs/
 backend/.eggs/
 backend/*.egg-info/
+
+# Databases
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+
+# ==========================================
+# Environment Variables & Secrets
+# ==========================================
 .env
+.env.*
+!.env.example
+
+# Local machine runner
+start.sh
 
 # ==========================================
 # Workspace Storage
 # ==========================================
-# Ignores all media assets you generate locally
+# Ignores all media assets generated locally
 workspace/
 !workspace/.gitkeep
 

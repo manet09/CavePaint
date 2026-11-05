@@ -9,7 +9,7 @@ import re
 from datetime import datetime
 from typing import List, Optional, Dict, Any
 
-GFLOW_BIN = os.getenv("GFLOW_BIN", "gflow")
+GFLOW_BIN = os.getenv("GFLOW_BIN", shutil.which("gflow") or "gflow")
 DEFAULT_PROFILE = os.getenv("GFLOW_PROFILE", "cavepaint")
 DEFAULT_DAEMON_HOST = os.getenv("GFLOW_DAEMON_HOST", "http://127.0.0.1:8765")
 
@@ -177,7 +177,7 @@ def trigger_flow_render(
 
     # Fallback for migrated flow.google.com accounts where createProject TRPC is unsupported
     if not flow_project_id:
-        flow_project_id = "your-flow-project-id"
+        flow_project_id = os.getenv("FLOW_PROJECT_ID") or None
 
     generated_files = []
     returned_flow_project_id = flow_project_id

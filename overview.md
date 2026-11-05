@@ -1,8 +1,7 @@
 # CavePaint (Video Studio) — System Architecture & Technical Overview
 
 > **Target Audience**: AI Agents and Engineers continuing development or maintenance on this codebase.  
-> **Repository Root**: `.`  
-> **Database File**: `./workspace/studio.db`  
+> **Database File**: `workspace/studio.db`  
 > **Date Updated**: September 2026
 
 ---
@@ -77,8 +76,8 @@ flowchart TD
 * **Environment Loader**: `python-dotenv==1.0.1` (loads `.env` and `.env.local`).
 
 ### Runtime Architecture & Python Isolation
-* **FastAPI Backend Runtime**: Conda environment `voice` (Python 3.10.16) for FastAPI, PyTorch, and VoxCPM2.
-* **Google Flow MCP Runtime**: Python 3.13 (`gflow`) for `gflow-cli`, Playwright Chromium, and the MCP HTTP daemon on port `8765`.
+* **FastAPI Backend Runtime**: Python 3.10+ (e.g. Conda or venv) for FastAPI, PyTorch, and VoxCPM2.
+* **Google Flow MCP Runtime**: Python 3.10+ with `gflow-cli`, Playwright Chromium, and the MCP HTTP daemon on port `8765`.
 * **Communication**: The backend communicates with the Google Flow daemon via Streamable HTTP JSON-RPC (`http://127.0.0.1:8765/mcp`) with an automated subprocess CLI fallback (`gflow image t2i / i2i`).
 
 ---
@@ -500,10 +499,10 @@ video_studio/
    ```bash
    conda activate voice
    ```
-2. **Python Environment for Google Flow MCP**: Python 3.13 (`python3`) with `gflow-cli` and Playwright:
+2. **Python Environment for Google Flow MCP**: Python with `gflow-cli` and Playwright:
    ```bash
    pip install --upgrade gflow-cli
-   miniconda3/bin/playwright install chromium
+   playwright install chromium
    ```
 3. **One-Time Google Flow Authentication**:
    Log in to Google Flow once to save session cookies into the dedicated profile:
